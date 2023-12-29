@@ -1,0 +1,24 @@
+[package]
+authors = ["Zack Newman <zack@philomathiclife.com>"]
+categories = ["api-bindings", "authentication", "web-programming::http-server"]
+description = "Web Authentication (WebAuthn) Level 3 Relying Party (RP) API."
+documentation = "https://docs.rs/webauthn_rp/latest/webauthn_rp/"
+edition = "2021"
+keywords = ["authentication", "fido2", "rp", "webauthn"]
+license = "MIT OR Apache-2.0"
+name = "webauthn_rp"
+readme = "README.md"
+repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
+version = "0.1.0"
+
+[lib]
+name = "webauthn_rp"
+path = "src/lib.rs"
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[profile.release]
+lto = true
+panic = 'abort'
+strip = true
