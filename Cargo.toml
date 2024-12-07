@@ -1,24 +1,61 @@
 [package]
 authors = ["Zack Newman <zack@philomathiclife.com>"]
-categories = ["api-bindings", "authentication", "web-programming::http-server"]
-description = "Web Authentication (WebAuthn) Level 3 Relying Party (RP) API."
+categories = ["api-bindings", "authentication", "web-programming"]
+description = "Server-side Web Authentication (WebAuthn) Relying Party (RP) API."
 documentation = "https://docs.rs/webauthn_rp/latest/webauthn_rp/"
 edition = "2021"
-keywords = ["authentication", "fido2", "rp", "webauthn"]
+keywords = ["authentication", "fido2", "passkey", "rp", "webauthn"]
 license = "MIT OR Apache-2.0"
 name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
-version = "0.1.0"
+rust-version = "1.82.0"
+version = "0.2.0"
 
-[lib]
-name = "webauthn_rp"
-path = "src/lib.rs"
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
-[badges]
-maintenance = { status = "actively-developed" }
+[dependencies]
+data-encoding = { version = "2.6.0", default-features = false }
+ed25519-dalek = { version = "2.1.1", default-features = false, features = ["fast"] }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
+p384 = { version = "0.13.0", default-features = false, features = ["ecdsa"] }
+precis-profiles = { version = "0.1.11", default-features = false }
+rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
+rsa = { version = "0.9.7", default-features = false, features = ["sha2"] }
+serde = { version = "1.0.215", default-features = false, features = ["alloc"], optional = true }
+serde_json = { version = "1.0.133", default-features = false, features = ["alloc"], optional = true }
+url = { version = "2.5.4", default-features = false }
 
-[profile.release]
-lto = true
-panic = 'abort'
-strip = true
+[dev-dependencies]
+data-encoding = { version = "2.6.0", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "2.1.1", default-features = false, features = ["alloc", "pkcs8"] }
+p256 = { version = "0.13.2", default-features = false, features = ["pem"] }
+p384 = { version = "0.13.0", default-features = false, features = ["pkcs8"] }
+serde_json = { version = "1.0.133", default-features = false, features = ["preserve_order"] }
+
+
+### FEATURES #################################################################
+
+[features]
+default = ["bin", "serde"]
+
+# Provide binary (de)serialization for persistent data.
+bin = []
+
+# Provide constructors for types that ideally are constructed
+# indirectly via the bin and serde features.
+custom = []
+
+# Provide client (de)serialization based on JSON-motivated
+# data structures.
+serde = ["data-encoding/alloc", "dep:serde"]
+
+# Provide "relaxed" JSON deserialization implementations.
+serde_relaxed = ["serde", "dep:serde_json"]
+
+# Provide binary (de)serialization for RegistrationServerState 
+# and AuthenticationServerState to avoid the use of in-memory
+# collections for ceremony completion.
+serializable_server_state = ["bin"]
