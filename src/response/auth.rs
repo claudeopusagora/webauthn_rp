@@ -355,7 +355,7 @@ impl AuthResponse for AuthenticatorAssertion {
         #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
         #[cfg(not(feature = "serde_relaxed"))]
         fn get_client_collected_data(_: &[u8]) -> ! {
-            unreachable!("AuthenticatorAssertion::parse_data_and_verify_sig must not be passed true when serde_relaxed is not enabled");
+            unreachable!("AuthenticatorAssertion::parse_data_and_verify_sig must be passed false when serde_relaxed is not enabled");
         }
         /// Parses `data` using `CollectedClientData::from_client_data_json_relaxed::<false>`.
         #[cfg(feature = "serde_relaxed")]

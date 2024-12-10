@@ -2612,7 +2612,7 @@ impl AuthResponse for AuthenticatorAttestation {
     > {
         if relaxed {
             #[cfg(not(feature = "serde_relaxed"))]
-            unreachable!("AuthenticatorAttestation::parse_data_and_verify_sig: must be passed true when serde_relaxed is not enabled");
+            unreachable!("AuthenticatorAttestation::parse_data_and_verify_sig: must be passed false when serde_relaxed is not enabled");
             #[cfg(feature = "serde_relaxed")]
             CollectedClientData::from_client_data_json_relaxed::<true>(
                 self.client_data_json.as_slice(),

@@ -77,6 +77,12 @@ impl EncodeBuffer for Ed25519PubKey<&[u8]> {
 }
 impl<'a> DecodeBuffer<'a> for Ed25519PubKey<[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]> {
     type Err = EncDecErr;
+    // We don't verify `Self` is in fact "valid" (i.e., we don't call
+    // [`Self::validate`]) since that's expensive and an error will
+    // happen later during authentication anyway. Note even if we did,
+    // that wouldn't detect a public key that was altered in persistent
+    // storage in such a way that it's still valid; thus there is no
+    // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         <[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]>::decode_from_buffer(data).map(Self)
     }
@@ -98,6 +104,12 @@ impl EncodeBuffer for UncompressedP256PubKey<'_> {
 }
 impl<'a> DecodeBuffer<'a> for CompressedP256PubKey<[u8; <NistP256 as Curve>::FieldBytesSize::INT]> {
     type Err = EncDecErr;
+    // We don't verify `Self` is in fact "valid" (i.e., we don't call
+    // [`Self::validate`]) since that's expensive and an error will
+    // happen later during authentication anyway. Note even if we did,
+    // that wouldn't detect a public key that was altered in persistent
+    // storage in such a way that it's still valid; thus there is no
+    // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         <[u8; <NistP256 as Curve>::FieldBytesSize::INT]>::decode_from_buffer(data)
             .and_then(|x| bool::decode_from_buffer(data).map(|y_is_odd| Self { x, y_is_odd }))
@@ -120,6 +132,12 @@ impl EncodeBuffer for UncompressedP384PubKey<'_> {
 }
 impl<'a> DecodeBuffer<'a> for CompressedP384PubKey<[u8; <NistP384 as Curve>::FieldBytesSize::INT]> {
     type Err = EncDecErr;
+    // We don't verify `Self` is in fact "valid" (i.e., we don't call
+    // [`Self::validate`]) since that's expensive and an error will
+    // happen later during authentication anyway. Note even if we did,
+    // that wouldn't detect a public key that was altered in persistent
+    // storage in such a way that it's still valid; thus there is no
+    // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         // Only `array`s that implement `Default` implement `DecodeBuffer`;
         // thus we must manually implement it.
@@ -147,10 +165,24 @@ impl EncodeBuffer for RsaPubKey<&[u8]> {
 }
 impl<'a> DecodeBuffer<'a> for RsaPubKey<Vec<u8>> {
     type Err = EncDecErr;
+    // We don't verify `Self` is in fact "valid" (i.e., we don't call
+    // [`Self::validate`]) since that's expensive and an error will
+    // happen later during authentication anyway. Note even if we did,
+    // that wouldn't detect a public key that was altered in persistent
+    // storage in such a way that it's still valid; thus there is no
+    // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         Vec::decode_from_buffer(data).and_then(|n| {
-            u32::decode_from_buffer(data)
-                .and_then(|e| Self::try_from((n, e)).map_err(|_e| EncDecErr))
+            // [`Self::try_from`] allows leading 0s; thus we ensure
+            // there are none since it's cheap. `Self::try_from` enforces
+            // that the length is at least 256, so we don't have to worry
+            // about the case when `n` is empty here.
+            if n.first() == Some(&0) {
+                Err(EncDecErr)
+            } else {
+                u32::decode_from_buffer(data)
+                    .and_then(|e| Self::try_from((n, e)).map_err(|_e| EncDecErr))
+            }
         })
     }
 }
@@ -185,6 +217,12 @@ impl<'a> DecodeBuffer<'a>
     >
 {
     type Err = EncDecErr;
+    // We don't verify `Self` is in fact "valid" (i.e., we don't call
+    // [`Self::validate`]) since that's expensive and an error will
+    // happen later during authentication anyway. Note even if we did,
+    // that wouldn't detect a public key that was altered in persistent
+    // storage in such a way that it's still valid; thus there is no
+    // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         u8::decode_from_buffer(data).and_then(|val| match val {
             0 => Ed25519PubKey::decode_from_buffer(data).map(Self::Ed25519),
