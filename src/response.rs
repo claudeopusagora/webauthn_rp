@@ -844,6 +844,12 @@ trait ClientDataJsonParser {
     ///
     /// Errors iff `json` cannot be parsed into a `CollectedClientData`.
     fn parse(json: &[u8]) -> Result<CollectedClientData<'_>, Self::Err>;
+    /// Extracts [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-collectedclientdata-challenge)
+    /// from `json`.
+    ///
+    /// Note `json` should be minimally parsed such that only `challenge` is extracted; thus
+    /// `Ok` being returned does _not_ mean `json` is in fact valid.
+    fn get_sent_challenge(json: &[u8]) -> Result<SentChallenge, Self::Err>;
 }
 /// [`ClientDataJsonParser`] based on the
 /// [limited verification algorithm](https://www.w3.org/TR/webauthn-3/#clientdatajson-verification)
@@ -1101,6 +1107,24 @@ impl<const R: bool> ClientDataJsonParser for LimitedVerificationParser<R> {
             } else {
                 Err(CollectedClientDataErr::InvalidObject)
             }
+        })
+    }
+    #[expect(clippy::panic_in_result_fn, reason = "want to crash when there is a bug")]
+    #[expect(clippy::arithmetic_side_effects, reason = "comment justifies correctness")]
+    #[expect(clippy::little_endian_bytes, reason = "Challenge::serialize and this need to be consistent across architectures")]
+    fn get_sent_challenge(json: &[u8]) -> Result<SentChallenge, Self::Err> {
+        // Index 39.
+        // `{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA"...`.
+        // Index 36.
+        // `{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA"...`.
+        let idx = if R { 39 } else { 36 };
+        // This maxes at 39 + 22 = 61; thus overflow is not an issue.
+        json.get(idx..idx + Challenge::BASE64_LEN).ok_or(CollectedClientDataErr::Len).and_then(|chall_slice| {
+            let mut chall = [0; 16];
+            BASE64URL_NOPAD_ENC.decode_mut(chall_slice, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).map(|len| {
+                assert_eq!(len, 16, "there is a bug in BASE64URL_NOPAD::decode_mut");
+                SentChallenge(u128::from_le_bytes(chall))
+            })
         })
     }
 }
@@ -1680,5 +1704,14 @@ mod tests {
         assert!(LimitedVerificationParser::<true>::parse(br#"{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false,"foo":true}"#.as_slice()).map_or(false, |val| val.challenge.0 == 0 && val.origin.0 == "https://example.com" && !val.cross_origin && val.top_origin.is_none()));
         assert!(LimitedVerificationParser::<false>::parse(br#"{"type":"webauthn.get","challengE":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false,"foo":true}"#.as_slice()).map_or_else(|e| matches!(e, CollectedClientDataErr::ChallengeKey), |_| false));
         assert!(LimitedVerificationParser::<true>::parse(br#"{"type":"webauthn.create"challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossorigin":false,"foo":true}"#.as_slice()).map_or_else(|e| matches!(e, CollectedClientDataErr::ChallengeKey), |_| false));
+    }
+    #[test]
+    fn c_data_challenge() {
+        assert!(LimitedVerificationParser::<false>::get_sent_challenge([].as_slice()).map_or_else(|e| matches!(e, CollectedClientDataErr::Len), |_| false));
+        assert!(LimitedVerificationParser::<true>::get_sent_challenge([].as_slice()).map_or_else(|e| matches!(e, CollectedClientDataErr::Len), |_| false));
+        assert!(LimitedVerificationParser::<true>::get_sent_challenge(b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBBB").map_or_else(|e| matches!(e, CollectedClientDataErr::Challenge), |_| false));
+        assert!(LimitedVerificationParser::<false>::get_sent_challenge(b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBBB").map_or_else(|e| matches!(e, CollectedClientDataErr::Challenge), |_| false));
+        assert!(LimitedVerificationParser::<true>::get_sent_challenge(b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".as_slice()).map_or(false, |c| c.0 == 0));
+        assert!(LimitedVerificationParser::<false>::get_sent_challenge(b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".as_slice()).map_or(false, |c| c.0 == 0));
     }
 }

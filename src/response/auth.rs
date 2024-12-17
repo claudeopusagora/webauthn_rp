@@ -2,11 +2,14 @@
 use super::super::request::FixedCapHashSet;
 #[cfg(doc)]
 use super::super::{
-    request::auth::{AuthenticationServerState, PublicKeyCredentialRequestOptions},
+    request::{
+        auth::{AuthenticationServerState, PublicKeyCredentialRequestOptions},
+        Challenge,
+    },
     AuthenticatedCredential, RegisteredCredential, StaticState,
 };
 #[cfg(feature = "serde_relaxed")]
-use super::ser_relaxed::SerdeJsonErr;
+use super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr};
 use super::{
     super::UserHandle,
     auth::error::{AuthenticatorDataErr, AuthenticatorExtensionOutputErr},
@@ -14,8 +17,8 @@ use super::{
     error::CollectedClientDataErr,
     register::CompressedPubKey,
     AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthenticatorAttachment,
-    CborSuccess, CollectedClientData, CredentialId, Flag, FromCbor, ParsedAuthData, Response,
-    SentChallenge,
+    CborSuccess, ClientDataJsonParser as _, CollectedClientData, CredentialId, Flag, FromCbor,
+    LimitedVerificationParser, ParsedAuthData, Response, SentChallenge,
 };
 use core::convert::Infallible;
 use ed25519_dalek::{Signature, Verifier as _};
@@ -488,39 +491,47 @@ impl Authentication {
             authenticator_attachment,
         }
     }
-    /// Convenience function for
-    /// `CollectedClientData::from_client_data_json::<false>(self.response().client_data_json()).map(|c| c.challenge)`.
+    /// Returns the associated `SentChallenge`.
     ///
     /// This is useful when wanting to extract the corresponding [`AuthenticationServerState`] from
     /// an in-memory collection (e.g., [`FixedCapHashSet`]) or storage.
     ///
+    /// Note if [`CollectedClientData::from_client_data_json`] returns `Ok`, then this will return `Ok`
+    /// containing the same value as [`CollectedClientData::challenge`]; however the converse is _not_ true.
+    /// This is because this function parses the minimal amount of data possible.
+    ///
     /// # Errors
     ///
-    /// Errors iff [`CollectedClientData::from_client_data_json`] does.
+    /// Errors iff [`AuthenticatorAssertion::client_data_json`] does not contain a base64url-encoded
+    /// [`Challenge`] in the required position.
     #[inline]
     pub fn challenge(&self) -> Result<SentChallenge, CollectedClientDataErr> {
-        CollectedClientData::from_client_data_json::<false>(
+        LimitedVerificationParser::<false>::get_sent_challenge(
             self.response.client_data_json.as_slice(),
         )
-        .map(|c| c.challenge)
     }
-    /// Convenience function for
-    /// `CollectedClientData::from_client_data_json_relaxed::<false>(self.response().client_data_json()).map(|c| c.challenge)`.
+    /// Returns the associated `SentChallenge`.
     ///
     /// This is useful when wanting to extract the corresponding [`AuthenticationServerState`] from
     /// an in-memory collection (e.g., [`FixedCapHashSet`]) or storage.
     ///
+    /// Note if [`CollectedClientData::from_client_data_json_relaxed`] returns `Ok`, then this will return
+    /// `Ok` containing the same value as [`CollectedClientData::challenge`]; however the converse
+    /// is _not_ true. This is because this function attempts to reduce the amount of data parsed.
+    ///
     /// # Errors
     ///
-    /// Errors iff [`CollectedClientData::from_client_data_json_relaxed`] does.
+    /// Errors iff [`AuthenticatorAssertion::client_data_json`] is invalid JSON _after_ ignoring
+    /// a leading U+FEFF and replacing any sequences of invalid UTF-8 code units with U+FFFD or
+    /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-collectedclientdata-challenge) does not exist
+    /// or is not a base64url-encoded [`Challenge`].
     #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     #[inline]
     pub fn challenge_relaxed(&self) -> Result<SentChallenge, SerdeJsonErr> {
-        CollectedClientData::from_client_data_json_relaxed::<false>(
+        RelaxedClientDataJsonParser::<false>::get_sent_challenge(
             self.response.client_data_json.as_slice(),
         )
-        .map(|c| c.challenge)
     }
 }
 impl Response for Authentication {
