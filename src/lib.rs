@@ -193,6 +193,7 @@
     clippy::suspicious
 )]
 #![expect(
+    clippy::arbitrary_source_item_ordering,
     clippy::blanket_clippy_restriction_lints,
     clippy::exhaustive_enums,
     clippy::exhaustive_structs,

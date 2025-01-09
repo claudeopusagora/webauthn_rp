@@ -3,7 +3,7 @@ impl<'a: 'b, 'b> TryFrom<&'a [u8]> for CredentialId<&'b [u8]> {
     type Error = CredentialIdErr;
     #[inline]
     fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::from_slice(value).map_err(CredentialIdErr::from)
+        Self::from_slice(value)
     }
 }
 impl TryFrom<Vec<u8>> for CredentialId<Vec<u8>> {
