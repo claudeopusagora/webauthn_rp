@@ -9,8 +9,8 @@ license = "MIT OR Apache-2.0"
 name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
-rust-version = "1.82.0"
-version = "0.2.1"
+rust-version = "1.83.0"
+version = "0.2.2"
 
 [package.metadata.docs.rs]
 all-features = true

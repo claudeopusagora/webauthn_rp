@@ -1385,14 +1385,12 @@ trait Ceremony {
     }
 }
 /// `300_000` milliseconds is equal to five minutes.
-#[expect(unsafe_code, reason = "we want a const, and this is completely safe")]
-pub(super) const THREE_HUNDRED_THOUSAND: NonZeroU32 = {
-    // SAFETY:
-    // `300_000 > 0`.
-    // Compilation always fails when using a constant value of 0,
-    // so there is _nothing_ wrong with this use of `unsafe`.
-    unsafe { NonZeroU32::new_unchecked(300_000) }
-};
+#[expect(
+    clippy::unwrap_used,
+    reason = "clearly correct, Option::unwrap is const, and better than unsafe"
+)]
+pub(super) const THREE_HUNDRED_THOUSAND: NonZeroU32 = NonZeroU32::new(300_000).unwrap();
+
 /// [`Hasher`] whose `write_*` methods simply store up to 64 bits of the passed argument _as is_ overwriting
 /// any previous state.
 ///
@@ -1802,9 +1800,7 @@ mod tests {
     #[cfg(feature = "custom")]
     use super::{
         super::{
-            AggErr, AuthenticatedCredential,
             response::{
-                AuthTransports, AuthenticatorAttachment, Backup, CredentialId,
                 auth::{Authentication, AuthenticatorAssertion},
                 register::{
                     AuthenticationExtensionsPrfOutputs, AuthenticatorAttestation,
@@ -1813,10 +1809,10 @@ mod tests {
                     CredentialProtectionPolicy, DynamicState, Ed25519PubKey, Registration,
                     RsaPubKey, StaticState, UncompressedPubKey,
                 },
+                AuthTransports, AuthenticatorAttachment, Backup, CredentialId,
             },
+            AggErr, AuthenticatedCredential,
         },
-        AsciiDomain, Challenge, Credentials, ExtensionInfo, ExtensionReq,
-        PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
         auth::{
             AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
             CredentialSpecificExtension, Extension as AuthExt, PrfInputOwned,
@@ -1826,6 +1822,8 @@ mod tests {
             CredProtect, Extension as RegExt, PublicKeyCredentialCreationOptions,
             PublicKeyCredentialUserEntity, RegistrationVerificationOptions, UserHandle,
         },
+        AsciiDomain, Challenge, Credentials, ExtensionInfo, ExtensionReq,
+        PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
     };
     #[cfg(feature = "custom")]
     use ed25519_dalek::{Signer, SigningKey};
@@ -1838,11 +1836,11 @@ mod tests {
     use p384::ecdsa::{DerSignature as P384DerSig, SigningKey as P384Key};
     #[cfg(feature = "custom")]
     use rsa::{
-        BigUint, RsaPrivateKey,
         pkcs1v15::SigningKey as RsaKey,
         sha2::{Digest, Sha256},
         signature::{Keypair, SignatureEncoding},
         traits::PublicKeyParts,
+        BigUint, RsaPrivateKey,
     };
     #[cfg(feature = "custom")]
     const CBOR_UINT: u8 = 0b000_00000;
