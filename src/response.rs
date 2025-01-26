@@ -870,6 +870,7 @@ impl<const R: bool> LimitedVerificationParser<R> {
     /// portion of `val` _after_ the closing quote. The limited verification algorithm is adhered to; thus the
     /// _only_ Unicode scalar values that are allowed (and must) be hex-escaped are U+0000 to U+001F inclusively.
     /// Similarly only `b'\\'` and `b'"'` are allowed (and must) be escaped with `b'\\'`.
+    #[expect(unsafe_code, reason = "comment justifies its correctness")] 
     #[expect(clippy::arithmetic_side_effects, clippy::indexing_slicing, reason = "comments justify their correctness")]
     fn parse_string(val: &[u8]) -> Result<(Cow<'_, str>, &'_ [u8]), CollectedClientDataErr> {
         /// Tracks the state of the current Unicode scalar value that is being parsed.
@@ -891,6 +892,9 @@ impl<const R: bool> LimitedVerificationParser<R> {
         // We parse this as UTF-8 only at the end iff it is not empty. This contains all the potential Unicode scalar
         // values after de-escaping.
         let mut utf8 = Vec::new();
+        // We check for all `u8`s already; thus we might as well check if we encounter a non-ASCII `u8`.
+        // If we don't, then we can rely on `str::from_utf8_unchecked`.
+        let mut all_ascii = true;
         // This tracks the start index of the next slice to add. We add slices iff we encounter the escape character or
         // we return the parsed `Cow` (i.e., encounter an unescaped `b'"'`).
         let mut cur_idx = 0;
@@ -902,6 +906,18 @@ impl<const R: bool> LimitedVerificationParser<R> {
                     match b {
                         b'"' => {
                             if utf8.is_empty() {
+                                if all_ascii {
+                                    // `cur_idx` is 0 or 1. The latter is true iff `val` starts with a
+                                    // `b'\\'` or `b'"'` but contains no other escaped characters.
+                                    let s = &val[cur_idx..counter];
+                                    // SAFETY:
+                                    // `all_ascii` is `false` iff we encountered any `u8` that was not
+                                    // an ASCII `u8`; thus we know `s` is valid ASCII which in turn means
+                                    // it's valid UTF-8.
+                                    let v = unsafe { str::from_utf8_unchecked(s) };
+                                    // `val.len() > counter`, so indexing is fine and overflow cannot happen.
+                                    return Ok((Cow::Borrowed(v), &val[counter + 1..]));
+                                }
                                 // `cur_idx` is 0 or 1. The latter is true iff `val` starts with a
                                 // `b'\\'` or `b'"'` but contains no other escaped characters.
                                 return str::from_utf8(&val[cur_idx..counter])
@@ -909,7 +925,18 @@ impl<const R: bool> LimitedVerificationParser<R> {
                                     // `val.len() > counter`, so indexing is fine and overflow cannot happen.
                                     .map(|v| (Cow::Borrowed(v), &val[counter + 1..]));
                             }
+                            // `val.len() > counter && counter >= cur_idx`, so indexing is fine and overflow
+                            // cannot happen.
                             utf8.extend_from_slice(&val[cur_idx..counter]);
+                            if all_ascii {
+                                // SAFETY:
+                                // `all_ascii` is `false` iff we encountered any `u8` that was not
+                                // an ASCII `u8`; thus we know `utf8` is valid ASCII which in turn means
+                                // it's valid UTF-8.
+                                let v = unsafe { String::from_utf8_unchecked(utf8) };
+                                // `val.len() > counter`, so indexing is fine and overflow cannot happen.
+                                return Ok((Cow::Owned(v), &val[counter + 1..]));
+                            }
                             return String::from_utf8(utf8)
                                 .map_err(CollectedClientDataErr::Utf8Owned)
                                 // `val.len() > counter`, so indexing is fine and overflow cannot happen.
@@ -924,6 +951,7 @@ impl<const R: bool> LimitedVerificationParser<R> {
                         // ASCII Unicode scalar value _never_ appears in multi-code-unit Unicode scalar values; thus we
                         // error immediately.
                         ..=0x1f => return Err(CollectedClientDataErr::InvalidEscapedString),
+                        128.. => all_ascii = false,
                         _ => (),
                     }
                 }
