@@ -831,24 +831,21 @@ impl<'de> Deserialize<'de> for UserHandle<Vec<u8>> {
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("UserHandle")
             }
+            #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                // `USER_HANDLE_MIN_LEN` and `USER_HANDLE_MAX_LEN` are less than
-                // `0x4000`, so this won't `panic`.
-                if (crate::base64url_nopad_len(USER_HANDLE_MIN_LEN)
-                    ..=crate::base64url_nopad_len(USER_HANDLE_MAX_LEN))
-                    .contains(&v.len())
-                {
+                // Any value between `USER_HANDLE_MIN_LEN` and `USER_HANDLE_MAX_LEN` can be base64url encoded
+                // without fear since that range is just 1 to 64, and 4/3 of 64 is less than `usize::MAX`.
+                if (crate::base64url_nopad_len(USER_HANDLE_MIN_LEN).unwrap_or_else(|| unreachable!("there is a bug in webauthn_rp::base64url_nopad_len"))..=crate::base64url_nopad_len(USER_HANDLE_MAX_LEN).unwrap_or_else(|| unreachable!("there is a bug in webauthn_rp::base64url_nopad_len"))).contains(&v.len()) {
                     BASE64URL_NOPAD
                         .decode(v.as_bytes())
                         .map_err(E::custom)
                         .map(UserHandle)
                 } else {
                     Err(E::invalid_value(
-                        Unexpected::Str(v),
-                        &"1 to 64 bytes encoded in base64url without padding",
+                        Unexpected::Str(v), &"1 to 64 bytes encoded in base64url without padding"
                     ))
                 }
             }

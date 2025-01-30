@@ -274,14 +274,20 @@ impl<'de> Deserialize<'de> for CredentialId<Vec<u8>> {
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("CredentialId")
             }
+            #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                // `CRED_ID_MIN_LEN` and `CRED_ID_MAX_LEN` are less than
-                // `0x4000`, so this won't `panic`.
-                if (crate::base64url_nopad_len(super::CRED_ID_MIN_LEN)
-                    ..=crate::base64url_nopad_len(super::CRED_ID_MAX_LEN))
+                // Any value between `super::CRED_ID_MIN_LEN` and `super::CRED_ID_MIN_LEN` can be base64url encoded
+                // without fear since that range is just 16 to 1023, and
+                // 4/3 of 1023 is less than `usize::MAX`.
+                if (crate::base64url_nopad_len(super::CRED_ID_MIN_LEN).unwrap_or_else(|| {
+                    unreachable!("there is a bug in webauthn_rp::base64url_nopad_len")
+                })
+                    ..=crate::base64url_nopad_len(super::CRED_ID_MAX_LEN).unwrap_or_else(|| {
+                        unreachable!("there is a bug in webauthn_rp::base64url_nopad_len")
+                    }))
                     .contains(&v.len())
                 {
                     BASE64URL_NOPAD

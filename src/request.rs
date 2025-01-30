@@ -193,9 +193,10 @@ pub(super) mod ser_server_state;
 #[derive(Debug)]
 pub struct Challenge(u128);
 impl Challenge {
-    // This won't `panic` since `16 < 0x4000`.
+    // This won't `panic` since 4/3 of 16 is less than `usize::MAX`.
     /// The number of bytes a `Challenge` takes to encode in base64url.
-    pub(super) const BASE64_LEN: usize = super::base64url_nopad_len(16);
+    #[expect(clippy::unwrap_used, reason = "we want to crash when there is a bug")]
+    pub(super) const BASE64_LEN: usize = super::base64url_nopad_len(16).unwrap();
     /// Returns a new `Challenge` based on a randomly-generated `u128`.
     ///
     /// # Examples

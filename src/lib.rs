@@ -1132,14 +1132,17 @@ impl Display for AggErr {
 impl Error for AggErr {}
 /// Calculates the number of bytes needed to encode an input of length `n` bytes into base64url.
 ///
-/// # Panics
-///
-/// `panic`s iff `4 * n` overflows.
+/// `Some` is returned iff the encoded length does not exceed [`isize::MAX`].
 #[expect(
-    clippy::expect_used,
-    reason = "a precondition for calling this function ensures expect won't panic"
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "proof and comment justifies their correctness"
 )]
-const fn base64url_nopad_len(n: usize) -> usize {
+const fn base64url_nopad_len(n: usize) -> Option<usize> {
     // 256^n is the number of distinct values of the input. Let the base64 encoding in a URL safe
     // way without padding of the input be O. There are 64 possible values each byte in O can be; thus we must find
     // the minimum nonnegative integer m such that:
@@ -1150,16 +1153,45 @@ const fn base64url_nopad_len(n: usize) -> usize {
     // m >= 8n/6 = 4n/3
     // Clearly that corresponds to m = ⌈4n/3⌉; thus:
 
-    n.checked_mul(4).expect("webauthn_rp::base64url_nopad_len should not have been passed a usize that when multiplied by 4 causes overflow").div_ceil(3)
+    let (quot, rem) = (n / 3, n % 3);
+    // Actual construction of the encoded output requires the allocation to take no more than `isize::MAX`
+    // bytes; thus we must detect overflow of it and not `usize::MAX`.
+    // isize::MAX = usize::MAX / 2 >= usize::MAX / 3; thus this `as` conversion is lossless.
+    match (quot as isize).checked_mul(4) {
+        // If multiplying by 4 caused overflow, then multiplying by 4 and adding by 3 would also.
+        None => None,
+        // This won't overflow since this maxes at `isize::MAX` since
+        // `n` <= ⌊3*isize::MAX/4⌋; thus `quot` <= ⌊isize::MAX/4⌋.
+        // `n` can be partitioned into 4 possibilities:
+        // (1) n ≡ 0 (mod 4) = 4quot + 0 <= ⌊3*isize::MAX/4⌋
+        // (2) n ≡ 1 (mod 4) = 4quot + 1 <= ⌊3*isize::MAX/4⌋
+        // (3) n ≡ 2 (mod 4) = 4quot + 2 <= ⌊3*isize::MAX/4⌋
+        // (4) n ≡ 3 (mod 4) = 4quot + 3 <= ⌊3*isize::MAX/4⌋
+        // For (1), rem is 0; thus 4quot + 0 = `n` which is fine.
+        // (2) is not possible per the proof in `webauthn_rp::base64url_nopad_decode_len`.
+        // For (3), rem is 2; thus 4quot + 3 = n - 2 + 3 = n + 1 <= ⌊3*isize::MAX/4⌋ + 1 <= isize::MAX for
+        // isize::MAX > 0. Clearly `isize::MAX > 0`; otherwise we couldn't allocate anything.
+        // For (4), rem is 3; thus 4quot + 4 = n - 3 + 4 = n + 1 <= ⌊3*isize::MAX/4⌋ + 1 <= isize::MAX for
+        // isize::MAX > 0. Clearly `isize::MAX > 0`; otherwise we couldn't allocate anything.
+        //
+        // `val >= 0`; thus we can cast it to `usize` via `as` in a lossless way.
+        // Thus this is free from overflow, underflow, and a lossy conversion.
+        Some(val) => Some(val as usize + (4 * rem).div_ceil(3)),
+    }
 }
 /// Calculates the number of bytes a base64url-encoded input of length `n` bytes will be decoded into.
 ///
 /// `Some` is returned iff `n` is a valid input length.
+///
+/// Note `n` must not only be a valid length mathematically but also represent a possible allocation of that
+/// many bytes. Since only allocations <= [`isize::MAX`] are possible, this will always return `None` when
+/// `n > isize::MAX`.
 #[cfg(feature = "serde")]
 #[expect(
     clippy::arithmetic_side_effects,
+    clippy::as_conversions,
     clippy::integer_division_remainder_used,
-    reason = "proof and comment justifies its correctness"
+    reason = "proof and comment justifies their correctness"
 )]
 const fn base64url_nopad_decode_len(n: usize) -> Option<usize> {
     // 64^n is the number of distinct values of the input. Let the decoded output be O.
@@ -1177,7 +1209,7 @@ const fn base64url_nopad_decode_len(n: usize) -> Option<usize> {
     // (2) m ≡ 1 (mod 3) = 3i + 1
     // (3) m ≡ 2 (mod 3) = 3i + 2
     //
-    // From `crate::base64url_nopad_len`, we know that the encoded length, n, of an input of length m is m = ⌈4n/3⌉.
+    // From `crate::base64url_nopad_len`, we know that the encoded length, n, of an input of length m is n = ⌈4m/3⌉.
     // The encoded length of (1) is thus n = ⌈4(3i)/3⌉ = ⌈4i⌉ = 4i ≡ 0 (mod 4).
     // The encoded length of (2) is thus n = ⌈4(3i + 1)/3⌉ = ⌈4i + 4/3⌉ = 4i + 2 ≡ 2 (mod 4).
     // The encoded length of (3) is thus n = ⌈4(3i + 2)/3⌉ = ⌈4i + 8/3⌉ = 4i + 3 ≡ 3 (mod 4).
@@ -1196,7 +1228,8 @@ const fn base64url_nopad_decode_len(n: usize) -> Option<usize> {
     //
     // Consequently n is a valid length of an encoded output iff n ≢ 1 (mod 4).
 
-    if n % 4 == 1 {
+    // `isize::MAX >= 0 >= usize::MIN`; thus this conversion is lossless.
+    if n % 4 == 1 || n > isize::MAX as usize {
         None
     } else {
         let (quot, rem) = (n >> 2u8, n % 4);
