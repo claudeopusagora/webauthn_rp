@@ -9,7 +9,6 @@ use super::{
             AuthenticationExtensionsPrfOutputsHelper, AuthenticationExtensionsPrfValues,
             Base64DecodedVal, ClientExtensions, PublicKeyCredential,
         },
-        BASE64URL_NOPAD_ENC,
     },
     AttestationObject, AttestedCredentialData, AuthTransports, AuthenticationExtensionsPrfOutputs,
     AuthenticatorAttestation, ClientExtensionsOutputs, CredentialPropertiesOutput, FromCbor as _,
@@ -22,6 +21,7 @@ use core::{
     marker::PhantomData,
     str,
 };
+use data_encoding::BASE64URL_NOPAD;
 use rsa::sha2::{digest::OutputSizeUser as _, Sha256};
 use serde::de::{Deserialize, Deserializer, Error, IgnoredAny, MapAccess, Unexpected, Visitor};
 /// Functionality for deserializing DER-encoded `SubjectPublicKeyInfo` _without_ making copies of data or
@@ -760,13 +760,8 @@ impl<'e> Deserialize<'e> for AttObj {
             where
                 E: Error,
             {
-                // If the encoded length is greater than `usize::MAX / 3`, then it's quite close
-                // or more than `isize::MAX` which is the max capacity of a `str` and `Vec`. At which
-                // point, we just error instead of attempting to decode such a large payload.
                 crate::base64url_nopad_decode_len(v.len())
-                    .ok_or_else(|| {
-                        E::invalid_value(Unexpected::Str(v), &"a shorter base64url-encoded value")
-                    })
+                    .ok_or_else(|| E::invalid_value(Unexpected::Str(v), &"base64url-encoded value"))
                     .and_then(|len| {
                         // The decoded length is 3/4 of the encoded length, so overflow could only occur
                         // if usize::MAX / 4 < 32 => usize::MAX < 128 < u8::MAX; thus overflow is not
@@ -774,7 +769,7 @@ impl<'e> Deserialize<'e> for AttObj {
                         // the raw attestation object by `AuthenticatorAttestation::new`.
                         let mut att_obj = vec![0; len + Sha256::output_size()];
                         att_obj.truncate(len);
-                        BASE64URL_NOPAD_ENC
+                        BASE64URL_NOPAD
                             .decode_mut(v.as_bytes(), &mut att_obj)
                             .map_err(|e| E::custom(e.error))
                             .map(|dec_len| {
@@ -1387,13 +1382,14 @@ impl<'de> Deserialize<'de> for Registration {
 mod tests {
     use super::{
         super::{
-            super::BASE64URL_NOPAD_ENC, cbor, AuthenticatorAttachment, Ed25519PubKey, Registration,
-            RsaPubKey, UncompressedP256PubKey, UncompressedP384PubKey, ALG, EC2, EDDSA, ES256,
-            ES384, KTY, OKP, RSA,
+            cbor, AuthenticatorAttachment, Ed25519PubKey, Registration, RsaPubKey,
+            UncompressedP256PubKey, UncompressedP384PubKey, ALG, EC2, EDDSA, ES256, ES384, KTY,
+            OKP, RSA,
         },
         spki::SubjectPublicKeyInfo,
         CoseAlgorithmIdentifier,
     };
+    use data_encoding::BASE64URL_NOPAD;
     use ed25519_dalek::{pkcs8::EncodePublicKey, VerifyingKey};
     use p256::{
         elliptic_curve::sec1::{FromEncodedPoint as _, ToEncodedPoint as _},
@@ -1691,10 +1687,10 @@ mod tests {
             .unwrap()
             .to_public_key_der()
             .unwrap();
-        let b64_cdata = BASE64URL_NOPAD_ENC.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD_ENC.encode(&att_obj[att_obj.len() - 113..]);
-        let b64_key = BASE64URL_NOPAD_ENC.encode(pub_key.as_bytes());
-        let b64_aobj = BASE64URL_NOPAD_ENC.encode(att_obj.as_slice());
+        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
+        let b64_adata = BASE64URL_NOPAD.encode(&att_obj[att_obj.len() - 113..]);
+        let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
+        let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
         assert!(serde_json::from_str::<Registration>(
             serde_json::json!({
@@ -1731,7 +1727,7 @@ mod tests {
         // `id` and `rawId` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Bytes(
-                BASE64URL_NOPAD_ENC
+                BASE64URL_NOPAD
                     .decode("ABABABABABABABABABABAA".as_bytes())
                     .unwrap()
                     .as_slice(),
@@ -1873,7 +1869,7 @@ mod tests {
         // `id` and the credential id in authenticator data mismatch.
         err = Error::invalid_value(
             Unexpected::Bytes(
-                BASE64URL_NOPAD_ENC
+                BASE64URL_NOPAD
                     .decode("ABABABABABABABABABABAA".as_bytes())
                     .unwrap()
                     .as_slice(),
@@ -1921,7 +1917,7 @@ mod tests {
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
                         "clientDataJSON": b64_cdata,
-                        "authenticatorData": BASE64URL_NOPAD_ENC.encode(bad_auth.as_slice()),
+                        "authenticatorData": BASE64URL_NOPAD.encode(bad_auth.as_slice()),
                         "transports": [],
                         "publicKey": b64_key,
                         "publicKeyAlgorithm": -8,
@@ -2096,7 +2092,7 @@ mod tests {
                     "clientDataJSON": b64_cdata,
                     "authenticatorData": b64_adata,
                     "transports": [],
-                    "publicKey": BASE64URL_NOPAD_ENC.encode(VerifyingKey::from_bytes(&[0; 32]).unwrap().to_public_key_der().unwrap().as_bytes()),
+                    "publicKey": BASE64URL_NOPAD.encode(VerifyingKey::from_bytes(&[0; 32]).unwrap().to_public_key_der().unwrap().as_bytes()),
                     "publicKeyAlgorithm": -8,
                     "attestationObject": b64_aobj,
                 },
@@ -2958,10 +2954,10 @@ mod tests {
             .unwrap()
             .to_public_key_der()
             .unwrap();
-        let b64_cdata = BASE64URL_NOPAD_ENC.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD_ENC.encode(&att_obj[att_obj.len() - 113..]);
-        let b64_key = BASE64URL_NOPAD_ENC.encode(pub_key.as_bytes());
-        let b64_aobj = BASE64URL_NOPAD_ENC.encode(att_obj.as_slice());
+        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
+        let b64_adata = BASE64URL_NOPAD.encode(&att_obj[att_obj.len() - 113..]);
+        let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
+        let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
         assert!(serde_json::from_str::<Registration>(
             serde_json::json!({
@@ -4051,10 +4047,10 @@ mod tests {
         att_obj[att_obj_len - 67..att_obj_len - 35]
             .copy_from_slice(enc_key.x().unwrap().as_slice());
         att_obj[att_obj_len - 32..].copy_from_slice(enc_key.y().unwrap().as_slice());
-        let b64_cdata = BASE64URL_NOPAD_ENC.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD_ENC.encode(&att_obj[att_obj.len() - 148..]);
-        let b64_key = BASE64URL_NOPAD_ENC.encode(pub_key.as_bytes());
-        let b64_aobj = BASE64URL_NOPAD_ENC.encode(att_obj.as_slice());
+        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
+        let b64_adata = BASE64URL_NOPAD.encode(&att_obj[att_obj.len() - 148..]);
+        let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
+        let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
         assert!(serde_json::from_str::<Registration>(
             serde_json::json!({
@@ -4202,7 +4198,7 @@ mod tests {
                     "clientDataJSON": b64_cdata,
                     "authenticatorData": b64_adata,
                     "transports": [],
-                    "publicKey": BASE64URL_NOPAD_ENC.encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
+                    "publicKey": BASE64URL_NOPAD.encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
                     "publicKeyAlgorithm": -7,
                     "attestationObject": b64_aobj,
                 },
@@ -4514,10 +4510,10 @@ mod tests {
         att_obj[att_obj_len - 99..att_obj_len - 51]
             .copy_from_slice(enc_key.x().unwrap().as_slice());
         att_obj[att_obj_len - 48..].copy_from_slice(enc_key.y().unwrap().as_slice());
-        let b64_cdata = BASE64URL_NOPAD_ENC.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD_ENC.encode(&att_obj[att_obj.len() - 181..]);
-        let b64_key = BASE64URL_NOPAD_ENC.encode(pub_key.as_bytes());
-        let b64_aobj = BASE64URL_NOPAD_ENC.encode(att_obj.as_slice());
+        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
+        let b64_adata = BASE64URL_NOPAD.encode(&att_obj[att_obj.len() - 181..]);
+        let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
+        let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
         assert!(serde_json::from_str::<Registration>(
             serde_json::json!({
@@ -4667,7 +4663,7 @@ mod tests {
                     "clientDataJSON": b64_cdata,
                     "authenticatorData": b64_adata,
                     "transports": [],
-                    "publicKey": BASE64URL_NOPAD_ENC.encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
+                    "publicKey": BASE64URL_NOPAD.encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
                     "publicKeyAlgorithm": -35,
                     "attestationObject": b64_aobj,
                 },
@@ -5235,10 +5231,10 @@ mod tests {
         let att_obj_len = att_obj.len();
         att_obj[att_obj_len - 261..att_obj_len - 5]
             .copy_from_slice(key.n().to_bytes_be().as_slice());
-        let b64_cdata = BASE64URL_NOPAD_ENC.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD_ENC.encode(&att_obj[att_obj.len() - 343..]);
-        let b64_key = BASE64URL_NOPAD_ENC.encode(pub_key.as_bytes());
-        let b64_aobj = BASE64URL_NOPAD_ENC.encode(att_obj.as_slice());
+        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
+        let b64_adata = BASE64URL_NOPAD.encode(&att_obj[att_obj.len() - 343..]);
+        let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
+        let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
         assert!(serde_json::from_str::<Registration>(
             serde_json::json!({
@@ -5432,7 +5428,7 @@ mod tests {
                     "clientDataJSON": b64_cdata,
                     "authenticatorData": b64_adata,
                     "transports": [],
-                    "publicKey": BASE64URL_NOPAD_ENC.encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
+                    "publicKey": BASE64URL_NOPAD.encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
                     "publicKeyAlgorithm": -257,
                     "attestationObject": b64_aobj,
                 },

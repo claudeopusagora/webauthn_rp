@@ -5,14 +5,13 @@
 extern crate alloc;
 use super::{
     AllAcceptedCredentialsOptions, AuthTransports, AuthenticatorAttachment, AuthenticatorTransport,
-    Challenge, CredentialId, CurrentUserDetailsOptions, Origin, SentChallenge, BASE64URL_NOPAD_ENC,
+    Challenge, CredentialId, CurrentUserDetailsOptions, Origin, SentChallenge,
 };
 use alloc::borrow::Cow;
 use core::{
     fmt::{self, Formatter},
     marker::PhantomData,
 };
-#[cfg(doc)]
 use data_encoding::BASE64URL_NOPAD;
 use serde::{
     de::{Deserialize, Deserializer, Error, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor},
@@ -245,7 +244,7 @@ impl<T: AsRef<[u8]>> Serialize for CredentialId<T> {
     where
         S: Serializer,
     {
-        serializer.serialize_str(BASE64URL_NOPAD_ENC.encode(self.0.as_ref()).as_str())
+        serializer.serialize_str(BASE64URL_NOPAD.encode(self.0.as_ref()).as_str())
     }
 }
 impl<'de> Deserialize<'de> for CredentialId<Vec<u8>> {
@@ -285,7 +284,7 @@ impl<'de> Deserialize<'de> for CredentialId<Vec<u8>> {
                     ..=crate::base64url_nopad_len(super::CRED_ID_MAX_LEN))
                     .contains(&v.len())
                 {
-                    BASE64URL_NOPAD_ENC
+                    BASE64URL_NOPAD
                         .decode(v.as_bytes())
                         .map_err(E::custom)
                         .map(CredentialId)
@@ -376,7 +375,7 @@ impl<'de> Deserialize<'de> for Base64DecodedVal {
             where
                 E: Error,
             {
-                BASE64URL_NOPAD_ENC
+                BASE64URL_NOPAD
                     .decode(v.as_bytes())
                     .map_err(E::custom)
                     .map(Base64DecodedVal)
@@ -428,10 +427,9 @@ impl<'de> Deserialize<'de> for SentChallenge {
             where
                 E: Error,
             {
-                // We try to avoid decoding when possible by at least ensuring the input length is correct.
                 if v.len() == Challenge::BASE64_LEN {
                     let mut data = [0; 16];
-                    BASE64URL_NOPAD_ENC
+                    BASE64URL_NOPAD
                         .decode_mut(v, data.as_mut_slice())
                         .map_err(|err| E::custom(err.error))
                         .map(|len| {

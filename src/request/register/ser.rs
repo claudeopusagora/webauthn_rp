@@ -5,7 +5,7 @@
 )]
 extern crate alloc;
 use super::{
-    super::super::BASE64URL_NOPAD_ENC, AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
+    AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
     CoseAlgorithmIdentifier, CoseAlgorithmIdentifiers, CredProtect, CrossPlatformHint, Extension,
     ExtensionInfo, Hint, Nickname, PlatformHint, PublicKeyCredentialUserEntity,
     RegistrationClientState, ResidentKeyRequirement, RpId, UserHandle, Username,
@@ -19,6 +19,7 @@ use core::{
     marker::PhantomData,
     str,
 };
+use data_encoding::BASE64URL_NOPAD;
 use serde::{
     de::{Deserialize, Deserializer, Error, MapAccess, Unexpected, Visitor},
     ser::{Serialize, SerializeSeq as _, SerializeStruct, Serializer},
@@ -202,7 +203,7 @@ impl<T: AsRef<[u8]>> Serialize for UserHandle<T> {
     where
         S: Serializer,
     {
-        serializer.serialize_str(BASE64URL_NOPAD_ENC.encode(self.0.as_ref()).as_str())
+        serializer.serialize_str(BASE64URL_NOPAD.encode(self.0.as_ref()).as_str())
     }
 }
 /// `"displayName"`.
@@ -840,7 +841,7 @@ impl<'de> Deserialize<'de> for UserHandle<Vec<u8>> {
                     ..=crate::base64url_nopad_len(USER_HANDLE_MAX_LEN))
                     .contains(&v.len())
                 {
-                    BASE64URL_NOPAD_ENC
+                    BASE64URL_NOPAD
                         .decode(v.as_bytes())
                         .map_err(E::custom)
                         .map(UserHandle)

@@ -28,7 +28,6 @@ use core::{
     num::NonZeroU32,
     str::FromStr,
 };
-use rand::Rng as _;
 use rsa::sha2::{Digest as _, Sha256};
 #[cfg(feature = "serializable_server_state")]
 use std::time::SystemTime;
@@ -210,7 +209,7 @@ impl Challenge {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        Self(rand::thread_rng().r#gen())
+        Self(rand::random())
     }
     /// Returns the contained `u128` consuming `self`.
     #[inline]

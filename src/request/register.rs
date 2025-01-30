@@ -32,7 +32,6 @@ use core::{
     time::Duration,
 };
 use precis_profiles::{precis_core::profile::Profile as _, UsernameCasePreserved};
-use rand::RngCore as _;
 #[cfg(any(doc, not(feature = "serializable_server_state")))]
 use std::time::Instant;
 #[cfg(any(doc, feature = "serializable_server_state"))]
@@ -725,9 +724,7 @@ impl UserHandle<Vec<u8>> {
     pub fn rand(len: usize) -> Result<Self, UserHandleErr> {
         if (USER_HANDLE_MIN_LEN..=USER_HANDLE_MAX_LEN).contains(&len) {
             let mut data = vec![0; len];
-            // [`ThreadRng` is infallible](https://docs.rs/rand_core/latest/src/rand_core/block.rs.html#237);
-            // thus there is no point in calling `try_fill_bytes`.
-            rand::thread_rng().fill_bytes(data.as_mut_slice());
+            rand::fill(data.as_mut_slice());
             Ok(Self(data))
         } else {
             Err(UserHandleErr)

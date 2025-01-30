@@ -1,8 +1,8 @@
 use super::{
-    super::BASE64URL_NOPAD_ENC, Challenge, CredentialId, Hint, PublicKeyCredentialDescriptor, RpId,
-    UserVerificationRequirement,
+    Challenge, CredentialId, Hint, PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
 };
 use core::str;
+use data_encoding::BASE64URL_NOPAD;
 use serde::ser::{Serialize, SerializeSeq as _, SerializeStruct as _, Serializer};
 impl Serialize for Challenge {
     /// Serializes `self` to conform with
@@ -30,7 +30,7 @@ impl Serialize for Challenge {
         S: Serializer,
     {
         let mut data = [0; Self::BASE64_LEN];
-        BASE64URL_NOPAD_ENC.encode_mut(self.0.to_le_bytes().as_slice(), data.as_mut_slice());
+        BASE64URL_NOPAD.encode_mut(self.0.to_le_bytes().as_slice(), data.as_mut_slice());
         serializer.serialize_str(
             str::from_utf8(data.as_slice())
                 // There is a bug, so crash and burn.

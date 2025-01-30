@@ -119,10 +119,8 @@ impl<'de> Deserialize<'de> for AuthenticationRelaxed {
 }
 #[cfg(test)]
 mod tests {
-    use super::{
-        super::{super::BASE64URL_NOPAD_ENC, AuthenticatorAttachment},
-        AuthenticationRelaxed,
-    };
+    use super::{super::AuthenticatorAttachment, AuthenticationRelaxed};
+    use data_encoding::BASE64URL_NOPAD;
     use rsa::sha2::{Digest as _, Sha256};
     use serde::de::{Error as _, Unexpected};
     use serde_json::Error;
@@ -171,10 +169,10 @@ mod tests {
             0,
             0,
         ];
-        let b64_cdata = BASE64URL_NOPAD_ENC.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD_ENC.encode(auth_data.as_slice());
-        let b64_sig = BASE64URL_NOPAD_ENC.encode([].as_slice());
-        let b64_user = BASE64URL_NOPAD_ENC.encode(b"\x00".as_slice());
+        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
+        let b64_adata = BASE64URL_NOPAD.encode(auth_data.as_slice());
+        let b64_sig = BASE64URL_NOPAD.encode([].as_slice());
+        let b64_user = BASE64URL_NOPAD.encode(b"\x00".as_slice());
         // Base case is valid.
         assert!(serde_json::from_str::<AuthenticationRelaxed>(
             serde_json::json!({
@@ -205,7 +203,7 @@ mod tests {
         // `id` and `rawId` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Bytes(
-                BASE64URL_NOPAD_ENC
+                BASE64URL_NOPAD
                     .decode("ABABABABABABABABABABAA".as_bytes())
                     .unwrap()
                     .as_slice(),
@@ -880,10 +878,10 @@ mod tests {
             0,
             0,
         ];
-        let b64_cdata = BASE64URL_NOPAD_ENC.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD_ENC.encode(auth_data.as_slice());
-        let b64_sig = BASE64URL_NOPAD_ENC.encode([].as_slice());
-        let b64_user = BASE64URL_NOPAD_ENC.encode(b"\x00".as_slice());
+        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
+        let b64_adata = BASE64URL_NOPAD.encode(auth_data.as_slice());
+        let b64_sig = BASE64URL_NOPAD.encode([].as_slice());
+        let b64_user = BASE64URL_NOPAD.encode(b"\x00".as_slice());
         // Base case is valid.
         assert!(serde_json::from_str::<AuthenticationRelaxed>(
             serde_json::json!({

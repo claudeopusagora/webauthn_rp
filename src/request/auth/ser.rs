@@ -1,7 +1,8 @@
 use super::{
-    super::super::BASE64URL_NOPAD_ENC, AllowedCredential, AllowedCredentials,
-    AuthenticationClientState, Extension, PrfInput, PrfInputOwned,
+    AllowedCredential, AllowedCredentials, AuthenticationClientState, Extension, PrfInput,
+    PrfInputOwned,
 };
+use data_encoding::BASE64URL_NOPAD;
 use serde::ser::{Serialize, SerializeMap as _, SerializeStruct as _, Serializer};
 impl Serialize for PrfInput<'_> {
     /// Serializes `self` to conform with
@@ -34,14 +35,14 @@ impl Serialize for PrfInput<'_> {
             // The max value is 1 + 1 = 2, so overflow is not an issue.
             .serialize_struct("PrfInput", 1 + usize::from(self.second.is_some()))
             .and_then(|mut ser| {
-                ser.serialize_field("first", BASE64URL_NOPAD_ENC.encode(self.first).as_str())
+                ser.serialize_field("first", BASE64URL_NOPAD.encode(self.first).as_str())
                     .and_then(|()| {
                         self.second
                             .as_ref()
                             .map_or(Ok(()), |second| {
                                 ser.serialize_field(
                                     "second",
-                                    BASE64URL_NOPAD_ENC.encode(second).as_str(),
+                                    BASE64URL_NOPAD.encode(second).as_str(),
                                 )
                             })
                             .and_then(|()| ser.end())

@@ -200,6 +200,7 @@
     clippy::implicit_return,
     clippy::min_ident_chars,
     clippy::missing_trait_methods,
+    clippy::multiple_crate_versions,
     clippy::pub_with_shorthand,
     clippy::pub_use,
     clippy::ref_patterns,
@@ -279,7 +280,6 @@ use core::{
     error::Error,
     fmt::{self, Display, Formatter},
 };
-use data_encoding::{Encoding, BASE64URL_NOPAD};
 #[cfg(all(doc, feature = "serde_relaxed"))]
 use response::register::ser_relaxed::RegistrationRelaxed;
 #[cfg(all(doc, feature = "serde"))]
@@ -1134,14 +1134,12 @@ impl Error for AggErr {}
 ///
 /// # Panics
 ///
-/// `panic`s iff `n >= 0x4000`.
+/// `panic`s iff `4 * n` overflows.
+#[expect(
+    clippy::expect_used,
+    reason = "a precondition for calling this function ensures expect won't panic"
+)]
 const fn base64url_nopad_len(n: usize) -> usize {
-    // `usize::MAX >= u16::MAX`; thus we conservatively cap `n` to the largest value that would not overflow
-    // from multiplying by 4 on all platforms.
-    assert!(
-        n < 0x4000,
-        "webauthn_rp::base64url_nopad_len must be passed an integer smaller than 0x4000"
-    );
     // 256^n is the number of distinct values of the input. Let the base64 encoding in a URL safe
     // way without padding of the input be O. There are 64 possible values each byte in O can be; thus we must find
     // the minimum nonnegative integer m such that:
@@ -1151,19 +1149,19 @@ const fn base64url_nopad_len(n: usize) -> usize {
     // <==>
     // m >= 8n/6 = 4n/3
     // Clearly that corresponds to m = ⌈4n/3⌉; thus:
-    (n << 2).div_ceil(3)
+
+    n.checked_mul(4).expect("webauthn_rp::base64url_nopad_len should not have been passed a usize that when multiplied by 4 causes overflow").div_ceil(3)
 }
 /// Calculates the number of bytes a base64url-encoded input of length `n` bytes will be decoded into.
 ///
-/// `Some` is returned iff the value could be calculated without overflow; otherwise `None` is returned.
-///
-/// Note this does not verify if `n` is a possible value.
-#[expect(
-    clippy::unseparated_literal_suffix,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
+/// `Some` is returned iff `n` is a valid input length.
 #[cfg(feature = "serde")]
-fn base64url_nopad_decode_len(n: usize) -> Option<usize> {
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::integer_division_remainder_used,
+    reason = "proof and comment justifies its correctness"
+)]
+const fn base64url_nopad_decode_len(n: usize) -> Option<usize> {
     // 64^n is the number of distinct values of the input. Let the decoded output be O.
     // There are 256 possible values each byte in O can be; thus we must find
     // the maximum nonnegative integer m such that:
@@ -1172,9 +1170,42 @@ fn base64url_nopad_decode_len(n: usize) -> Option<usize> {
     // lg(2^(8m)) = 8m <= lg(2^(6n)) = 6n   lg is defined on all positive reals which 2^(8m) and 2^(6n) are
     // <==>
     // m <= 6n/8 = 3n/4
-    // Clearly that corresponds to m = ⌊3n/4⌋; thus:
-    n.checked_mul(3).map(|len| len >> 2u8)
+    // Clearly that corresponds to m = ⌊3n/4⌋.
+    //
+    // There are three partitions for m:
+    // (1) m ≡ 0 (mod 3) = 3i
+    // (2) m ≡ 1 (mod 3) = 3i + 1
+    // (3) m ≡ 2 (mod 3) = 3i + 2
+    //
+    // From `crate::base64url_nopad_len`, we know that the encoded length, n, of an input of length m is m = ⌈4n/3⌉.
+    // The encoded length of (1) is thus n = ⌈4(3i)/3⌉ = ⌈4i⌉ = 4i ≡ 0 (mod 4).
+    // The encoded length of (2) is thus n = ⌈4(3i + 1)/3⌉ = ⌈4i + 4/3⌉ = 4i + 2 ≡ 2 (mod 4).
+    // The encoded length of (3) is thus n = ⌈4(3i + 2)/3⌉ = ⌈4i + 8/3⌉ = 4i + 3 ≡ 3 (mod 4).
+    //
+    // Thus if n ≡ 1 (mod 4), it is never a valid length.
+    //
+    // Let n be the length of a possible encoded output of an input of length m.
+    // We know from above that n ≢ 1 (mod 4), this leaves three possibilities:
+    // (1) n ≡ 0 (mod 4) = 4i
+    // (2) n ≡ 2 (mod 4) = 4i + 2
+    // (3) n ≡ 3 (mod 4) = 4i + 3
+    //
+    // For (1) an input of length 3i is the inverse since ⌈4(3i)/3⌉ = 4i.
+    // For (2) an input of length 3i + 1 is the inverse since ⌈4(3i + 1)/3⌉ = ⌈4i + 4/3⌉ = 4i + 2.
+    // For (3) an input of length 3i + 2 is the inverse since ⌈4(3i + 2)/3⌉ = ⌈4i + 8/3⌉ = 4i + 3.
+    //
+    // Consequently n is a valid length of an encoded output iff n ≢ 1 (mod 4).
+
+    if n % 4 == 1 {
+        None
+    } else {
+        let (quot, rem) = (n >> 2u8, n % 4);
+        // 4quot + rem = n
+        // rem <= 3
+        // 3rem <= 9
+        // 3rem/4 <= 2
+        // 3quot + 3rem/4 <= 4quot + rem
+        // Thus no operation causes overflow or underflow.
+        Some((3 * quot) + ((3 * rem) >> 2u8))
+    }
 }
-// We cache a `static` instance for performance reasons.
-/// Encoder/decoder for base64url.
-const BASE64URL_NOPAD_ENC: &Encoding = &BASE64URL_NOPAD;

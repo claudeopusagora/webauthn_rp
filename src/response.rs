@@ -9,7 +9,6 @@ use crate::{
         error::{CollectedClientDataErr, CredentialIdErr},
         register::error::{AttestationObjectErr, AttestedCredentialDataErr, AuthenticatorDataErr as RegAuthDataErr, AuthenticatorExtensionOutputErr as RegAuthExtErr, PubKeyErr, RegCeremonyErr},
     },
-    BASE64URL_NOPAD_ENC,
 };
 use alloc::borrow::Cow;
 use core::{
@@ -20,6 +19,7 @@ use core::{
     hash::{Hash, Hasher},
     str,
 };
+use data_encoding::BASE64URL_NOPAD;
 use rsa::sha2::{digest::OutputSizeUser as _, Sha256};
 #[cfg(feature = "serde_relaxed")]
 use ser_relaxed::SerdeJsonErr;
@@ -1059,7 +1059,7 @@ impl<const R: bool> ClientDataJsonParser for LimitedVerificationParser<R> {
                                 if chall_key == AFTER_TYPE {
                                     chall_key_rem.split_at_checked(Challenge::BASE64_LEN).ok_or(CollectedClientDataErr::Len).and_then(|(base64_chall, base64_chall_rem)| {
                                         let mut chall = [0; 16];
-                                        BASE64URL_NOPAD_ENC.decode_mut(base64_chall, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).and_then(|chall_len| {
+                                        BASE64URL_NOPAD.decode_mut(base64_chall, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).and_then(|chall_len| {
                                             assert_eq!(chall_len, 16, "there is a bug in BASE64URL_NOPAD::decode_mut");
                                             base64_chall_rem.split_at_checked(AFTER_CHALLENGE.len()).ok_or(CollectedClientDataErr::Len).and_then(|(origin_key, origin_key_rem)| {
                                                 if origin_key == AFTER_CHALLENGE {
@@ -1149,7 +1149,7 @@ impl<const R: bool> ClientDataJsonParser for LimitedVerificationParser<R> {
         // This maxes at 39 + 22 = 61; thus overflow is not an issue.
         json.get(idx..idx + Challenge::BASE64_LEN).ok_or(CollectedClientDataErr::Len).and_then(|chall_slice| {
             let mut chall = [0; 16];
-            BASE64URL_NOPAD_ENC.decode_mut(chall_slice, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).map(|len| {
+            BASE64URL_NOPAD.decode_mut(chall_slice, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).map(|len| {
                 assert_eq!(len, 16, "there is a bug in BASE64URL_NOPAD::decode_mut");
                 SentChallenge(u128::from_le_bytes(chall))
             })
