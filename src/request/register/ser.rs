@@ -853,6 +853,65 @@ impl<'de> Deserialize<'de> for UserHandle<Vec<u8>> {
         deserializer.deserialize_str(UserHandleVisitor)
     }
 }
+impl<'de, const LEN: usize> Deserialize<'de> for UserHandle<[u8; LEN]>
+where
+    Self: Default,
+{
+    /// Deserializes [`prim@str`] based on
+    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponsejson-userhandle).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::register::{UserHandle, USER_HANDLE_MIN_LEN};
+    /// # #[cfg(feature = "custom")]
+    /// assert_eq!(
+    ///     serde_json::from_str::<UserHandle<[u8; USER_HANDLE_MIN_LEN]>>(r#""AA""#)?,
+    ///     UserHandle::from([0; USER_HANDLE_MIN_LEN])
+    /// );
+    /// # Ok::<_, serde_json::Error>(())
+    ///```
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        /// `Visitor` for `UserHandle`.
+        struct UserHandleVisitor<const L: usize>;
+        impl<const L: usize> Visitor<'_> for UserHandleVisitor::<L>
+        where
+            UserHandle<[u8; L]>: Default,
+        {
+            type Value = UserHandle<[u8; L]>;
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+                formatter.write_str("UserHandle")
+            }
+            #[expect(clippy::panic_in_result_fn, clippy::unreachable, reason = "we want to crash when there is a bug")]
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                // Any value between `USER_HANDLE_MIN_LEN` and `USER_HANDLE_MAX_LEN` can be base64url encoded
+                // without fear since that range is just 1 to 64, and 4/3 of 64 is less than `usize::MAX`.
+                if crate::base64url_nopad_len(L).unwrap_or_else(|| unreachable!("there is a bug in webauthn_rp::base64url_nopad_len")) == v.len() {
+                    let mut data = [0; L];
+                    BASE64URL_NOPAD
+                        .decode_mut(v.as_bytes(), data.as_mut_slice())
+                        .map_err(|e| E::custom(e.error))
+                        .map(|len| {
+                            assert_eq!(len, L, "there is a bug in data_encoding::BASE64URL_NOPAD::decode_mut");
+                            UserHandle(data)
+                        })
+                } else {
+                    Err(E::invalid_value(
+                        Unexpected::Str(v), &format!("{L} bytes encoded in base64url without padding").as_str()
+                    ))
+                }
+            }
+        }
+        deserializer.deserialize_str(UserHandleVisitor)
+    }
+}
 impl<'de: 'name + 'display_name, 'name, 'display_name> Deserialize<'de>
     for PublicKeyCredentialUserEntity<'name, 'display_name, Vec<u8>>
 {

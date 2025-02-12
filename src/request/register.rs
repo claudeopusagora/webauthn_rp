@@ -748,6 +748,58 @@ impl UserHandle<Vec<u8>> {
         Self::rand(64).unwrap_or_else(|_e| unreachable!("there is a bug in UserHandle::rand"))
     }
 }
+/// Implements [`Default`] for [`UserHandle`] of array of length of the passed `usize` literal.
+///
+/// Only [`USER_HANDLE_MIN_LEN`]–[`USER_HANDLE_MAX_LEN`] inclusively are allowed to be passed.
+macro_rules! user {
+    ( $( $x:literal),* ) => {
+        $(
+impl Default for UserHandle<[u8; $x]> {
+    #[inline]
+    fn default() -> Self {
+        let mut data = [0; $x];
+        rand::fill(data.as_mut_slice());
+        Self(data)
+    }
+}
+        )*
+    };
+}
+// MUST only pass [`USER_HANDLE_MIN_LEN`]–[`USER_HANDLE_MAX_LEN`] inclusively.
+user!(
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+    27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+    51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64
+);
+impl<const LEN: usize> UserHandle<[u8; LEN]>
+where
+    Self: Default,
+{
+    /// Returns a new `UserHandle` based on `LEN` randomly-generated [`u8`]s.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::register::{UserHandle, USER_HANDLE_MIN_LEN, USER_HANDLE_MAX_LEN};
+    /// assert_eq!(
+    ///     UserHandle::<[u8; USER_HANDLE_MIN_LEN]>::new_rand()
+    ///         .as_ref()
+    ///         .len(),
+    ///     1
+    /// );
+    /// // The probability of an all-zero `UserHandle` being generated (assuming a good entropy
+    /// // source) is 2^-512 ≈ 7.5 x 10^-155.
+    /// assert_ne!(
+    ///     UserHandle::<[u8; USER_HANDLE_MAX_LEN]>::new_rand().as_ref(),
+    ///     [0; USER_HANDLE_MAX_LEN]
+    /// );
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn new_rand() -> Self {
+        Self::default()
+    }
+}
 impl Default for UserHandle<Vec<u8>> {
     #[inline]
     fn default() -> Self {
@@ -764,6 +816,24 @@ impl<T: Borrow<[u8]>> Borrow<[u8]> for UserHandle<T> {
     #[inline]
     fn borrow(&self) -> &[u8] {
         self.0.borrow()
+    }
+}
+impl<'a: 'b, 'b, const LEN: usize> From<&'a UserHandle<[u8; LEN]>> for UserHandle<&'b [u8; LEN]> {
+    #[inline]
+    fn from(value: &'a UserHandle<[u8; LEN]>) -> Self {
+        Self(&value.0)
+    }
+}
+impl<'a: 'b, 'b, const LEN: usize> From<UserHandle<&'a [u8; LEN]>> for UserHandle<&'b [u8]> {
+    #[inline]
+    fn from(value: UserHandle<&'a [u8; LEN]>) -> Self {
+        Self(value.0.as_slice())
+    }
+}
+impl<'a: 'b, 'b, const LEN: usize> From<&'a UserHandle<[u8; LEN]>> for UserHandle<&'b [u8]> {
+    #[inline]
+    fn from(value: &'a UserHandle<[u8; LEN]>) -> Self {
+        Self(value.0.as_slice())
     }
 }
 impl<'a: 'b, 'b> From<&'a UserHandle<Vec<u8>>> for UserHandle<&'b Vec<u8>> {

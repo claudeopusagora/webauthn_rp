@@ -1163,12 +1163,13 @@ const fn base64url_nopad_len(n: usize) -> Option<usize> {
         // This won't overflow since this maxes at `isize::MAX` since
         // `n` <= ⌊3*isize::MAX/4⌋; thus `quot` <= ⌊isize::MAX/4⌋.
         // `n` can be partitioned into 4 possibilities:
-        // (1) n ≡ 0 (mod 4) = 4quot + 0 <= ⌊3*isize::MAX/4⌋
-        // (2) n ≡ 1 (mod 4) = 4quot + 1 <= ⌊3*isize::MAX/4⌋
-        // (3) n ≡ 2 (mod 4) = 4quot + 2 <= ⌊3*isize::MAX/4⌋
-        // (4) n ≡ 3 (mod 4) = 4quot + 3 <= ⌊3*isize::MAX/4⌋
+        // (1) n ≡ 0 (mod 4) = 4quot + 0
+        // (2) n ≡ 1 (mod 4) = 4quot + 1
+        // (3) n ≡ 2 (mod 4) = 4quot + 2
+        // (4) n ≡ 3 (mod 4) = 4quot + 3
         // For (1), rem is 0; thus 4quot + 0 = `n` which is fine.
-        // (2) is not possible per the proof in `webauthn_rp::base64url_nopad_decode_len`.
+        // For (2), rem is 1; thus 4quot + 2 = n - 1 + 2 = n + 1 <= ⌊3*isize::MAX/4⌋ + 1 <= isize::MAX for
+        // isize::MAX > 0. Clearly `isize::MAX > 0`; otherwise we couldn't allocate anything.
         // For (3), rem is 2; thus 4quot + 3 = n - 2 + 3 = n + 1 <= ⌊3*isize::MAX/4⌋ + 1 <= isize::MAX for
         // isize::MAX > 0. Clearly `isize::MAX > 0`; otherwise we couldn't allocate anything.
         // For (4), rem is 3; thus 4quot + 4 = n - 3 + 4 = n + 1 <= ⌊3*isize::MAX/4⌋ + 1 <= isize::MAX for
