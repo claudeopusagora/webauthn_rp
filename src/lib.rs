@@ -231,44 +231,44 @@ use crate::{
         register::bin::{DecodeDynamicStateErr, DecodeStaticStateErr},
     },
 };
-use crate::{
-    request::{
-        auth::error::{RequestOptionsErr, SecondFactorErr},
-        error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
-        register::{
-            error::{CreationOptionsErr, NicknameErr, UserHandleErr, UsernameErr},
-            ResidentKeyRequirement, UserHandle,
-        },
-    },
-    response::{
-        auth::error::{AuthCeremonyErr, AuthenticatorDataErr as AuthAuthDataErr},
-        error::CollectedClientDataErr,
-        register::{
-            error::{
-                AaguidErr, AttestationObjectErr, AuthenticatorDataErr as RegAuthDataErr,
-                RegCeremonyErr,
-            },
-            CredentialProtectionPolicy, DynamicState, Metadata, StaticState, UncompressedPubKey,
-        },
-        AuthTransports, CredentialId,
-    },
-};
 #[cfg(doc)]
 use crate::{
     request::{
-        auth::{AllowedCredential, AllowedCredentials},
-        register::{CoseAlgorithmIdentifier, Nickname, Username},
         AsciiDomain, DomainOrigin, FixedCapHashSet, Port, PublicKeyCredentialDescriptor, RpId,
         Scheme, ServerState, Url,
+        auth::{AllowedCredential, AllowedCredentials},
+        register::{CoseAlgorithmIdentifier, Nickname, Username},
     },
     response::{
+        CollectedClientData, Flag,
         auth::{self, AuthenticatorAssertion},
         register::{
             self, Aaguid, Attestation, AttestationObject, AttestedCredentialData,
             AuthenticatorExtensionOutput, ClientExtensionsOutputs, CompressedPubKey,
             CredentialPropertiesOutput,
         },
-        CollectedClientData, Flag,
+    },
+};
+use crate::{
+    request::{
+        auth::error::{RequestOptionsErr, SecondFactorErr},
+        error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
+        register::{
+            ResidentKeyRequirement, UserHandle,
+            error::{CreationOptionsErr, NicknameErr, UserHandleErr, UsernameErr},
+        },
+    },
+    response::{
+        AuthTransports, CredentialId,
+        auth::error::{AuthCeremonyErr, AuthenticatorDataErr as AuthAuthDataErr},
+        error::CollectedClientDataErr,
+        register::{
+            CredentialProtectionPolicy, DynamicState, Metadata, StaticState, UncompressedPubKey,
+            error::{
+                AaguidErr, AttestationObjectErr, AuthenticatorDataErr as RegAuthDataErr,
+                RegCeremonyErr,
+            },
+        },
     },
 };
 #[cfg(all(doc, feature = "bin"))]

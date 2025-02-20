@@ -253,6 +253,32 @@ impl From<&Challenge> for u128 {
 /// allowed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AsciiDomain(String);
+impl AsciiDomain {
+    /// Removes a trailing `'.'` if it exists.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::{error::AsciiDomainErr, AsciiDomain};
+    /// let mut dom = AsciiDomain::try_from("example.com.".to_owned())?;
+    /// dom.remove_trailing_dot();
+    /// assert_eq!(dom.as_ref(), "example.com");
+    /// # Ok::<_, AsciiDomainErr>(())
+    /// ```
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    #[inline]
+    pub fn remove_trailing_dot(&mut self) {
+        if *self
+            .0
+            .as_bytes()
+            .last()
+            .unwrap_or_else(|| unreachable!("there is a bug in AsciiDomain::try_from"))
+            == b'.'
+        {
+            self.0.pop();
+        }
+    }
+}
 impl AsRef<str> for AsciiDomain {
     #[inline]
     fn as_ref(&self) -> &str {
@@ -291,8 +317,9 @@ impl TryFrom<String> for AsciiDomain {
     /// Note it is _strongly_ encouraged for `value` to only contain letters, numbers, hyphens, and underscores;
     /// otherwise certain applications may consider it not a domain. If the original domain contains non-ASCII, then
     /// one must encode it in Punycode _before_ calling this function. Domains that have a trailing `'.'` will be
-    /// considered differently than domains without it; thus one will likely want to trim it if it does exist.
-    /// Because this allows any ASCII, one may want to ensure `value` is not an IPv4 address.
+    /// considered differently than domains without it; thus one will likely want to trim it if it does exist
+    /// (e.g., [`AsciiDomain::remove_trailing_dot`]). Because this allows any ASCII, one may want to ensure `value`
+    /// is not an IP address.
     ///
     /// # Examples
     ///
@@ -1800,7 +1827,9 @@ mod tests {
     #[cfg(feature = "custom")]
     use super::{
         super::{
+            AggErr, AuthenticatedCredential,
             response::{
+                AuthTransports, AuthenticatorAttachment, Backup, CredentialId,
                 auth::{Authentication, AuthenticatorAssertion},
                 register::{
                     AuthenticationExtensionsPrfOutputs, AuthenticatorAttestation,
@@ -1809,10 +1838,10 @@ mod tests {
                     CredentialProtectionPolicy, DynamicState, Ed25519PubKey, Registration,
                     RsaPubKey, StaticState, UncompressedPubKey,
                 },
-                AuthTransports, AuthenticatorAttachment, Backup, CredentialId,
             },
-            AggErr, AuthenticatedCredential,
         },
+        AsciiDomain, Challenge, Credentials, ExtensionInfo, ExtensionReq,
+        PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
         auth::{
             AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
             CredentialSpecificExtension, Extension as AuthExt, PrfInputOwned,
@@ -1822,8 +1851,6 @@ mod tests {
             CredProtect, Extension as RegExt, PublicKeyCredentialCreationOptions,
             PublicKeyCredentialUserEntity, RegistrationVerificationOptions, UserHandle,
         },
-        AsciiDomain, Challenge, Credentials, ExtensionInfo, ExtensionReq,
-        PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
     };
     #[cfg(feature = "custom")]
     use ed25519_dalek::{Signer, SigningKey};
@@ -1836,11 +1863,11 @@ mod tests {
     use p384::ecdsa::{DerSignature as P384DerSig, SigningKey as P384Key};
     #[cfg(feature = "custom")]
     use rsa::{
+        BigUint, RsaPrivateKey,
         pkcs1v15::SigningKey as RsaKey,
         sha2::{Digest, Sha256},
         signature::{Keypair, SignatureEncoding},
         traits::PublicKeyParts,
-        BigUint, RsaPrivateKey,
     };
     #[cfg(feature = "custom")]
     const CBOR_UINT: u8 = 0b000_00000;
