@@ -1,25 +1,25 @@
 extern crate alloc;
 use super::{
     super::{
+        DynamicState, Metadata, RegisteredCredential, StaticState,
         response::{
+            AuthenticatorAttachment,
             register::{
-                error::{ExtensionErr, RegCeremonyErr},
                 Attestation, AttestationFormat, AuthenticatorExtensionOutput,
                 AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputs,
                 CredentialProtectionPolicy, Registration, UncompressedPubKey,
+                error::{ExtensionErr, RegCeremonyErr},
             },
-            AuthenticatorAttachment,
         },
-        DynamicState, Metadata, RegisteredCredential, StaticState,
     },
-    register::error::{CreationOptionsErr, NicknameErr, UserHandleErr, UsernameErr},
     BackupReq, Ceremony, Challenge, CredentialMediationRequirement, ExtensionInfo, ExtensionReq,
     Hint, Origin, PublicKeyCredentialDescriptor, RpId, SentChallenge, ServerState,
-    UserVerificationRequirement, THREE_HUNDRED_THOUSAND,
+    THREE_HUNDRED_THOUSAND, UserVerificationRequirement,
+    register::error::{CreationOptionsErr, NicknameErr, UserHandleErr, UsernameErr},
 };
 #[cfg(doc)]
 use crate::{
-    request::{auth::PublicKeyCredentialRequestOptions, AsciiDomain, DomainOrigin, Url},
+    request::{AsciiDomain, DomainOrigin, Url, auth::PublicKeyCredentialRequestOptions},
     response::{AuthTransports, AuthenticatorTransport, Backup, CollectedClientData},
 };
 use alloc::borrow::Cow;
@@ -31,7 +31,7 @@ use core::{
     num::{NonZeroU32, NonZeroU64},
     time::Duration,
 };
-use precis_profiles::{precis_core::profile::Profile as _, UsernameCasePreserved};
+use precis_profiles::{UsernameCasePreserved, precis_core::profile::Profile as _};
 #[cfg(any(doc, not(feature = "serializable_server_state")))]
 use std::time::Instant;
 #[cfg(any(doc, feature = "serializable_server_state"))]
@@ -1401,7 +1401,9 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
 pub struct RegistrationClientState<'rp_id, 'user_name, 'user_display_name, 'user_handle>(
     PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_name, 'user_handle>,
 );
-impl RegistrationClientState<'_, '_, '_, '_> {
+impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
+    RegistrationClientState<'rp_id, 'user_name, 'user_display_name, 'user_handle>
+{
     /// Returns the `PublicKeyCredentialCreationOptions` that was used to start a registration ceremony.
     ///
     /// # Examples
@@ -1431,7 +1433,10 @@ impl RegistrationClientState<'_, '_, '_, '_> {
     /// ```
     #[inline]
     #[must_use]
-    pub const fn options(&self) -> &PublicKeyCredentialCreationOptions<'_, '_, '_, '_> {
+    pub const fn options(
+        &self,
+    ) -> &PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_name, 'user_handle>
+    {
         &self.0
     }
 }

@@ -1,29 +1,29 @@
 #[cfg(doc)]
 use super::{
     super::response::{
+        Backup, CollectedClientData, Flag,
         auth::AuthenticatorData,
         register::{DynamicState, StaticState},
-        Backup, CollectedClientData, Flag,
     },
-    register::{self, PublicKeyCredentialCreationOptions},
     AsciiDomain, DomainOrigin, Url,
+    register::{self, PublicKeyCredentialCreationOptions},
 };
 use super::{
     super::{
+        AuthenticatedCredential,
         response::{
+            AuthenticatorAttachment,
             auth::{
-                error::{AuthCeremonyErr, ExtensionErr, OneOrTwo},
                 Authentication, AuthenticatorExtensionOutput, HmacSecret,
+                error::{AuthCeremonyErr, ExtensionErr, OneOrTwo},
             },
             register::CompressedPubKey,
-            AuthenticatorAttachment,
         },
-        AuthenticatedCredential,
     },
-    auth::error::{RequestOptionsErr, SecondFactorErr},
     BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, Credentials, ExtensionReq, Hint,
     Origin, PublicKeyCredentialDescriptor, RpId, SentChallenge, ServerState,
-    UserVerificationRequirement, THREE_HUNDRED_THOUSAND,
+    THREE_HUNDRED_THOUSAND, UserVerificationRequirement,
+    auth::error::{RequestOptionsErr, SecondFactorErr},
 };
 use core::{
     borrow::Borrow,
@@ -185,7 +185,6 @@ impl Credentials for AllowedCredentials {
     /// assert!(AllowedCredentials::with_capacity(1).as_ref().is_empty());
     /// ```
     #[inline]
-    #[must_use]
     fn with_capacity(capacity: usize) -> Self {
         Self {
             creds: Vec::with_capacity(capacity),
@@ -503,7 +502,7 @@ impl<'rp_id, 'prf> PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
 /// This gets sent to the client ASAP.
 #[derive(Debug)]
 pub struct AuthenticationClientState<'rp_id, 'prf>(PublicKeyCredentialRequestOptions<'rp_id, 'prf>);
-impl AuthenticationClientState<'_, '_> {
+impl<'rp_id, 'prf> AuthenticationClientState<'rp_id, 'prf> {
     /// Returns the `PublicKeyCredentialRequestOptions` that was used to start an authentication ceremony.
     ///
     /// # Examples
@@ -523,7 +522,7 @@ impl AuthenticationClientState<'_, '_> {
     /// ```
     #[inline]
     #[must_use]
-    pub const fn options(&self) -> &PublicKeyCredentialRequestOptions<'_, '_> {
+    pub const fn options(&self) -> &PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
         &self.0
     }
 }
