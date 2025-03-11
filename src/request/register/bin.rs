@@ -10,7 +10,10 @@ use core::{
     fmt::{self, Display, Formatter},
 };
 impl<T: AsRef<[u8]>> Encode for UserHandle<T> {
-    type Output<'a> = &'a [u8] where Self: 'a;
+    type Output<'a>
+        = &'a [u8]
+    where
+        Self: 'a;
     type Err = Infallible;
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
@@ -28,8 +31,22 @@ impl Decode for UserHandle<Vec<u8>> {
         }
     }
 }
+impl<const LEN: usize> Decode for UserHandle<[u8; LEN]>
+where
+    Self: Default,
+{
+    type Input<'a> = [u8; LEN];
+    type Err = Infallible;
+    #[inline]
+    fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
+        Ok(Self(input))
+    }
+}
 impl Encode for Nickname<'_> {
-    type Output<'a> = &'a str where Self: 'a;
+    type Output<'a>
+        = &'a str
+    where
+        Self: 'a;
     type Err = Infallible;
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
@@ -77,7 +94,10 @@ impl Decode for Nickname<'_> {
     }
 }
 impl Encode for Username<'_> {
-    type Output<'a> = &'a str where Self: 'a;
+    type Output<'a>
+        = &'a str
+    where
+        Self: 'a;
     type Err = Infallible;
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
