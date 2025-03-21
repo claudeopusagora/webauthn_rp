@@ -258,7 +258,7 @@ impl<'a> DecodeBuffer<'a> for u128 {
         reason = "we must standardize the endianness to remove ambiguity"
     )]
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        data.split_at_checked(8)
+        data.split_at_checked(16)
             .ok_or(EncDecErr)
             .map(|(le_bytes, rem)| {
                 *data = rem;

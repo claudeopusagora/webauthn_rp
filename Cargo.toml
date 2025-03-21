@@ -10,7 +10,7 @@ name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
 rust-version = "1.85.0"
-version = "0.2.6"
+version = "0.2.7"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -23,7 +23,7 @@ p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.13.1", default-features = false, features = ["ecdsa"] }
 precis-profiles = { version = "0.1.11", default-features = false }
 rand = { version = "0.9.0", default-features = false, features = ["thread_rng"] }
-rsa = { version = "0.9.7", default-features = false, features = ["sha2"] }
+rsa = { version = "0.9.8", default-features = false, features = ["sha2"] }
 serde = { version = "1.0.219", default-features = false, features = ["alloc"], optional = true }
 serde_json = { version = "1.0.140", default-features = false, features = ["alloc"], optional = true }
 url = { version = "2.5.4", default-features = false }

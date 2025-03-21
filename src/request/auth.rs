@@ -1171,3 +1171,235 @@ impl Ord for AuthenticationServerState {
         self.challenge.cmp(&other.challenge)
     }
 }
+#[cfg(test)]
+mod tests {
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    use super::{
+        super::{
+            super::{
+                AggErr,
+                bin::{Decode as _, Encode as _},
+            },
+            AsciiDomain, AuthTransports,
+        },
+        AllowedCredential, AllowedCredentials, AuthenticationServerState, Challenge, CredentialId,
+        CredentialSpecificExtension, Credentials as _, Extension, ExtensionReq, PrfInputOwned,
+        PublicKeyCredentialDescriptor, PublicKeyCredentialRequestOptions, RpId, ServerPrfInfo,
+        UserVerificationRequirement,
+    };
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    use rsa::sha2::{Digest as _, Sha256};
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_BYTES: u8 = 0b010_00000;
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_TEXT: u8 = 0b011_00000;
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_MAP: u8 = 0b101_00000;
+    #[test]
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    fn ed25519_auth_ser() -> Result<(), AggErr> {
+        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
+        let mut creds = AllowedCredentials::with_capacity(1);
+        creds.push(AllowedCredential {
+            credential: PublicKeyCredentialDescriptor {
+                id: CredentialId::try_from(vec![0; 16])?,
+                transports: AuthTransports::NONE,
+            },
+            extension: CredentialSpecificExtension {
+                prf: Some(PrfInputOwned {
+                    first: Vec::new(),
+                    second: Some(Vec::new()),
+                    ext_info: ExtensionReq::Require,
+                }),
+            },
+        });
+        let mut opts = PublicKeyCredentialRequestOptions::second_factor(&rp_id, creds)?;
+        opts.user_verification = UserVerificationRequirement::Required;
+        opts.challenge = Challenge(0);
+        opts.extensions = Extension { prf: None };
+        let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
+        // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
+        let mut authenticator_data = Vec::with_capacity(164);
+        authenticator_data.extend_from_slice(
+            [
+                // rpIdHash.
+                // This will be overwritten later.
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // flags.
+                // UP, UV, and ED (right-to-left).
+                0b1000_0101,
+                // signCount.
+                // 0 as 32-bit big endian.
+                0,
+                0,
+                0,
+                0,
+                CBOR_MAP | 1,
+                CBOR_TEXT | 11,
+                b'h',
+                b'm',
+                b'a',
+                b'c',
+                b'-',
+                b's',
+                b'e',
+                b'c',
+                b'r',
+                b'e',
+                b't',
+                CBOR_BYTES | 24,
+                // Length is 80.
+                80,
+                // Two HMAC outputs concatenated and encrypted.
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ]
+            .as_slice(),
+        );
+        authenticator_data[..32]
+            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+        authenticator_data
+            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        authenticator_data.truncate(132);
+        let server = opts.start_ceremony()?.0;
+        let server_2 = AuthenticationServerState::decode(server.encode()?.as_slice())?;
+        assert_eq!(server.challenge.0, server_2.challenge.0);
+        assert_eq!(server.allow_credentials.len(), 1);
+        assert_eq!(
+            server.allow_credentials.len(),
+            server_2.allow_credentials.len()
+        );
+        assert_eq!(
+            server.allow_credentials[0].id,
+            server_2.allow_credentials[0].id
+        );
+        assert!(matches!(
+            server.allow_credentials[0].ext.prf.unwrap(),
+            ServerPrfInfo::Two(req) if matches!(req, ExtensionReq::Require)
+        ));
+        assert!(server_2.allow_credentials[0].ext.prf.map_or(false, |prf| {
+            matches!(prf, ServerPrfInfo::Two(req) if matches!(req, ExtensionReq::Require))
+        }));
+        assert!(
+            matches!(
+                server.user_verification,
+                UserVerificationRequirement::Required
+            ) && matches!(
+                server_2.user_verification,
+                UserVerificationRequirement::Required
+            )
+        );
+        assert!(server.extensions.prf.is_none() && server_2.extensions.prf.is_none());
+        assert_eq!(server.expiration, server_2.expiration);
+        Ok(())
+    }
+}

@@ -1744,3 +1744,424 @@ impl Ord for RegistrationServerState {
         self.challenge.cmp(&other.challenge)
     }
 }
+#[cfg(test)]
+mod tests {
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    use super::{
+        super::{
+            super::{
+                AggErr,
+                bin::{Decode as _, Encode as _},
+            },
+            AsciiDomain,
+        },
+        AuthenticatorAttachmentReq, Challenge, CredProtect, CredentialMediationRequirement,
+        Extension, ExtensionInfo, Hint, PublicKeyCredentialCreationOptions,
+        PublicKeyCredentialUserEntity, RegistrationServerState, ResidentKeyRequirement, RpId,
+        UserHandle, UserVerificationRequirement,
+    };
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    use ed25519_dalek::{Signer as _, SigningKey};
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    use rsa::sha2::{Digest as _, Sha256};
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_UINT: u8 = 0b000_00000;
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_NEG: u8 = 0b001_00000;
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_BYTES: u8 = 0b010_00000;
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_TEXT: u8 = 0b011_00000;
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_MAP: u8 = 0b101_00000;
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_SIMPLE: u8 = 0b111_00000;
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    const CBOR_TRUE: u8 = CBOR_SIMPLE | 21;
+    #[test]
+    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    fn ed25519_reg_ser() -> Result<(), AggErr> {
+        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
+        let id = UserHandle::try_from([0; 1].as_slice())?;
+        let mut opts = PublicKeyCredentialCreationOptions::passkey(
+            &rp_id,
+            PublicKeyCredentialUserEntity {
+                name: "foo".try_into()?,
+                id,
+                display_name: None,
+            },
+            Vec::new(),
+        );
+        opts.challenge = Challenge(0);
+        opts.extensions = Extension {
+            cred_props: None,
+            cred_protect: CredProtect::UserVerificationRequired(ExtensionInfo::RequireEnforceValue),
+            min_pin_length: Some((10, ExtensionInfo::RequireEnforceValue)),
+            prf: Some(ExtensionInfo::RequireEnforceValue),
+        };
+        let client_data_json = br#"{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
+        // We over-allocate by 32 bytes. See [`AuthenticatorAttestation::new`] for more information.
+        let mut attestation_object = Vec::new();
+        attestation_object.extend_from_slice(
+            [
+                CBOR_MAP | 3,
+                CBOR_TEXT | 3,
+                b'f',
+                b'm',
+                b't',
+                CBOR_TEXT | 6,
+                b'p',
+                b'a',
+                b'c',
+                b'k',
+                b'e',
+                b'd',
+                CBOR_TEXT | 7,
+                b'a',
+                b't',
+                b't',
+                b'S',
+                b't',
+                b'm',
+                b't',
+                CBOR_MAP | 2,
+                CBOR_TEXT | 3,
+                b'a',
+                b'l',
+                b'g',
+                // COSE EdDSA.
+                CBOR_NEG | 7,
+                CBOR_TEXT | 3,
+                b's',
+                b'i',
+                b'g',
+                CBOR_BYTES | 24,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                CBOR_TEXT | 8,
+                b'a',
+                b'u',
+                b't',
+                b'h',
+                b'D',
+                b'a',
+                b't',
+                b'a',
+                CBOR_BYTES | 24,
+                // Length is 154.
+                154,
+                // RP ID HASH.
+                // This will be overwritten later.
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // FLAGS.
+                // UP, UV, AT, and ED (right-to-left).
+                0b1100_0101,
+                // COUNTER.
+                // 0 as 32-bit big endian.
+                0,
+                0,
+                0,
+                0,
+                // AAGUID.
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // L.
+                // CREDENTIAL ID length is 16 as 16-bit big endian.
+                0,
+                16,
+                // CREDENTIAL ID.
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                CBOR_MAP | 4,
+                // COSE kty.
+                CBOR_UINT | 1,
+                // COSE OKP.
+                CBOR_UINT | 1,
+                // COSE alg.
+                CBOR_UINT | 3,
+                // COSE EdDSA.
+                CBOR_NEG | 7,
+                // COSE OKP crv.
+                CBOR_NEG,
+                // COSE Ed25519.
+                CBOR_UINT | 6,
+                // COSE OKP x.
+                CBOR_NEG | 1,
+                CBOR_BYTES | 24,
+                // Length is 32.
+                32,
+                // Compressed-y coordinate.
+                // This will be overwritten later.
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                CBOR_MAP | 3,
+                CBOR_TEXT | 11,
+                b'c',
+                b'r',
+                b'e',
+                b'd',
+                b'P',
+                b'r',
+                b'o',
+                b't',
+                b'e',
+                b'c',
+                b't',
+                // userVerificationRequired.
+                CBOR_UINT | 3,
+                // CBOR text of length 11.
+                CBOR_TEXT | 11,
+                b'h',
+                b'm',
+                b'a',
+                b'c',
+                b'-',
+                b's',
+                b'e',
+                b'c',
+                b'r',
+                b'e',
+                b't',
+                CBOR_TRUE,
+                CBOR_TEXT | 12,
+                b'm',
+                b'i',
+                b'n',
+                b'P',
+                b'i',
+                b'n',
+                b'L',
+                b'e',
+                b'n',
+                b'g',
+                b't',
+                b'h',
+                CBOR_UINT | 16,
+            ]
+            .as_slice(),
+        );
+        attestation_object
+            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        let sig_key = SigningKey::from_bytes(&[0; 32]);
+        let ver_key = sig_key.verifying_key();
+        let pub_key = ver_key.as_bytes();
+        attestation_object[107..139]
+            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+        attestation_object[188..220].copy_from_slice(pub_key);
+        let sig = sig_key.sign(&attestation_object[107..]);
+        attestation_object[32..96].copy_from_slice(sig.to_bytes().as_slice());
+        attestation_object.truncate(261);
+        let server = opts.start_ceremony()?.0;
+        let server_2 = RegistrationServerState::decode(server.encode()?.as_slice())?;
+        assert!(
+            matches!(server.mediation, CredentialMediationRequirement::Optional)
+                && matches!(server_2.mediation, CredentialMediationRequirement::Optional)
+        );
+        assert_eq!(server.challenge.0, server_2.challenge.0);
+        assert_eq!(server.pub_key_cred_params.0, server_2.pub_key_cred_params.0);
+        assert!(
+            matches!(server.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+                && matches!(server_2.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+        );
+        assert!(
+            matches!(
+                server.authenticator_selection.resident_key,
+                ResidentKeyRequirement::Required
+            ) && matches!(
+                server_2.authenticator_selection.resident_key,
+                ResidentKeyRequirement::Required
+            )
+        );
+        assert!(
+            matches!(
+                server.authenticator_selection.user_verification,
+                UserVerificationRequirement::Required
+            ) && matches!(
+                server_2.authenticator_selection.user_verification,
+                UserVerificationRequirement::Required
+            )
+        );
+        assert!(server.extensions.cred_props.is_none() && server_2.extensions.cred_props.is_none());
+        assert!(
+            matches!(
+                server.extensions.cred_protect,
+                CredProtect::UserVerificationRequired(info) if matches!(info, ExtensionInfo::RequireEnforceValue)
+            ) && matches!(
+                server_2.extensions.cred_protect,
+                CredProtect::UserVerificationRequired(info) if matches!(info, ExtensionInfo::RequireEnforceValue)
+            )
+        );
+        let (pin, info) = server.extensions.min_pin_length.unwrap();
+        assert!(
+            server_2
+                .extensions
+                .min_pin_length
+                .map_or(false, |(pin2, info2)| pin == pin2
+                    && matches!(info, ExtensionInfo::RequireEnforceValue)
+                    && matches!(info2, ExtensionInfo::RequireEnforceValue))
+        );
+        assert!(
+            matches!(
+                server.extensions.prf.unwrap(),
+                ExtensionInfo::RequireEnforceValue
+            ) && server_2.extensions.prf.map_or(false, |info| matches!(
+                info,
+                ExtensionInfo::RequireEnforceValue
+            ))
+        );
+        assert_eq!(server.expiration, server_2.expiration);
+        Ok(())
+    }
+}
