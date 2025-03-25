@@ -102,6 +102,17 @@ impl Decode for CredentialId<Vec<u8>> {
         }
     }
 }
+impl<'b> Decode for CredentialId<&'b [u8]> {
+    type Input<'a> = &'b [u8];
+    type Err = CredentialIdErr;
+    #[inline]
+    fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
+        match CredentialId::from_slice(input) {
+            Ok(_) => Ok(Self(input)),
+            Err(e) => Err(e),
+        }
+    }
+}
 impl EncodeBuffer for CredentialId<&[u8]> {
     #[expect(clippy::unreachable, reason = "when there is a bug, we want to crash")]
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {

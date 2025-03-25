@@ -612,6 +612,15 @@ impl ServerPrfInfo {
         }
     }
 }
+#[cfg(test)]
+impl PartialEq for ServerPrfInfo {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::One(req) => matches!(*other, Self::One(req2) if req == req2),
+            Self::Two(req) => matches!(*other, Self::Two(req2) if req == req2),
+        }
+    }
+}
 impl From<PrfInput<'_>> for ServerPrfInfo {
     fn from(value: PrfInput<'_>) -> Self {
         value
@@ -641,12 +650,24 @@ impl From<Extension<'_>> for ServerExtensionInfo {
         }
     }
 }
+#[cfg(test)]
+impl PartialEq for ServerExtensionInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.prf == other.prf
+    }
+}
 /// `CredentialSpecificExtension` without the actual data sent to reduce memory usage when storing [`AuthenticationServerState`]
 /// in an in-memory collection.
 #[derive(Clone, Copy, Debug)]
 struct ServerCredSpecificExtensionInfo {
     /// `CredentialSpecificExtension::prf`.
     prf: Option<ServerPrfInfo>,
+}
+#[cfg(test)]
+impl PartialEq for ServerCredSpecificExtensionInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.prf == other.prf
+    }
 }
 impl From<&CredentialSpecificExtension> for ServerCredSpecificExtensionInfo {
     fn from(value: &CredentialSpecificExtension) -> Self {
@@ -717,6 +738,12 @@ struct CredInfo {
     id: CredentialId<Vec<u8>>,
     /// Any credential-specific extensions.
     ext: ServerCredSpecificExtensionInfo,
+}
+#[cfg(test)]
+impl PartialEq for CredInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.ext == other.ext
+    }
 }
 /// Controls how to handle a change in [`DynamicState::authenticator_attachment`].
 ///
@@ -929,10 +956,11 @@ impl AuthenticationServerState {
         P256Key: AsRef<[u8]>,
         P384Key: AsRef<[u8]>,
         RsaKey: AsRef<[u8]>,
+        User: AsRef<[u8]>,
     >(
         self,
         rp_id: &RpId,
-        response: &'a Authentication,
+        response: &'a Authentication<User>,
         cred: &mut AuthenticatedCredential<
             'a,
             'user,
@@ -1070,9 +1098,9 @@ impl AuthenticationServerState {
     /// Errors iff [`AuthenticatedCredential::user_handle`] does not match [`Authentication::user_handle`] or
     /// [`PublicKeyCredentialRequestOptions::allow_credentials`] does not have a [`CredInfo`] such that
     /// [`CredInfo::id`] matches [`Authentication::raw_id`].
-    fn verify_nondiscoverable<'a, PublicKey>(
+    fn verify_nondiscoverable<'a, PublicKey, User: AsRef<[u8]>>(
         &self,
-        response: &'a Authentication,
+        response: &'a Authentication<User>,
         cred: &AuthenticatedCredential<'a, '_, PublicKey>,
     ) -> Result<Option<ServerCredSpecificExtensionInfo>, AuthCeremonyErr> {
         response
@@ -1094,6 +1122,14 @@ impl AuthenticationServerState {
                     .map(|c| Some(c.ext))
             })
     }
+    #[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
+    fn is_eq(&self, other: &Self) -> bool {
+        self.challenge == other.challenge
+            && self.allow_credentials == other.allow_credentials
+            && self.user_verification == other.user_verification
+            && self.extensions == other.extensions
+            && self.expiration == other.expiration
+    }
 }
 impl ServerState for AuthenticationServerState {
     #[cfg(any(doc, not(feature = "serializable_server_state")))]
@@ -1111,8 +1147,8 @@ impl ServerState for AuthenticationServerState {
         self.challenge
     }
 }
-impl Ceremony for AuthenticationServerState {
-    type R = Authentication;
+impl<User> Ceremony<User> for AuthenticationServerState {
+    type R = Authentication<User>;
     fn rand_challenge(&self) -> SentChallenge {
         self.challenge
     }
@@ -1184,7 +1220,7 @@ mod tests {
         },
         AllowedCredential, AllowedCredentials, AuthenticationServerState, Challenge, CredentialId,
         CredentialSpecificExtension, Credentials as _, Extension, ExtensionReq, PrfInputOwned,
-        PublicKeyCredentialDescriptor, PublicKeyCredentialRequestOptions, RpId, ServerPrfInfo,
+        PublicKeyCredentialDescriptor, PublicKeyCredentialRequestOptions, RpId,
         UserVerificationRequirement,
     };
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
@@ -1371,35 +1407,9 @@ mod tests {
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
         authenticator_data.truncate(132);
         let server = opts.start_ceremony()?.0;
-        let server_2 = AuthenticationServerState::decode(server.encode()?.as_slice())?;
-        assert_eq!(server.challenge.0, server_2.challenge.0);
-        assert_eq!(server.allow_credentials.len(), 1);
-        assert_eq!(
-            server.allow_credentials.len(),
-            server_2.allow_credentials.len()
-        );
-        assert_eq!(
-            server.allow_credentials[0].id,
-            server_2.allow_credentials[0].id
-        );
-        assert!(matches!(
-            server.allow_credentials[0].ext.prf.unwrap(),
-            ServerPrfInfo::Two(req) if matches!(req, ExtensionReq::Require)
-        ));
-        assert!(server_2.allow_credentials[0].ext.prf.map_or(false, |prf| {
-            matches!(prf, ServerPrfInfo::Two(req) if matches!(req, ExtensionReq::Require))
-        }));
-        assert!(
-            matches!(
-                server.user_verification,
-                UserVerificationRequirement::Required
-            ) && matches!(
-                server_2.user_verification,
-                UserVerificationRequirement::Required
-            )
-        );
-        assert!(server.extensions.prf.is_none() && server_2.extensions.prf.is_none());
-        assert_eq!(server.expiration, server_2.expiration);
+        assert!(server.is_eq(&AuthenticationServerState::decode(
+            server.encode()?.as_slice()
+        )?));
         Ok(())
     }
 }

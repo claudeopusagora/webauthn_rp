@@ -1,24 +1,27 @@
+#[cfg(feature = "serde_relaxed")]
+use self::{
+    super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr},
+    ser_relaxed::{AuthenticationRelaxed, CustomAuthentication},
+};
 #[cfg(all(doc, feature = "serde_relaxed"))]
 use super::super::request::FixedCapHashSet;
 #[cfg(doc)]
 use super::super::{
-    request::{
-        auth::{AuthenticationServerState, PublicKeyCredentialRequestOptions},
-        Challenge,
-    },
     AuthenticatedCredential, RegisteredCredential, StaticState,
+    request::{
+        Challenge,
+        auth::{AuthenticationServerState, PublicKeyCredentialRequestOptions},
+    },
 };
-#[cfg(feature = "serde_relaxed")]
-use super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr};
 use super::{
     super::UserHandle,
+    AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthenticatorAttachment,
+    CborSuccess, ClientDataJsonParser as _, CollectedClientData, CredentialId, Flag, FromCbor,
+    LimitedVerificationParser, ParsedAuthData, Response, SentChallenge,
     auth::error::{AuthenticatorDataErr, AuthenticatorExtensionOutputErr},
     cbor,
     error::CollectedClientDataErr,
     register::CompressedPubKey,
-    AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthenticatorAttachment,
-    CborSuccess, ClientDataJsonParser as _, CollectedClientData, CredentialId, Flag, FromCbor,
-    LimitedVerificationParser, ParsedAuthData, Response, SentChallenge,
 };
 use core::convert::Infallible;
 use ed25519_dalek::{Signature, Verifier as _};
@@ -26,8 +29,10 @@ use p256::ecdsa::DerSignature as P256DerSig;
 use p384::ecdsa::DerSignature as P384DerSig;
 use rsa::{
     pkcs1v15,
-    sha2::{digest::Digest as _, Sha256},
+    sha2::{Sha256, digest::Digest as _},
 };
+#[cfg(feature = "serde_relaxed")]
+use serde::Deserialize;
 /// Contains error types.
 pub mod error;
 /// Contains functionality to deserialize data from a client.
@@ -273,7 +278,7 @@ impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AuthenticatorData<'b> {
 }
 /// [`AuthenticatorAssertionResponse`](https://www.w3.org/TR/webauthn-3/#authenticatorassertionresponse).
 #[derive(Debug)]
-pub struct AuthenticatorAssertion {
+pub struct AuthenticatorAssertion<User> {
     /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     client_data_json: Vec<u8>,
     /// [`authenticatorData`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-authenticatordata)
@@ -282,9 +287,9 @@ pub struct AuthenticatorAssertion {
     /// [`signature`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-signature).
     signature: Vec<u8>,
     /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
-    user_handle: Option<UserHandle<Vec<u8>>>,
+    user_handle: Option<UserHandle<User>>,
 }
-impl AuthenticatorAssertion {
+impl<User> AuthenticatorAssertion<User> {
     /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     #[inline]
     #[must_use]
@@ -312,23 +317,15 @@ impl AuthenticatorAssertion {
     pub fn signature(&self) -> &[u8] {
         self.signature.as_slice()
     }
-    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
-    #[inline]
-    #[must_use]
-    pub fn user_handle(&self) -> Option<UserHandle<&[u8]>> {
-        self.user_handle.as_ref().map(UserHandle::from)
-    }
     /// Constructs an instance of `Self` with the contained data.
     ///
     /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
     /// of available capacity; if not, a reallocation will occur.
-    #[inline]
-    #[must_use]
-    pub fn new(
+    fn new_inner(
         client_data_json: Vec<u8>,
         mut authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: Option<UserHandle<Vec<u8>>>,
+        user_handle: Option<UserHandle<User>>,
     ) -> Self {
         authenticator_data
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
@@ -340,7 +337,79 @@ impl AuthenticatorAssertion {
         }
     }
 }
-impl AuthResponse for AuthenticatorAssertion {
+impl<User: AsRef<[u8]>> AuthenticatorAssertion<User> {
+    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
+    #[inline]
+    #[must_use]
+    pub fn user_handle(&self) -> Option<UserHandle<&[u8]>> {
+        self.user_handle.as_ref().map(UserHandle::as_slice)
+    }
+}
+impl AuthenticatorAssertion<Vec<u8>> {
+    /// Constructs an instance of `Self` with the contained data.
+    ///
+    /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
+    /// of available capacity; if not, a reallocation will occur.
+    #[inline]
+    #[must_use]
+    pub fn new_user_vec(
+        client_data_json: Vec<u8>,
+        authenticator_data: Vec<u8>,
+        signature: Vec<u8>,
+        user_handle: Option<UserHandle<Vec<u8>>>,
+    ) -> Self {
+        Self::new_inner(client_data_json, authenticator_data, signature, user_handle)
+    }
+    /// Same as [`Self::new_user_vec`] except `user_handle` is required.
+    #[inline]
+    #[must_use]
+    pub fn with_user_vec(
+        client_data_json: Vec<u8>,
+        authenticator_data: Vec<u8>,
+        signature: Vec<u8>,
+        user_handle: UserHandle<Vec<u8>>,
+    ) -> Self {
+        Self::new_inner(
+            client_data_json,
+            authenticator_data,
+            signature,
+            Some(user_handle),
+        )
+    }
+}
+impl<const USER_LEN: usize> AuthenticatorAssertion<[u8; USER_LEN]> {
+    /// Constructs an instance of `Self` with the contained data.
+    ///
+    /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
+    /// of available capacity; if not, a reallocation will occur.
+    #[inline]
+    #[must_use]
+    pub fn new(
+        client_data_json: Vec<u8>,
+        authenticator_data: Vec<u8>,
+        signature: Vec<u8>,
+        user_handle: Option<UserHandle<[u8; USER_LEN]>>,
+    ) -> Self {
+        Self::new_inner(client_data_json, authenticator_data, signature, user_handle)
+    }
+    /// Same as [`Self::new`] except `user_handle` is required.
+    #[inline]
+    #[must_use]
+    pub fn with_user(
+        client_data_json: Vec<u8>,
+        authenticator_data: Vec<u8>,
+        signature: Vec<u8>,
+        user_handle: UserHandle<[u8; USER_LEN]>,
+    ) -> Self {
+        Self::new_inner(
+            client_data_json,
+            authenticator_data,
+            signature,
+            Some(user_handle),
+        )
+    }
+}
+impl<User> AuthResponse for AuthenticatorAssertion<User> {
     type Auth<'a>
         = AuthenticatorData<'a>
     where
@@ -356,25 +425,31 @@ impl AuthResponse for AuthenticatorAssertion {
     > {
         /// Always `panic`s.
         #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
+        #[expect(
+            clippy::extra_unused_type_parameters,
+            reason = "same function signature as when serde_relaxed is enabled"
+        )]
         #[cfg(not(feature = "serde_relaxed"))]
-        fn get_client_collected_data(_: &[u8]) -> ! {
-            unreachable!("AuthenticatorAssertion::parse_data_and_verify_sig must be passed false when serde_relaxed is not enabled");
+        fn get_client_collected_data<'b, U: 'b>(_: &'b [u8]) -> ! {
+            unreachable!(
+                "AuthenticatorAssertion::parse_data_and_verify_sig must be passed false when serde_relaxed is not enabled"
+            );
         }
         /// Parses `data` using `CollectedClientData::from_client_data_json_relaxed::<false>`.
         #[cfg(feature = "serde_relaxed")]
-        fn get_client_collected_data(
-            data: &[u8],
+        fn get_client_collected_data<'b, U: 'b>(
+            data: &'b [u8],
         ) -> Result<
-            CollectedClientData<'_>,
+            CollectedClientData<'b>,
             AuthRespErr<
-                <<AuthenticatorAssertion as AuthResponse>::Auth<'_> as AuthDataContainer<'_>>::Err,
+                <<AuthenticatorAssertion<U> as AuthResponse>::Auth<'b> as AuthDataContainer<'b>>::Err,
             >,
-        > {
+        >{
             CollectedClientData::from_client_data_json_relaxed::<false>(data)
                 .map_err(AuthRespErr::CollectedClientDataRelaxed)
         }
         if relaxed {
-            get_client_collected_data(self.client_data_json.as_slice())
+            get_client_collected_data::<'_, User>(self.client_data_json.as_slice())
         } else {
             CollectedClientData::from_client_data_json::<false>(self.client_data_json.as_slice())
                 .map_err(AuthRespErr::CollectedClientData)
@@ -448,15 +523,15 @@ impl AuthResponse for AuthenticatorAssertion {
     reason = "no invariants to uphold"
 )]
 #[derive(Debug)]
-pub struct Authentication {
+pub struct Authentication<User> {
     /// [`rawId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-rawid).
     pub(crate) raw_id: CredentialId<Vec<u8>>,
     /// [`response`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-response)
-    pub(crate) response: AuthenticatorAssertion,
+    pub(crate) response: AuthenticatorAssertion<User>,
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-authenticatorattachment).
     pub(crate) authenticator_attachment: AuthenticatorAttachment,
 }
-impl Authentication {
+impl<User> Authentication<User> {
     /// [`rawId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-rawid).
     #[inline]
     #[must_use]
@@ -466,7 +541,7 @@ impl Authentication {
     /// [`response`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-response).
     #[inline]
     #[must_use]
-    pub const fn response(&self) -> &AuthenticatorAssertion {
+    pub const fn response(&self) -> &AuthenticatorAssertion<User> {
         &self.response
     }
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-authenticatorattachment).
@@ -482,7 +557,7 @@ impl Authentication {
     #[must_use]
     pub const fn new(
         raw_id: CredentialId<Vec<u8>>,
-        response: AuthenticatorAssertion,
+        response: AuthenticatorAssertion<User>,
         authenticator_attachment: AuthenticatorAttachment,
     ) -> Self {
         Self {
@@ -533,9 +608,37 @@ impl Authentication {
             self.response.client_data_json.as_slice(),
         )
     }
+    /// Convenience function for [`AuthenticationRelaxed::deserialize`].
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`AuthenticationRelaxed::deserialize`] does.
+    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
+    #[cfg(feature = "serde_relaxed")]
+    #[inline]
+    pub fn from_json_relaxed<'a>(json: &'a [u8]) -> Result<Self, SerdeJsonErr>
+    where
+        UserHandle<User>: Deserialize<'a>,
+    {
+        serde_json::from_slice::<AuthenticationRelaxed<User>>(json).map(|val| val.0)
+    }
+    /// Convenience function for [`CustomAuthentication::deserialize`].
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`CustomAuthentication::deserialize`] does.
+    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
+    #[cfg(feature = "serde_relaxed")]
+    #[inline]
+    pub fn from_json_custom<'a>(json: &'a [u8]) -> Result<Self, SerdeJsonErr>
+    where
+        UserHandle<User>: Deserialize<'a>,
+    {
+        serde_json::from_slice::<CustomAuthentication<User>>(json).map(|val| val.0)
+    }
 }
-impl Response for Authentication {
-    type Auth = AuthenticatorAssertion;
+impl<User> Response for Authentication<User> {
+    type Auth = AuthenticatorAssertion<User>;
     fn auth(&self) -> &Self::Auth {
         &self.response
     }

@@ -22,7 +22,7 @@ use core::{
     str,
 };
 use data_encoding::BASE64URL_NOPAD;
-use rsa::sha2::{digest::OutputSizeUser as _, Sha256};
+use rsa::sha2::{Sha256, digest::OutputSizeUser as _};
 use serde::de::{Deserialize, Deserializer, Error, IgnoredAny, MapAccess, Unexpected, Visitor};
 /// Functionality for deserializing DER-encoded `SubjectPublicKeyInfo` _without_ making copies of data or
 /// verifying the key is valid. This exists purely to ensure that the public key we receive in JSON is the same as
@@ -34,8 +34,8 @@ mod spki {
     };
     use core::fmt::{self, Display, Formatter};
     use p256::{
-        elliptic_curve::{generic_array::typenum::type_operators::ToInt as _, Curve},
         NistP256,
+        elliptic_curve::{Curve, generic_array::typenum::type_operators::ToInt as _},
     };
     use p384::NistP384;
     /// Value assigned to the integer type under the universal tag class per
@@ -703,7 +703,10 @@ impl<'e, const I: bool> Deserialize<'e> for AttestField<I> {
         impl<const IG: bool> Visitor<'_> for AttestFieldVisitor<IG> {
             type Value = AttestField<IG>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                write!(formatter, "'{CLIENT_DATA_JSON}', '{ATTESTATION_OBJECT}', '{AUTHENTICATOR_DATA}', '{TRANSPORTS}', '{PUBLIC_KEY}', or '{PUBLIC_KEY_ALGORITHM}'")
+                write!(
+                    formatter,
+                    "'{CLIENT_DATA_JSON}', '{ATTESTATION_OBJECT}', '{AUTHENTICATOR_DATA}', '{TRANSPORTS}', '{PUBLIC_KEY}', or '{PUBLIC_KEY_ALGORITHM}'"
+                )
             }
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
@@ -735,7 +738,7 @@ impl<'e, const I: bool> Deserialize<'e> for AttestField<I> {
 /// a `Vec` that contains the attestation object and hash for signature verification. Calling code
 /// can avoid any reallocation that would occur when the capacity is not large enough by ensuring the
 /// passed `Vec` has at least 32 bytes of available capacity.
-struct AttObj(Vec<u8>);
+pub(super) struct AttObj(pub Vec<u8>);
 impl<'e> Deserialize<'e> for AttObj {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -1382,37 +1385,38 @@ impl<'de> Deserialize<'de> for Registration {
 mod tests {
     use super::{
         super::{
-            cbor, AuthenticatorAttachment, Ed25519PubKey, Registration, RsaPubKey,
-            UncompressedP256PubKey, UncompressedP384PubKey, ALG, EC2, EDDSA, ES256, ES384, KTY,
-            OKP, RSA,
+            ALG, AuthenticatorAttachment, EC2, EDDSA, ES256, ES384, Ed25519PubKey, KTY, OKP, RSA,
+            Registration, RsaPubKey, UncompressedP256PubKey, UncompressedP384PubKey, cbor,
         },
-        spki::SubjectPublicKeyInfo,
         CoseAlgorithmIdentifier,
+        spki::SubjectPublicKeyInfo,
     };
     use data_encoding::BASE64URL_NOPAD;
-    use ed25519_dalek::{pkcs8::EncodePublicKey, VerifyingKey};
+    use ed25519_dalek::{VerifyingKey, pkcs8::EncodePublicKey};
     use p256::{
-        elliptic_curve::sec1::{FromEncodedPoint as _, ToEncodedPoint as _},
         EncodedPoint as P256Pt, PublicKey as P256PubKey, SecretKey as P256Key,
+        elliptic_curve::sec1::{FromEncodedPoint as _, ToEncodedPoint as _},
     };
     use p384::{EncodedPoint as P384Pt, PublicKey as P384PubKey, SecretKey as P384Key};
     use rsa::{
+        BigUint, RsaPrivateKey,
         sha2::{Digest as _, Sha256},
         traits::PublicKeyParts,
-        BigUint, RsaPrivateKey,
     };
     use serde::de::{Error as _, Unexpected};
     use serde_json::Error;
     #[test]
     fn ed25519_spki() {
-        assert!(Ed25519PubKey::from_der(
-            VerifyingKey::from_bytes(&[1; 32])
-                .unwrap()
-                .to_public_key_der()
-                .unwrap()
-                .as_bytes()
-        )
-        .map_or(false, |k| k.0 == [1; 32]));
+        assert!(
+            Ed25519PubKey::from_der(
+                VerifyingKey::from_bytes(&[1; 32])
+                    .unwrap()
+                    .to_public_key_der()
+                    .unwrap()
+                    .as_bytes()
+            )
+            .map_or(false, |k| k.0 == [1; 32])
+        );
     }
     #[test]
     fn p256_spki() {
@@ -1692,38 +1696,40 @@ mod tests {
         let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
         let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": ["ble", "usb", "hybrid", "internal", "nfc", "smart-card"],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "authenticatorAttachment": "cross-platform",
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg.response.client_data_json
-            == c_data_json.as_bytes()
-            && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                == att_obj
-            && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-            && reg.response.transports.count() == 6
-            && matches!(
-                reg.authenticator_attachment,
-                AuthenticatorAttachment::CrossPlatform
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": ["ble", "usb", "hybrid", "internal", "nfc", "smart-card"],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "authenticatorAttachment": "cross-platform",
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
             )
-            && reg.client_extension_results.cred_props.is_none()
-            && reg.client_extension_results.prf.is_none()));
+            .map_or(false, |reg| reg.response.client_data_json
+                == c_data_json.as_bytes()
+                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
+                    == att_obj
+                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
+                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
+                && reg.response.transports.count() == 6
+                && matches!(
+                    reg.authenticator_attachment,
+                    AuthenticatorAttachment::CrossPlatform
+                )
+                && reg.client_extension_results.cred_props.is_none()
+                && reg.client_extension_results.prf.is_none())
+        );
         // `id` and `rawId` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Bytes(
@@ -2184,25 +2190,27 @@ mod tests {
             err
         );
         // Duplicate `transports` are allowed.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": ["usb", "usb"],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg.response.transports.count() == 1));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": ["usb", "usb"],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg.response.transports.count() == 1)
+        );
         // `null` `transports`.
         err = Error::invalid_type(Unexpected::Other("null"), &"transports")
             .to_string()
@@ -2263,29 +2271,31 @@ mod tests {
             err
         );
         // `null` `authenticatorAttachment`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "authenticatorAttachment": null,
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| matches!(
-            reg.authenticator_attachment,
-            AuthenticatorAttachment::None
-        )));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "authenticatorAttachment": null,
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| matches!(
+                reg.authenticator_attachment,
+                AuthenticatorAttachment::None
+            ))
+        );
         // Unknown `authenticatorAttachment`.
         err = Error::invalid_value(
             Unexpected::Str("Platform"),
@@ -2959,86 +2969,92 @@ mod tests {
         let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
         let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg.response.client_data_json
-            == c_data_json.as_bytes()
-            && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                == att_obj
-            && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-            && reg.response.transports.is_empty()
-            && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
-            && reg.client_extension_results.cred_props.is_none()
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg.response.client_data_json
+                == c_data_json.as_bytes()
+                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
+                    == att_obj
+                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
+                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
+                && reg.response.transports.is_empty()
+                && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
+                && reg.client_extension_results.cred_props.is_none()
+                && reg.client_extension_results.prf.is_none())
+        );
         // `null` `credProps`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "credProps": null
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .is_none()
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "credProps": null
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
+                .client_extension_results
+                .cred_props
+                .is_none()
+                && reg.client_extension_results.prf.is_none())
+        );
         // `null` `prf`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "prf": null
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .is_none()
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "prf": null
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
+                .client_extension_results
+                .cred_props
+                .is_none()
+                && reg.client_extension_results.prf.is_none())
+        );
         // Unknown `clientExtensionResults`.
         let mut err = Error::unknown_field("CredProps", ["credProps", "prf"].as_slice())
             .to_string()
@@ -3102,115 +3118,123 @@ mod tests {
             err
         );
         // `null` `rk`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "credProps": {
-                        "rk": null
-                    }
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .map_or(false, |props| props.rk.is_none())
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "credProps": {
+                            "rk": null
+                        }
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
+                .client_extension_results
+                .cred_props
+                .map_or(false, |props| props.rk.is_none())
+                && reg.client_extension_results.prf.is_none())
+        );
         // Missing `rk`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "credProps": {}
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .map_or(false, |props| props.rk.is_none())
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "credProps": {}
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
+                .client_extension_results
+                .cred_props
+                .map_or(false, |props| props.rk.is_none())
+                && reg.client_extension_results.prf.is_none())
+        );
         // `true` rk`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "credProps": {
-                        "rk": true
-                    }
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .map_or(false, |props| props.rk.unwrap_or_default())
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "credProps": {
+                            "rk": true
+                        }
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
+                .client_extension_results
+                .cred_props
+                .map_or(false, |props| props.rk.unwrap_or_default())
+                && reg.client_extension_results.prf.is_none())
+        );
         // `false` rk`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "credProps": {
-                        "rk": false
-                    }
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .map_or(false, |props| props.rk.map_or(false, |rk| !rk))
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "credProps": {
+                            "rk": false
+                        }
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
+                .client_extension_results
+                .cred_props
+                .map_or(false, |props| props.rk.map_or(false, |rk| !rk))
+                && reg.client_extension_results.prf.is_none())
+        );
         // Invalid `rk`.
         err = Error::invalid_type(Unexpected::Unsigned(3), &"a boolean")
             .to_string()
@@ -3368,67 +3392,71 @@ mod tests {
             err
         );
         // `true` `enabled`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "prf": {
-                        "enabled": true
-                    }
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .is_none()
-            && reg
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "prf": {
+                            "enabled": true
+                        }
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
                 .client_extension_results
-                .prf
-                .map_or(false, |prf| prf.enabled)));
+                .cred_props
+                .is_none()
+                && reg
+                    .client_extension_results
+                    .prf
+                    .map_or(false, |prf| prf.enabled))
+        );
         // `false` `enabled`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "prf": {
-                        "enabled": false,
-                    }
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .is_none()
-            && reg
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "prf": {
+                            "enabled": false,
+                        }
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
                 .client_extension_results
-                .prf
-                .map_or(false, |prf| !prf.enabled)));
+                .cred_props
+                .is_none()
+                && reg
+                    .client_extension_results
+                    .prf
+                    .map_or(false, |prf| !prf.enabled))
+        );
         // Invalid `enabled`.
         err = Error::invalid_type(Unexpected::Unsigned(3), &"a boolean")
             .to_string()
@@ -3462,37 +3490,39 @@ mod tests {
             err
         );
         // `null` `results` with `enabled` `true`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "prf": {
-                        "enabled": true,
-                        "results": null,
-                    }
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .is_none()
-            && reg
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "prf": {
+                            "enabled": true,
+                            "results": null,
+                        }
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
                 .client_extension_results
-                .prf
-                .map_or(false, |prf| prf.enabled)));
+                .cred_props
+                .is_none()
+                && reg
+                    .client_extension_results
+                    .prf
+                    .map_or(false, |prf| prf.enabled))
+        );
         // `null` `results` with `enabled` `false`.
         err = Error::custom(
             "prf must not have 'results', including a null 'results', if 'enabled' is false",
@@ -3592,74 +3622,78 @@ mod tests {
             err
         );
         // `null` `first`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "prf": {
-                        "enabled": true,
-                        "results": {
-                            "first": null
-                        },
-                    }
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .is_none()
-            && reg
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "prf": {
+                            "enabled": true,
+                            "results": {
+                                "first": null
+                            },
+                        }
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
                 .client_extension_results
-                .prf
-                .map_or(false, |prf| prf.enabled)));
+                .cred_props
+                .is_none()
+                && reg
+                    .client_extension_results
+                    .prf
+                    .map_or(false, |prf| prf.enabled))
+        );
         // `null` `second`.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -8,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {
-                    "prf": {
-                        "enabled": true,
-                        "results": {
-                            "first": null,
-                            "second": null
-                        },
-                    }
-                },
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg
-            .client_extension_results
-            .cred_props
-            .is_none()
-            && reg
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -8,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {
+                        "prf": {
+                            "enabled": true,
+                            "results": {
+                                "first": null,
+                                "second": null
+                            },
+                        }
+                    },
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg
                 .client_extension_results
-                .prf
-                .map_or(false, |prf| prf.enabled)));
+                .cred_props
+                .is_none()
+                && reg
+                    .client_extension_results
+                    .prf
+                    .map_or(false, |prf| prf.enabled))
+        );
         // Non-`null` `first`.
         err = Error::invalid_type(Unexpected::Option, &"null")
             .to_string()
@@ -4052,34 +4086,36 @@ mod tests {
         let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
         let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -7,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg.response.client_data_json
-            == c_data_json.as_bytes()
-            && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                == att_obj
-            && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-            && reg.response.transports.is_empty()
-            && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
-            && reg.client_extension_results.cred_props.is_none()
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -7,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg.response.client_data_json
+                == c_data_json.as_bytes()
+                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
+                    == att_obj
+                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
+                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
+                && reg.response.transports.is_empty()
+                && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
+                && reg.client_extension_results.cred_props.is_none()
+                && reg.client_extension_results.prf.is_none())
+        );
         // `publicKeyAlgorithm` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
@@ -4515,34 +4551,36 @@ mod tests {
         let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
         let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -35,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg.response.client_data_json
-            == c_data_json.as_bytes()
-            && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                == att_obj
-            && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-            && reg.response.transports.is_empty()
-            && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
-            && reg.client_extension_results.cred_props.is_none()
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -35,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg.response.client_data_json
+                == c_data_json.as_bytes()
+                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
+                    == att_obj
+                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
+                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
+                && reg.response.transports.is_empty()
+                && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
+                && reg.client_extension_results.cred_props.is_none()
+                && reg.client_extension_results.prf.is_none())
+        );
         // `publicKeyAlgorithm` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
@@ -4677,24 +4715,26 @@ mod tests {
             err
         );
         // Missing `publicKey` is allowed when not using EdDSA, ES256, or RS256.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKeyAlgorithm": -35,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .is_ok());
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKeyAlgorithm": -35,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .is_ok()
+        );
         // `publicKeyAlgorithm` mismatch when `publicKey` does not exist.
         err = Error::invalid_value(
             Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
@@ -4725,25 +4765,27 @@ mod tests {
             err
         );
         // `null` `publicKey` is allowed when not using EdDSA, ES256, or RS256.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": null,
-                    "publicKeyAlgorithm": -35,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .is_ok());
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": null,
+                        "publicKeyAlgorithm": -35,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .is_ok()
+        );
         // `publicKeyAlgorithm` mismatch when `publicKey` is null.
         err = Error::invalid_value(
             Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
@@ -5236,34 +5278,36 @@ mod tests {
         let b64_key = BASE64URL_NOPAD.encode(pub_key.as_bytes());
         let b64_aobj = BASE64URL_NOPAD.encode(att_obj.as_slice());
         // Base case is valid.
-        assert!(serde_json::from_str::<Registration>(
-            serde_json::json!({
-                "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
-                "response": {
-                    "clientDataJSON": b64_cdata,
-                    "authenticatorData": b64_adata,
-                    "transports": [],
-                    "publicKey": b64_key,
-                    "publicKeyAlgorithm": -257,
-                    "attestationObject": b64_aobj,
-                },
-                "clientExtensionResults": {},
-                "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-        )
-        .map_or(false, |reg| reg.response.client_data_json
-            == c_data_json.as_bytes()
-            && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                == att_obj
-            && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-            && reg.response.transports.is_empty()
-            && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
-            && reg.client_extension_results.cred_props.is_none()
-            && reg.client_extension_results.prf.is_none()));
+        assert!(
+            serde_json::from_str::<Registration>(
+                serde_json::json!({
+                    "id": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "response": {
+                        "clientDataJSON": b64_cdata,
+                        "authenticatorData": b64_adata,
+                        "transports": [],
+                        "publicKey": b64_key,
+                        "publicKeyAlgorithm": -257,
+                        "attestationObject": b64_aobj,
+                    },
+                    "clientExtensionResults": {},
+                    "type": "public-key"
+                })
+                .to_string()
+                .as_str()
+            )
+            .map_or(false, |reg| reg.response.client_data_json
+                == c_data_json.as_bytes()
+                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
+                    == att_obj
+                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
+                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
+                && reg.response.transports.is_empty()
+                && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
+                && reg.client_extension_results.cred_props.is_none()
+                && reg.client_extension_results.prf.is_none())
+        );
         // `publicKeyAlgorithm` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),

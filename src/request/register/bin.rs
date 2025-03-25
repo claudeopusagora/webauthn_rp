@@ -31,6 +31,14 @@ impl Decode for UserHandle<Vec<u8>> {
         }
     }
 }
+impl<'b> Decode for UserHandle<&'b [u8]> {
+    type Input<'a> = &'b [u8];
+    type Err = UserHandleErr;
+    #[inline]
+    fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
+        UserHandle::<&[u8]>::from_slice(input)
+    }
+}
 impl<const LEN: usize> Decode for UserHandle<[u8; LEN]>
 where
     Self: Default,
@@ -73,16 +81,16 @@ impl Display for DecodeNicknameErr {
     }
 }
 impl Error for DecodeNicknameErr {}
-impl Decode for Nickname<'_> {
-    type Input<'a> = String;
+impl<'b> Decode for Nickname<'b> {
+    type Input<'a> = &'b str;
     type Err = DecodeNicknameErr;
     #[inline]
     fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
-        match Nickname::try_from(input.as_str()).map_err(DecodeNicknameErr::Nickname) {
+        match Nickname::try_from(input).map_err(DecodeNicknameErr::Nickname) {
             Ok(v) => match v.0 {
                 Cow::Borrowed(name) => {
-                    if name == input.as_str() {
-                        Ok(Self(Cow::Owned(input)))
+                    if name == input {
+                        Ok(Self(Cow::Borrowed(input)))
                     } else {
                         Err(DecodeNicknameErr::NotCanonical)
                     }
@@ -124,16 +132,16 @@ impl Display for DecodeUsernameErr {
     }
 }
 impl Error for DecodeUsernameErr {}
-impl Decode for Username<'_> {
-    type Input<'a> = String;
+impl<'b> Decode for Username<'b> {
+    type Input<'a> = &'b str;
     type Err = DecodeUsernameErr;
     #[inline]
     fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
-        match Username::try_from(input.as_str()).map_err(DecodeUsernameErr::Username) {
+        match Username::try_from(input).map_err(DecodeUsernameErr::Username) {
             Ok(v) => match v.0 {
                 Cow::Borrowed(name) => {
-                    if name == input.as_str() {
-                        Ok(Self(Cow::Owned(input)))
+                    if name == input {
+                        Ok(Self(Cow::Borrowed(input)))
                     } else {
                         Err(DecodeUsernameErr::NotCanonical)
                     }

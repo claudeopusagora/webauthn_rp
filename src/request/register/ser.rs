@@ -912,8 +912,10 @@ where
         deserializer.deserialize_str(UserHandleVisitor)
     }
 }
-impl<'de: 'name + 'display_name, 'name, 'display_name> Deserialize<'de>
-    for PublicKeyCredentialUserEntity<'name, 'display_name, Vec<u8>>
+impl<'de: 'name + 'display_name, 'name, 'display_name, T> Deserialize<'de>
+    for PublicKeyCredentialUserEntity<'name, 'display_name, T>
+where
+    UserHandle<T>: Deserialize<'de>,
 {
     /// Deserializes a `struct` based on
     /// [`PublicKeyCredentialUserEntityJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialuserentityjson).
@@ -921,9 +923,9 @@ impl<'de: 'name + 'display_name, 'name, 'display_name> Deserialize<'de>
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::register::{Nickname, PublicKeyCredentialUserEntity};
+    /// # use webauthn_rp::request::register::{Nickname, PublicKeyCredentialUserEntity, USER_HANDLE_MIN_LEN};
     /// assert_eq!(
-    ///     serde_json::from_str::<PublicKeyCredentialUserEntity<Vec<u8>>>(
+    ///     serde_json::from_str::<PublicKeyCredentialUserEntity<[u8; USER_HANDLE_MIN_LEN]>>(
     ///         serde_json::json!({
     ///             "name": "pythagoras.of.samos",
     ///             "id": "AA",
@@ -959,9 +961,13 @@ impl<'de: 'name + 'display_name, 'name, 'display_name> Deserialize<'de>
         D: Deserializer<'de>,
     {
         /// `Visitor` for `PublicKeyCredentialUserEntity`.
-        struct PublicKeyCredentialUserEntityVisitor<'a, 'b>(PhantomData<fn() -> (&'a (), &'b ())>);
-        impl<'d: 'a + 'b, 'a, 'b> Visitor<'d> for PublicKeyCredentialUserEntityVisitor<'a, 'b> {
-            type Value = PublicKeyCredentialUserEntity<'a, 'b, Vec<u8>>;
+        #[expect(clippy::type_complexity, reason = "type alias doesn't fit well with lifetimes")]
+        struct PublicKeyCredentialUserEntityVisitor<'a, 'b, U>(PhantomData<fn() -> (&'a (), &'b (), U)>);
+        impl<'d: 'a + 'b, 'a, 'b, U> Visitor<'d> for PublicKeyCredentialUserEntityVisitor<'a, 'b, U>
+        where
+            UserHandle<U>: Deserialize<'d>,
+        {
+            type Value = PublicKeyCredentialUserEntity<'a, 'b, U>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("PublicKeyCredentialUserEntity")
             }
@@ -988,7 +994,7 @@ impl<'de: 'name + 'display_name, 'name, 'display_name> Deserialize<'de>
                         impl Visitor<'_> for FieldVisitor {
                             type Value = Field;
                             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                                formatter.write_str("'name', 'id', or 'displayName'")
+                                write!(formatter, "'{NAME}', '{ID}', '{DISPLAY_NAME}'")
                             }
                             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
                             where

@@ -45,7 +45,7 @@ use url::Url as Uri;
 /// # use webauthn_rp::{
 /// #     request::{
 /// #         auth::{AllowedCredentials, PublicKeyCredentialRequestOptions},
-/// #         register::UserHandle,
+/// #         register::{UserHandle, USER_HANDLE_MAX_LEN},
 /// #         AsciiDomain, Credentials, PublicKeyCredentialDescriptor, RpId,
 /// #     },
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
@@ -76,9 +76,9 @@ use url::Url as Uri;
 /// # #[cfg(all(feature = "custom", feature = "serde"))]
 /// assert!(serde_json::to_string(&client_2).is_ok());
 /// /// Extract `UserHandle` from session cookie.
-/// fn get_user_handle() -> UserHandle<Vec<u8>> {
+/// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MAX_LEN]> {
 ///     // ⋮
-/// #     UserHandle::new()
+/// #     UserHandle::new_rand()
 /// }
 /// # #[cfg(feature = "custom")]
 /// /// Fetch the `AllowedCredentials` associated with `user`.
@@ -110,7 +110,7 @@ pub mod error;
 /// # use webauthn_rp::{
 /// #     request::{
 /// #         register::{
-/// #             PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle,
+/// #             PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN,
 /// #         },
 /// #         AsciiDomain, PublicKeyCredentialDescriptor, RpId
 /// #     },
@@ -144,9 +144,9 @@ pub mod error;
 /// # #[cfg(feature = "serde")]
 /// assert!(serde_json::to_string(&client_2).is_ok());
 /// /// Extract `UserHandle` from session cookie if this is not the first credential registered.
-/// fn get_user_handle() -> UserHandle<Vec<u8>> {
+/// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MAX_LEN]> {
 ///     // ⋮
-/// #     UserHandle::new()
+/// #     UserHandle::new_rand()
 /// }
 /// /// Fetch `PublicKeyCredentialUserEntity` info associated with `user`.
 /// ///
@@ -926,17 +926,27 @@ pub enum UserVerificationRequirement {
     /// [`preferred`](https://www.w3.org/TR/webauthn-3/#dom-userverificationrequirement-preferred).
     Preferred,
 }
-/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhints).
+#[cfg(test)]
+impl PartialEq for UserVerificationRequirement {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::Required => matches!(other, Self::Required),
+            Self::Discouraged => matches!(other, Self::Discouraged),
+            Self::Preferred => matches!(other, Self::Preferred),
+        }
+    }
+}
+/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint).
 #[derive(Clone, Copy, Debug, Default)]
 pub enum Hint {
     /// No hints.
     #[default]
     None,
-    /// [`security-key`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhints-security-key).
+    /// [`security-key`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-security-key).
     SecurityKey,
-    /// [`client-device`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhints-client-device).
+    /// [`client-device`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-client-device).
     ClientDevice,
-    /// [`hybrid`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhints-hybrid).
+    /// [`hybrid`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-hybrid).
     Hybrid,
     /// [`Self::SecurityKey`] and [`Self::ClientDevice`].
     SecurityKeyClientDevice,
@@ -963,6 +973,41 @@ pub enum Hint {
     /// [`Self::HybridClientDevice`] and [`Self::SecurityKey`].
     HybridClientDeviceSecurityKey,
 }
+#[cfg(test)]
+impl PartialEq for Hint {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::None => matches!(other, Self::None),
+            Self::SecurityKey => matches!(other, Self::SecurityKey),
+            Self::ClientDevice => matches!(other, Self::ClientDevice),
+            Self::Hybrid => matches!(other, Self::Hybrid),
+            Self::SecurityKeyClientDevice => matches!(other, Self::SecurityKeyClientDevice),
+            Self::ClientDeviceSecurityKey => matches!(other, Self::ClientDeviceSecurityKey),
+            Self::SecurityKeyHybrid => matches!(other, Self::SecurityKeyHybrid),
+            Self::HybridSecurityKey => matches!(other, Self::HybridSecurityKey),
+            Self::ClientDeviceHybrid => matches!(other, Self::ClientDeviceHybrid),
+            Self::HybridClientDevice => matches!(other, Self::HybridClientDevice),
+            Self::SecurityKeyClientDeviceHybrid => {
+                matches!(other, Self::SecurityKeyClientDeviceHybrid)
+            }
+            Self::SecurityKeyHybridClientDevice => {
+                matches!(other, Self::SecurityKeyHybridClientDevice)
+            }
+            Self::ClientDeviceSecurityKeyHybrid => {
+                matches!(other, Self::ClientDeviceSecurityKeyHybrid)
+            }
+            Self::ClientDeviceHybridSecurityKey => {
+                matches!(other, Self::ClientDeviceHybridSecurityKey)
+            }
+            Self::HybridSecurityKeyClientDevice => {
+                matches!(other, Self::HybridSecurityKeyClientDevice)
+            }
+            Self::HybridClientDeviceSecurityKey => {
+                matches!(other, Self::HybridClientDeviceSecurityKey)
+            }
+        }
+    }
+}
 /// Controls if the response to a requested extension is required to be sent back.
 ///
 /// Note when requiring an extension, the extension must not only be sent back but also
@@ -978,6 +1023,15 @@ pub enum ExtensionReq {
     /// The response to a requested extension is allowed, but not required, to be sent back.
     Allow,
 }
+#[cfg(test)]
+impl PartialEq for ExtensionReq {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::Require => matches!(other, Self::Require),
+            Self::Allow => matches!(other, Self::Allow),
+        }
+    }
+}
 /// Dictates how an extension should be processed.
 ///
 /// If one wants to only control if the extension should be returned, use [`ExtensionReq`].
@@ -991,6 +1045,17 @@ pub enum ExtensionInfo {
     AllowEnforceValue,
     /// Allow the associated extension to exist but don't enforce its value.
     AllowDontEnforceValue,
+}
+#[cfg(test)]
+impl PartialEq for ExtensionInfo {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::RequireEnforceValue => matches!(other, Self::RequireEnforceValue),
+            Self::RequireDontEnforceValue => matches!(other, Self::RequireDontEnforceValue),
+            Self::AllowEnforceValue => matches!(other, Self::AllowEnforceValue),
+            Self::AllowDontEnforceValue => matches!(other, Self::AllowDontEnforceValue),
+        }
+    }
 }
 impl Display for ExtensionInfo {
     #[inline]
@@ -1018,6 +1083,17 @@ pub enum CredentialMediationRequirement {
     Conditional,
     /// [`required`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-required)
     Required,
+}
+#[cfg(test)]
+impl PartialEq for CredentialMediationRequirement {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::Silent => matches!(other, Self::Silent),
+            Self::Optional => matches!(other, Self::Optional),
+            Self::Conditional => matches!(other, Self::Conditional),
+            Self::Required => matches!(other, Self::Required),
+        }
+    }
 }
 /// Backup requirements for the credential.
 #[derive(Clone, Copy, Debug, Default)]
@@ -1194,7 +1270,7 @@ impl<'o, 't, O, T> From<&RegistrationVerificationOptions<'o, 't, O, T>>
 /// Functionality common to both registration and authentication ceremonies.
 ///
 /// Designed to be implemented on the _request_ side.
-trait Ceremony {
+trait Ceremony<U> {
     /// The type of response that is associated with the ceremony.
     type R: Response;
     /// Challenge.
@@ -2408,11 +2484,11 @@ mod tests {
             &rp_id,
             &Authentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
-                response: AuthenticatorAssertion::new(
+                response: AuthenticatorAssertion::with_user(
                     client_data_json,
                     authenticator_data,
                     sig,
-                    Some(UserHandle::try_from(vec![0])?),
+                    UserHandle::from([0]),
                 ),
                 authenticator_attachment: AuthenticatorAttachment::None,
             },
@@ -2774,11 +2850,11 @@ mod tests {
             &rp_id,
             &Authentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
-                response: AuthenticatorAssertion::new(
+                response: AuthenticatorAssertion::with_user(
                     client_data_json,
                     authenticator_data,
                     der_sig.as_bytes().into(),
-                    Some(UserHandle::try_from(vec![0])?),
+                    UserHandle::from([0]),
                 ),
                 authenticator_attachment: AuthenticatorAttachment::None,
             },
@@ -3179,11 +3255,11 @@ mod tests {
             &rp_id,
             &Authentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
-                response: AuthenticatorAssertion::new(
+                response: AuthenticatorAssertion::with_user(
                     client_data_json,
                     authenticator_data,
                     der_sig.as_bytes().into(),
-                    Some(UserHandle::try_from(vec![0])?),
+                    UserHandle::from([0]),
                 ),
                 authenticator_attachment: AuthenticatorAttachment::None,
             },
@@ -3846,11 +3922,11 @@ mod tests {
             &rp_id,
             &Authentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
-                response: AuthenticatorAssertion::new(
+                response: AuthenticatorAssertion::with_user(
                     client_data_json,
                     authenticator_data,
                     sig,
-                    Some(UserHandle::try_from(vec![0])?),
+                    UserHandle::from([0]),
                 ),
                 authenticator_attachment: AuthenticatorAttachment::None,
             },

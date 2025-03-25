@@ -207,11 +207,13 @@ impl<'a> DecodeBuffer<'a> for u16 {
         reason = "we must standardize the endianness to remove ambiguity"
     )]
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        data.split_at_checked(2)
+        /// Number of bytes `u16` is made of.
+        const SIZE: usize = 2;
+        data.split_at_checked(SIZE)
             .ok_or(EncDecErr)
             .map(|(le_bytes, rem)| {
                 *data = rem;
-                let mut val = [0; 2];
+                let mut val = [0; SIZE];
                 val.copy_from_slice(le_bytes);
                 Self::from_le_bytes(val)
             })
@@ -224,11 +226,13 @@ impl<'a> DecodeBuffer<'a> for u32 {
         reason = "we must standardize the endianness to remove ambiguity"
     )]
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        data.split_at_checked(4)
+        /// Number of bytes `u32` is made of.
+        const SIZE: usize = 4;
+        data.split_at_checked(SIZE)
             .ok_or(EncDecErr)
             .map(|(le_bytes, rem)| {
                 *data = rem;
-                let mut val = [0; 4];
+                let mut val = [0; SIZE];
                 val.copy_from_slice(le_bytes);
                 Self::from_le_bytes(val)
             })
@@ -241,11 +245,13 @@ impl<'a> DecodeBuffer<'a> for u64 {
         reason = "we must standardize the endianness to remove ambiguity"
     )]
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        data.split_at_checked(8)
+        /// Number of bytes `u64` is made of.
+        const SIZE: usize = 8;
+        data.split_at_checked(SIZE)
             .ok_or(EncDecErr)
             .map(|(le_bytes, rem)| {
                 *data = rem;
-                let mut val = [0; 8];
+                let mut val = [0; SIZE];
                 val.copy_from_slice(le_bytes);
                 Self::from_le_bytes(val)
             })
@@ -258,11 +264,13 @@ impl<'a> DecodeBuffer<'a> for u128 {
         reason = "we must standardize the endianness to remove ambiguity"
     )]
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        data.split_at_checked(16)
+        /// Number of bytes `u128` is made of.
+        const SIZE: usize = 16;
+        data.split_at_checked(SIZE)
             .ok_or(EncDecErr)
             .map(|(le_bytes, rem)| {
                 *data = rem;
-                let mut val = [0; 16];
+                let mut val = [0; SIZE];
                 val.copy_from_slice(le_bytes);
                 Self::from_le_bytes(val)
             })

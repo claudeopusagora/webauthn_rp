@@ -157,6 +157,23 @@ impl CredProtect {
         }
     }
 }
+#[cfg(test)]
+impl PartialEq for CredProtect {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::None => matches!(other, Self::None),
+            Self::UserVerificationOptional(info) => {
+                matches!(*other, Self::UserVerificationOptional(info2) if info == info2)
+            }
+            Self::UserVerificationOptionalWithCredentialIdList(info) => {
+                matches!(*other, Self::UserVerificationOptionalWithCredentialIdList(info2) if info == info2)
+            }
+            Self::UserVerificationRequired(info) => {
+                matches!(*other, Self::UserVerificationRequired(info2) if info == info2)
+            }
+        }
+    }
+}
 impl Display for CredProtect {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -415,6 +432,12 @@ impl Default for CoseAlgorithmIdentifiers {
         Self::ALL
     }
 }
+#[cfg(test)]
+impl PartialEq for CoseAlgorithmIdentifiers {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
 /// The [defined extensions](https://www.w3.org/TR/webauthn-3/#sctn-defined-extensions) to send to the client.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Extension {
@@ -658,6 +681,15 @@ impl Extension {
             })
     }
 }
+#[cfg(test)]
+impl PartialEq for Extension {
+    fn eq(&self, other: &Self) -> bool {
+        self.cred_props == other.cred_props
+            && self.cred_protect == other.cred_protect
+            && self.min_pin_length == other.min_pin_length
+            && self.prf == other.prf
+    }
+}
 /// The maximum number of bytes a [`UserHandle`] can be made of per
 /// [WebAuthn](https://www.w3.org/TR/webauthn-3/#user-handle).
 pub const USER_HANDLE_MAX_LEN: usize = 64;
@@ -678,6 +710,12 @@ impl<T> UserHandle<T> {
     #[inline]
     pub const fn inner(&self) -> &T {
         &self.0
+    }
+}
+impl<T: AsRef<[u8]>> UserHandle<T> {
+    /// Returns a `UserHandle` containing a `slice`.
+    pub(crate) fn as_slice(&self) -> UserHandle<&[u8]> {
+        UserHandle(self.0.as_ref())
     }
 }
 #[cfg(any(feature = "bin", feature = "custom"))]
@@ -936,16 +974,26 @@ pub enum ResidentKeyRequirement {
     /// [`preferred`](https://www.w3.org/TR/webauthn-3/#dom-residentkeyrequirement-preferred).
     Preferred,
 }
-/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhints)
+#[cfg(test)]
+impl PartialEq for ResidentKeyRequirement {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::Required => matches!(other, Self::Required),
+            Self::Discouraged => matches!(other, Self::Discouraged),
+            Self::Preferred => matches!(other, Self::Preferred),
+        }
+    }
+}
+/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint)
 /// for [`AuthenticatorAttachment::CrossPlatform`] authenticators.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum CrossPlatformHint {
     /// No hints.
     #[default]
     None,
-    /// [`security-key`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhints-security-key).
+    /// [`security-key`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-security-key).
     SecurityKey,
-    /// [`hybrid`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhints-hybrid).
+    /// [`hybrid`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-hybrid).
     Hybrid,
     /// [`Self::SecurityKey`] and [`Self::Hybrid`].
     SecurityKeyHybrid,
@@ -964,14 +1012,26 @@ impl From<CrossPlatformHint> for Hint {
         }
     }
 }
-/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhints)
+#[cfg(test)]
+impl PartialEq for CrossPlatformHint {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::None => matches!(other, Self::None),
+            Self::SecurityKey => matches!(other, Self::SecurityKey),
+            Self::Hybrid => matches!(other, Self::Hybrid),
+            Self::SecurityKeyHybrid => matches!(other, Self::SecurityKeyHybrid),
+            Self::HybridSecurityKey => matches!(other, Self::HybridSecurityKey),
+        }
+    }
+}
+/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint)
 /// for [`AuthenticatorAttachment::Platform`] authenticators.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum PlatformHint {
     /// No hints.
     #[default]
     None,
-    /// [`client-device`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhints-client-device).
+    /// [`client-device`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-client-device).
     ClientDevice,
 }
 impl From<PlatformHint> for Hint {
@@ -980,6 +1040,15 @@ impl From<PlatformHint> for Hint {
         match value {
             PlatformHint::None => Self::None,
             PlatformHint::ClientDevice => Self::ClientDevice,
+        }
+    }
+}
+#[cfg(test)]
+impl PartialEq for PlatformHint {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::None => matches!(other, Self::None),
+            Self::ClientDevice => matches!(other, Self::ClientDevice),
         }
     }
 }
@@ -1043,6 +1112,18 @@ impl AuthenticatorAttachmentReq {
                     Err(RegCeremonyErr::AuthenticatorAttachmentMismatch)
                 }
             },
+        }
+    }
+}
+#[cfg(test)]
+impl PartialEq for AuthenticatorAttachmentReq {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Self::None(info) => matches!(*other, Self::None(info2) if info == info2),
+            Self::Platform(info) => matches!(*other, Self::Platform(info2) if info == info2),
+            Self::CrossPlatform(info) => {
+                matches!(*other, Self::CrossPlatform(info2) if info == info2)
+            }
         }
     }
 }
@@ -1147,6 +1228,14 @@ impl AuthenticatorSelectionCriteria {
     ) -> Result<(), RegCeremonyErr> {
         self.authenticator_attachment
             .validate(require_auth_attachment, auth_attachment)
+    }
+}
+#[cfg(test)]
+impl PartialEq for AuthenticatorSelectionCriteria {
+    fn eq(&self, other: &Self) -> bool {
+        self.authenticator_attachment == other.authenticator_attachment
+            && self.resident_key == other.resident_key
+            && self.user_verification == other.user_verification
     }
 }
 /// Helper that verifies the overlap of [`PublicKeyCredentialCreationOptions::start_ceremony`] and
@@ -1667,6 +1756,15 @@ impl RegistrationServerState {
                 }
             })
     }
+    #[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
+    fn is_eq(&self, other: &Self) -> bool {
+        self.mediation == other.mediation
+            && self.challenge == other.challenge
+            && self.pub_key_cred_params == other.pub_key_cred_params
+            && self.authenticator_selection == other.authenticator_selection
+            && self.extensions == other.extensions
+            && self.expiration == other.expiration
+    }
 }
 impl ServerState for RegistrationServerState {
     #[cfg(any(doc, not(feature = "serializable_server_state")))]
@@ -1684,7 +1782,7 @@ impl ServerState for RegistrationServerState {
         self.challenge
     }
 }
-impl Ceremony for RegistrationServerState {
+impl Ceremony<()> for RegistrationServerState {
     type R = Registration;
     fn rand_challenge(&self) -> SentChallenge {
         self.challenge
@@ -1755,10 +1853,8 @@ mod tests {
             },
             AsciiDomain,
         },
-        AuthenticatorAttachmentReq, Challenge, CredProtect, CredentialMediationRequirement,
-        Extension, ExtensionInfo, Hint, PublicKeyCredentialCreationOptions,
-        PublicKeyCredentialUserEntity, RegistrationServerState, ResidentKeyRequirement, RpId,
-        UserHandle, UserVerificationRequirement,
+        Challenge, CredProtect, Extension, ExtensionInfo, PublicKeyCredentialCreationOptions,
+        PublicKeyCredentialUserEntity, RegistrationServerState, RpId, UserHandle,
     };
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
     use ed25519_dalek::{Signer as _, SigningKey};
@@ -2104,64 +2200,9 @@ mod tests {
         attestation_object[32..96].copy_from_slice(sig.to_bytes().as_slice());
         attestation_object.truncate(261);
         let server = opts.start_ceremony()?.0;
-        let server_2 = RegistrationServerState::decode(server.encode()?.as_slice())?;
-        assert!(
-            matches!(server.mediation, CredentialMediationRequirement::Optional)
-                && matches!(server_2.mediation, CredentialMediationRequirement::Optional)
-        );
-        assert_eq!(server.challenge.0, server_2.challenge.0);
-        assert_eq!(server.pub_key_cred_params.0, server_2.pub_key_cred_params.0);
-        assert!(
-            matches!(server.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
-                && matches!(server_2.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
-        );
-        assert!(
-            matches!(
-                server.authenticator_selection.resident_key,
-                ResidentKeyRequirement::Required
-            ) && matches!(
-                server_2.authenticator_selection.resident_key,
-                ResidentKeyRequirement::Required
-            )
-        );
-        assert!(
-            matches!(
-                server.authenticator_selection.user_verification,
-                UserVerificationRequirement::Required
-            ) && matches!(
-                server_2.authenticator_selection.user_verification,
-                UserVerificationRequirement::Required
-            )
-        );
-        assert!(server.extensions.cred_props.is_none() && server_2.extensions.cred_props.is_none());
-        assert!(
-            matches!(
-                server.extensions.cred_protect,
-                CredProtect::UserVerificationRequired(info) if matches!(info, ExtensionInfo::RequireEnforceValue)
-            ) && matches!(
-                server_2.extensions.cred_protect,
-                CredProtect::UserVerificationRequired(info) if matches!(info, ExtensionInfo::RequireEnforceValue)
-            )
-        );
-        let (pin, info) = server.extensions.min_pin_length.unwrap();
-        assert!(
-            server_2
-                .extensions
-                .min_pin_length
-                .map_or(false, |(pin2, info2)| pin == pin2
-                    && matches!(info, ExtensionInfo::RequireEnforceValue)
-                    && matches!(info2, ExtensionInfo::RequireEnforceValue))
-        );
-        assert!(
-            matches!(
-                server.extensions.prf.unwrap(),
-                ExtensionInfo::RequireEnforceValue
-            ) && server_2.extensions.prf.map_or(false, |info| matches!(
-                info,
-                ExtensionInfo::RequireEnforceValue
-            ))
-        );
-        assert_eq!(server.expiration, server_2.expiration);
+        assert!(server.is_eq(&RegistrationServerState::decode(
+            server.encode()?.as_slice()
+        )?));
         Ok(())
     }
 }

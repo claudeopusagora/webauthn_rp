@@ -40,6 +40,10 @@ cannot be constructed when [`bin`](#bin) or [`serde`](#serde) is not enabled.
 
 ### `serde`
 
+For many [`serde_relaxed`](#serde_relaxed) should be used instead. This feature _strictly_ adheres to the
+JSON-motivated definitions. You _will_ encounter clients that send data that cannot be deserialized using
+this feature.
+
 Enables (de)serialization of data sent to/from the client via [`serde`](https://docs.rs/serde/latest/serde/)
 based on the JSON-motivated definitions (e.g.,
 [`RegistrationResponseJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-registrationresponsejson)). Since

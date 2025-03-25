@@ -1,7 +1,10 @@
+#[cfg(feature = "serde_relaxed")]
+use self::{
+    super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr},
+    ser_relaxed::{CustomRegistration, RegistrationRelaxed},
+};
 #[cfg(all(doc, feature = "serde_relaxed"))]
 use super::super::request::FixedCapHashSet;
-#[cfg(feature = "serde_relaxed")]
-use super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr};
 #[cfg(all(doc, feature = "bin"))]
 use super::{
     super::bin::{Decode, Encode},
@@ -9,7 +12,10 @@ use super::{
 };
 use super::{
     super::request::register::ResidentKeyRequirement,
-    cbor,
+    AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthTransports,
+    AuthenticatorAttachment, Backup, CborSuccess, ClientDataJsonParser as _, CollectedClientData,
+    CredentialId, Flag, FromCbor, LimitedVerificationParser, ParsedAuthData, Response,
+    SentChallenge, cbor,
     error::CollectedClientDataErr,
     register::error::{
         AaguidErr, AttestationErr, AttestationObjectErr, AttestedCredentialDataErr,
@@ -17,20 +23,16 @@ use super::{
         CompressedP384PubKeyErr, CoseKeyErr, Ed25519PubKeyErr, Ed25519SignatureErr, PubKeyErr,
         RsaPubKeyErr, UncompressedP256PubKeyErr, UncompressedP384PubKeyErr,
     },
-    AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthTransports,
-    AuthenticatorAttachment, Backup, CborSuccess, ClientDataJsonParser as _, CollectedClientData,
-    CredentialId, Flag, FromCbor, LimitedVerificationParser, ParsedAuthData, Response,
-    SentChallenge,
 };
 #[cfg(doc)]
 use super::{
     super::{
+        AuthenticatedCredential, RegisteredCredential,
         request::{
+            BackupReq, Challenge,
             auth::{AuthenticationVerificationOptions, PublicKeyCredentialRequestOptions},
             register::{Extension, RegistrationServerState},
-            BackupReq, Challenge,
         },
-        AuthenticatedCredential, RegisteredCredential,
     },
     AuthenticatorTransport,
 };
@@ -41,19 +43,21 @@ use core::{
 };
 use ed25519_dalek::{Signature, Verifier as _, VerifyingKey};
 use p256::{
-    ecdsa::{DerSignature as P256Sig, VerifyingKey as P256VerKey},
-    elliptic_curve::{generic_array::typenum::ToInt as _, point::DecompressPoint as _, Curve},
     AffinePoint as P256Affine, EncodedPoint as P256Pt, NistP256,
+    ecdsa::{DerSignature as P256Sig, VerifyingKey as P256VerKey},
+    elliptic_curve::{Curve, generic_array::typenum::ToInt as _, point::DecompressPoint as _},
 };
 use p384::{
-    ecdsa::{DerSignature as P384Sig, VerifyingKey as P384VerKey},
     AffinePoint as P384Affine, EncodedPoint as P384Pt, NistP384,
+    ecdsa::{DerSignature as P384Sig, VerifyingKey as P384VerKey},
 };
 use rsa::{
-    pkcs1v15::{self, VerifyingKey as RsaVerKey},
-    sha2::{digest::Digest as _, Sha256},
     BigUint, RsaPublicKey,
+    pkcs1v15::{self, VerifyingKey as RsaVerKey},
+    sha2::{Sha256, digest::Digest as _},
 };
+#[cfg(all(doc, feature = "serde_relaxed"))]
+use serde::Deserialize;
 /// Contains functionality to (de)serialize data to a data store.
 #[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
@@ -635,6 +639,14 @@ impl<'a> UncompressedP256PubKey<'a> {
         ))
         .map_err(|_e| PubKeyErr::P256)
     }
+    /// Returns `true` iff [`Self::y`] is odd.
+    #[expect(clippy::indexing_slicing, reason = "comment justifies correctness")]
+    #[inline]
+    #[must_use]
+    pub const fn y_is_odd(self) -> bool {
+        // `self.1.len() == 32`, so this won't `panic`.
+        self.1[31] & 1 == 1
+    }
 }
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], &'a [u8])> for UncompressedP256PubKey<'b> {
     type Error = UncompressedP256PubKeyErr;
@@ -874,6 +886,14 @@ impl<'a> UncompressedP384PubKey<'a> {
         ))
         .map_err(|_e| PubKeyErr::P384)
     }
+    /// Returns `true` iff [`Self::y`] is odd.
+    #[expect(clippy::indexing_slicing, reason = "comment justifies correctness")]
+    #[inline]
+    #[must_use]
+    pub const fn y_is_odd(self) -> bool {
+        // `self.1.len() == 48`, so this won't `panic`.
+        self.1[47] & 1 == 1
+    }
 }
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], &'a [u8])> for UncompressedP384PubKey<'b> {
     type Error = UncompressedP384PubKeyErr;
@@ -939,6 +959,7 @@ impl<T> CompressedP384PubKey<T> {
     }
     /// `true` iff the y-coordinate is odd.
     #[inline]
+    #[must_use]
     pub const fn y_is_odd(&self) -> bool {
         self.y_is_odd
     }
@@ -1691,15 +1712,15 @@ impl<'a: 'b, 'b, T: AsRef<[u8]>, T2: AsRef<[u8]>, T3: AsRef<[u8]>, T4: AsRef<[u8
     }
 }
 impl<
-        T: PartialEq<T5>,
-        T5: PartialEq<T>,
-        T2: PartialEq<T6>,
-        T6: PartialEq<T2>,
-        T3: PartialEq<T7>,
-        T7: PartialEq<T3>,
-        T4: PartialEq<T8>,
-        T8: PartialEq<T4>,
-    > PartialEq<CompressedPubKey<T, T2, T3, T4>> for CompressedPubKey<T5, T6, T7, T8>
+    T: PartialEq<T5>,
+    T5: PartialEq<T>,
+    T2: PartialEq<T6>,
+    T6: PartialEq<T2>,
+    T3: PartialEq<T7>,
+    T7: PartialEq<T3>,
+    T4: PartialEq<T8>,
+    T8: PartialEq<T4>,
+> PartialEq<CompressedPubKey<T, T2, T3, T4>> for CompressedPubKey<T5, T6, T7, T8>
 {
     #[inline]
     fn eq(&self, other: &CompressedPubKey<T, T2, T3, T4>) -> bool {
@@ -1718,15 +1739,15 @@ impl<
     }
 }
 impl<
-        T: PartialEq<T5>,
-        T5: PartialEq<T>,
-        T2: PartialEq<T6>,
-        T6: PartialEq<T2>,
-        T3: PartialEq<T7>,
-        T7: PartialEq<T3>,
-        T4: PartialEq<T8>,
-        T8: PartialEq<T4>,
-    > PartialEq<CompressedPubKey<T, T2, T3, T4>> for &CompressedPubKey<T5, T6, T7, T8>
+    T: PartialEq<T5>,
+    T5: PartialEq<T>,
+    T2: PartialEq<T6>,
+    T6: PartialEq<T2>,
+    T3: PartialEq<T7>,
+    T7: PartialEq<T3>,
+    T4: PartialEq<T8>,
+    T8: PartialEq<T4>,
+> PartialEq<CompressedPubKey<T, T2, T3, T4>> for &CompressedPubKey<T5, T6, T7, T8>
 {
     #[inline]
     fn eq(&self, other: &CompressedPubKey<T, T2, T3, T4>) -> bool {
@@ -1734,15 +1755,15 @@ impl<
     }
 }
 impl<
-        T: PartialEq<T5>,
-        T5: PartialEq<T>,
-        T2: PartialEq<T6>,
-        T6: PartialEq<T2>,
-        T3: PartialEq<T7>,
-        T7: PartialEq<T3>,
-        T4: PartialEq<T8>,
-        T8: PartialEq<T4>,
-    > PartialEq<&CompressedPubKey<T, T2, T3, T4>> for CompressedPubKey<T5, T6, T7, T8>
+    T: PartialEq<T5>,
+    T5: PartialEq<T>,
+    T2: PartialEq<T6>,
+    T6: PartialEq<T2>,
+    T3: PartialEq<T7>,
+    T7: PartialEq<T3>,
+    T4: PartialEq<T8>,
+    T8: PartialEq<T4>,
+> PartialEq<&CompressedPubKey<T, T2, T3, T4>> for CompressedPubKey<T5, T6, T7, T8>
 {
     #[inline]
     fn eq(&self, other: &&CompressedPubKey<T, T2, T3, T4>) -> bool {
@@ -2539,7 +2560,7 @@ impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AttestationObject<'b> {
 /// [`AuthenticatorAttestationResponse`](https://www.w3.org/TR/webauthn-3/#authenticatorattestationresponse).
 #[derive(Debug)]
 pub struct AuthenticatorAttestation {
-    /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorattestationresponse-clientdatajson).
+    /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     client_data_json: Vec<u8>,
     /// [attestation object](https://www.w3.org/TR/webauthn-3/#attestation-object) followed by the SHA-256 hash
     /// of [`Self::client_data_json`].
@@ -2548,7 +2569,7 @@ pub struct AuthenticatorAttestation {
     transports: AuthTransports,
 }
 impl AuthenticatorAttestation {
-    /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorattestationresponse-clientdatajson).
+    /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     #[inline]
     #[must_use]
     pub fn client_data_json(&self) -> &[u8] {
@@ -2785,6 +2806,28 @@ impl Registration {
         RelaxedClientDataJsonParser::<true>::get_sent_challenge(
             self.response.client_data_json.as_slice(),
         )
+    }
+    /// Convenience function for [`RegistrationRelaxed::deserialize`].
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`RegistrationRelaxed::deserialize`] does.
+    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
+    #[cfg(feature = "serde_relaxed")]
+    #[inline]
+    pub fn from_json_relaxed(json: &[u8]) -> Result<Self, SerdeJsonErr> {
+        serde_json::from_slice::<RegistrationRelaxed>(json).map(|val| val.0)
+    }
+    /// Convenience function for [`CustomRegistration::deserialize`].
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`CustomRegistration::deserialize`] does.
+    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
+    #[cfg(feature = "serde_relaxed")]
+    #[inline]
+    pub fn from_json_custom(json: &[u8]) -> Result<Self, SerdeJsonErr> {
+        serde_json::from_slice::<CustomRegistration>(json).map(|val| val.0)
     }
 }
 impl Response for Registration {
@@ -3045,8 +3088,8 @@ mod tests {
     use super::{
         super::{
             super::{
-                request::{AsciiDomain, RpId},
                 AggErr,
+                request::{AsciiDomain, RpId},
             },
             auth::{AuthenticatorAssertion, AuthenticatorData},
         },
@@ -3111,8 +3154,12 @@ mod tests {
             .unwrap();
         let client_data_json_2 = HEXLOWER.decode(b"7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a224f63446e55685158756c5455506f334a5558543049393770767a7a59425039745a63685879617630314167222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73657d".as_slice()).unwrap();
         let signature = HEXLOWER.decode(b"3046022100f50a4e2e4409249c4a853ba361282f09841df4dd4547a13a87780218deffcd380221008480ac0f0b93538174f575bf11a1dd5d78c6e486013f937295ea13653e331e87".as_slice()).unwrap();
-        let auth_assertion =
-            AuthenticatorAssertion::new(client_data_json_2, authenticator_data, signature, None);
+        let auth_assertion = AuthenticatorAssertion::new_user_vec(
+            client_data_json_2,
+            authenticator_data,
+            signature,
+            None,
+        );
         let auth_data = AuthenticatorData::try_from(auth_assertion.authenticator_data())?;
         assert_eq!(
             auth_data.rp_id_hash(),
@@ -3189,8 +3236,12 @@ mod tests {
             .unwrap();
         let client_data_json_2 = HEXLOWER.decode(b"7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a225248696843784e534e493352594d45314f7731476d3132786e726b634a5f6666707637546e2d4a71386773222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a206754623533727a36456853576f6d58477a696d4331513d3d227d".as_slice()).unwrap();
         let signature = HEXLOWER.decode(b"3044022076691be76a8618976d9803c4cdc9b97d34a7af37e3bdc894a2bf54f040ffae850220448033a015296ffb09a762efd0d719a55346941e17e91ebf64c60d439d0b9744".as_slice()).unwrap();
-        let auth_assertion =
-            AuthenticatorAssertion::new(client_data_json_2, authenticator_data, signature, None);
+        let auth_assertion = AuthenticatorAssertion::new_user_vec(
+            client_data_json_2,
+            authenticator_data,
+            signature,
+            None,
+        );
         let auth_data = AuthenticatorData::try_from(auth_assertion.authenticator_data())?;
         assert_eq!(
             auth_data.rp_id_hash(),

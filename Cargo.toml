@@ -10,7 +10,7 @@ name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
 rust-version = "1.85.0"
-version = "0.2.7"
+version = "0.3.0"
 
 [package.metadata.docs.rs]
 all-features = true

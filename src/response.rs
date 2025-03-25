@@ -33,7 +33,7 @@ use ser_relaxed::SerdeJsonErr;
 /// # #[cfg(not(feature = "serializable_server_state"))]
 /// # use webauthn_rp::request::{FixedCapHashSet, InsertResult};
 /// # use webauthn_rp::{
-/// #     request::{auth::{error::RequestOptionsErr, AuthenticationClientState, PublicKeyCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::UserHandle, AsciiDomain, BackupReq, RpId},
+/// #     request::{auth::{error::RequestOptionsErr, AuthenticationClientState, PublicKeyCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN}, AsciiDomain, BackupReq, RpId},
 /// #     response::{auth::{error::AuthCeremonyErr, Authentication}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKey, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
 /// #     AuthenticatedCredential, CredentialErr
 /// # };
@@ -89,7 +89,7 @@ use ser_relaxed::SerdeJsonErr;
 ///     InsertResult::Success
 /// ));
 /// # #[cfg(feature = "serde")]
-/// let authentication = serde_json::from_str::<Authentication>(get_authentication_json(client).as_str())?;
+/// let authentication = serde_json::from_str::<Authentication<[u8; USER_HANDLE_MAX_LEN]>>(get_authentication_json(client).as_str())?;
 /// // `UserHandle` must exist since we sent an empty `AllowedCredentials`.
 /// # #[cfg(feature = "serde")]
 /// let user_handle = authentication.response().user_handle().ok_or(E::MissingUserHandle)?;
@@ -147,7 +147,7 @@ mod cbor;
 /// Contains functionality that needs to be accessible when `bin` or `serde` are not enabled.
 #[cfg_attr(docsrs, doc(cfg(feature = "custom")))]
 #[cfg(feature = "custom")]
-mod custom;
+pub mod custom;
 /// Contains error types.
 pub mod error;
 /// Contains functionality for completing the
@@ -160,7 +160,7 @@ pub mod error;
 /// # #[cfg(not(feature = "serializable_server_state"))]
 /// # use webauthn_rp::request::{FixedCapHashSet, InsertResult};
 /// # use webauthn_rp::{
-/// #     request::{register::{error::CreationOptionsErr, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomain, PublicKeyCredentialDescriptor, RpId},
+/// #     request::{register::{error::CreationOptionsErr, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomain, PublicKeyCredentialDescriptor, RpId},
 /// #     response::{register::{error::RegCeremonyErr, Registration}, error::CollectedClientDataErr, CollectedClientData},
 /// #     RegisteredCredential
 /// # };
@@ -217,9 +217,9 @@ pub mod error;
 /// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom", feature = "serde_relaxed"))]
 /// insert_cred(ceremonies.take(&registration.challenge()?).ok_or(E::MissingCeremony)?.verify(&rp_id, handle, &registration, &ver_opts)?);
 /// /// Extract `UserHandle` from session cookie if this is not the first credential registered.
-/// fn get_user_handle() -> UserHandle<Vec<u8>> {
+/// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MAX_LEN]> {
 ///     // ⋮
-/// #     UserHandle::new()
+/// #     UserHandle::new_rand()
 /// }
 /// /// Fetch `PublicKeyCredentialUserEntity` info associated with `user`.
 /// ///
@@ -483,7 +483,7 @@ impl PartialEq<AuthenticatorAttachment> for &AuthenticatorAttachment {
     }
 }
 /// The maximum number of bytes that can make up a Credential ID
-/// [per WebAuthn](https://www.w3.org/TR/webauthn-3/#credential-id)
+/// [per WebAuthn](https://www.w3.org/TR/webauthn-3/#credential-id).
 pub const CRED_ID_MAX_LEN: usize = 1023;
 /// The minimum number of bytes that can make up a Credential ID
 /// [per WebAuthn](https://www.w3.org/TR/webauthn-3/#credential-id).

@@ -99,7 +99,10 @@ impl<'de> Deserialize<'de> for AuthenticatorTransport {
                     USB => Ok(AuthenticatorTransport::Usb),
                     _ => Err(E::invalid_value(
                         Unexpected::Str(v),
-                        &format!("'{BLE}', '{HYBRID}', '{INTERNAL}', '{NFC}', '{SMART_CARD}', or '{USB}'").as_str(),
+                        &format!(
+                            "'{BLE}', '{HYBRID}', '{INTERNAL}', '{NFC}', '{SMART_CARD}', or '{USB}'"
+                        )
+                        .as_str(),
                     )),
                 }
             }
@@ -532,6 +535,34 @@ pub(super) struct PublicKeyCredential<const RELAXED: bool, const REG: bool, Auth
     /// [`getClientExtensionResults`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-getclientextensionresults).
     pub client_extension_results: Ext,
 }
+/// Deserializes the value for type.
+pub(super) struct Type;
+impl<'e> Deserialize<'e> for Type {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'e>,
+    {
+        /// `Visitor` for `Type`.
+        struct TypeVisitor;
+        impl Visitor<'_> for TypeVisitor {
+            type Value = Type;
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+                formatter.write_str(PUBLIC_KEY)
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                if v == PUBLIC_KEY {
+                    Ok(Type)
+                } else {
+                    Err(E::invalid_value(Unexpected::Str(v), &PUBLIC_KEY))
+                }
+            }
+        }
+        deserializer.deserialize_str(TypeVisitor)
+    }
+}
 /// `Visitor` for `PublicKeyCredential`.
 ///
 /// When `!RELAXED`, `REG` is ignored and all fields must exist and unknown fields are not allowed.
@@ -544,7 +575,7 @@ struct PublicKeyCredentialVisitor<const RELAXED: bool, const REG: bool, R, E>(
 impl<'d, const REL: bool, const REGI: bool, R, E> Visitor<'d>
     for PublicKeyCredentialVisitor<REL, REGI, R, E>
 where
-    R: for<'a> Deserialize<'a>,
+    R: Deserialize<'d>,
     E: for<'a> Deserialize<'a> + ClientExtensions,
 {
     type Value = PublicKeyCredential<REL, REGI, R, E>;
@@ -586,7 +617,10 @@ where
                 impl<const IGN: bool> Visitor<'_> for FieldVisitor<IGN> {
                     type Value = Field<IGN>;
                     fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                        write!(formatter, "'{ID}', '{TYPE}', '{RAW_ID}', '{RESPONSE}', '{AUTHENTICATOR_ATTACHMENT}', or '{CLIENT_EXTENSION_RESULTS}'")
+                        write!(
+                            formatter,
+                            "'{ID}', '{TYPE}', '{RAW_ID}', '{RESPONSE}', '{AUTHENTICATOR_ATTACHMENT}', or '{CLIENT_EXTENSION_RESULTS}'"
+                        )
                     }
                     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
                     where
@@ -610,34 +644,6 @@ where
                     }
                 }
                 deserializer.deserialize_identifier(FieldVisitor::<IGNORE>)
-            }
-        }
-        /// Deserializes the value for type.
-        struct Type;
-        impl<'e> Deserialize<'e> for Type {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: Deserializer<'e>,
-            {
-                /// `Visitor` for `Type`.
-                struct TypeVisitor;
-                impl Visitor<'_> for TypeVisitor {
-                    type Value = Type;
-                    fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                        formatter.write_str(PUBLIC_KEY)
-                    }
-                    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                    where
-                        E: Error,
-                    {
-                        if v == PUBLIC_KEY {
-                            Ok(Type)
-                        } else {
-                            Err(E::invalid_value(Unexpected::Str(v), &PUBLIC_KEY))
-                        }
-                    }
-                }
-                deserializer.deserialize_str(TypeVisitor)
             }
         }
         let mut opt_id = None;
@@ -791,7 +797,7 @@ const REG_FIELDS: &[&str; 6] = &[
 impl<'de, const REL: bool, const REGI: bool, R, E> Deserialize<'de>
     for PublicKeyCredential<REL, REGI, R, E>
 where
-    R: for<'a> Deserialize<'a>,
+    R: Deserialize<'de>,
     E: for<'a> Deserialize<'a> + ClientExtensions,
 {
     /// Deserializes a `struct` based on
@@ -821,7 +827,7 @@ impl Serialize for AllAcceptedCredentialsOptions<'_, '_> {
     /// # #[cfg(feature = "bin")]
     /// # use webauthn_rp::bin::Decode;
     /// # use webauthn_rp::{
-    /// #     request::{register::UserHandle, AsciiDomain, RpId},
+    /// #     request::{register::{UserHandle, USER_HANDLE_MIN_LEN}, AsciiDomain, RpId},
     /// #     response::{error::CredentialIdErr, AllAcceptedCredentialsOptions, CredentialId},
     /// # };
     /// /// Retrieves the `CredentialId`s associated with `user_id` from the database.
@@ -832,9 +838,9 @@ impl Serialize for AllAcceptedCredentialsOptions<'_, '_> {
     /// }
     /// /// Retrieves the `UserHandle` from a session cookie.
     /// # #[cfg(feature = "custom")]
-    /// fn get_user_handle() -> UserHandle<Vec<u8>> {
+    /// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MIN_LEN]> {
     ///     // ⋮
-    /// #     UserHandle::try_from(vec![0]).unwrap()
+    /// #     [0].into()
     /// }
     /// # #[cfg(feature = "custom")]
     /// let user_id = get_user_handle();
@@ -881,7 +887,7 @@ impl Serialize for CurrentUserDetailsOptions<'_, '_, '_, '_> {
     /// # #[cfg(feature = "bin")]
     /// # use webauthn_rp::bin::Decode;
     /// # use webauthn_rp::{
-    /// #     request::{register::{Nickname, PublicKeyCredentialUserEntity, UserHandle, Username}, AsciiDomain, RpId},
+    /// #     request::{register::{Nickname, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MIN_LEN, Username}, AsciiDomain, RpId},
     /// #     response::CurrentUserDetailsOptions,
     /// #     AggErr,
     /// # };
@@ -889,13 +895,13 @@ impl Serialize for CurrentUserDetailsOptions<'_, '_, '_, '_> {
     /// # #[cfg(feature = "bin")]
     /// fn get_user_info(user_id: UserHandle<&[u8]>) -> Result<(Username, Option<Nickname>), AggErr> {
     ///     // ⋮
-    /// #     Ok((Username::decode("foo".to_owned()).unwrap(), Some(Nickname::decode("foo".to_owned()).unwrap())))
+    /// #     Ok((Username::decode("foo").unwrap(), Some(Nickname::decode("foo").unwrap())))
     /// }
     /// /// Retrieves the `UserHandle` from a session cookie.
     /// # #[cfg(feature = "custom")]
-    /// fn get_user_handle() -> UserHandle<Vec<u8>> {
+    /// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MIN_LEN]> {
     ///     // ⋮
-    /// #     UserHandle::try_from(vec![0]).unwrap()
+    /// #     [0].into()
     /// }
     /// # #[cfg(feature = "custom")]
     /// let user_handle = get_user_handle();
