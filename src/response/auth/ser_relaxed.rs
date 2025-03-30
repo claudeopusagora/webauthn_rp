@@ -6,6 +6,7 @@
 use super::super::{Challenge, CredentialId};
 use super::{
     super::{
+        super::request::register::{User, UserHandle16, UserHandle64},
         auth::ser::{
             AUTH_ASSERT_FIELDS, AuthData, AuthenticatorAssertionVisitor, ClientExtensionsOutputs,
             ClientExtensionsOutputsVisitor, EXT_FIELDS,
@@ -59,10 +60,10 @@ impl<'de> Deserialize<'de> for ClientExtensionsOutputsRelaxed {
 }
 /// `newtype` around `AuthenticatorAssertion` with a "relaxed" [`Self::deserialize`] implementation.
 #[derive(Debug)]
-pub struct AuthenticatorAssertionRelaxed<User>(pub AuthenticatorAssertion<User>);
-impl<'de, User> Deserialize<'de> for AuthenticatorAssertionRelaxed<User>
+pub struct AuthenticatorAssertionRelaxed<U>(pub AuthenticatorAssertion<U>);
+impl<'de, U> Deserialize<'de> for AuthenticatorAssertionRelaxed<U>
 where
-    UserHandle<User>: Deserialize<'de>,
+    U: Deserialize<'de> + User + Default,
 {
     /// Same as [`AuthenticatorAssertion::deserialize`] except unknown keys are ignored.
     ///
@@ -76,17 +77,17 @@ where
             .deserialize_struct(
                 "AuthenticatorAssertionRelaxed",
                 AUTH_ASSERT_FIELDS,
-                AuthenticatorAssertionVisitor::<true, User>::new(),
+                AuthenticatorAssertionVisitor::<true, U>::new(),
             )
             .map(Self)
     }
 }
 /// `newtype` around `Authentication` with a "relaxed" [`Self::deserialize`] implementation.
 #[derive(Debug)]
-pub struct AuthenticationRelaxed<User>(pub Authentication<User>);
-impl<'de, User> Deserialize<'de> for AuthenticationRelaxed<User>
+pub struct AuthenticationRelaxed<U>(pub Authentication<U>);
+impl<'de, U> Deserialize<'de> for AuthenticationRelaxed<U>
 where
-    UserHandle<User>: Deserialize<'de>,
+    U: Deserialize<'de> + User + Default,
 {
     /// Same as [`Authentication::deserialize`] except unknown keys are ignored;
     /// [`response`](https://www.w3.org/TR/webauthn-3/#dom-authenticationresponsejson-response) is deserialized
@@ -106,8 +107,8 @@ where
     /// if it exists it must be `null`, and
     /// [`second`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-second) can exist but
     /// must be `null` if so; and only
-    /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-authenticationresponsejson-id) and `response` are required. For
-    /// the other fields, they are allowed to not exist or be `null`.
+    /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-authenticationresponsejson-id) and `response` are required.
+    /// `rawId` and `type` and allowed to not exist. For the other fields, they are allowed to not exist or be `null`.
     ///
     /// Note that duplicate keys are still forbidden, and data matching still applies when applicable.
     #[expect(clippy::unreachable, reason = "when there is a bug, we want to crash")]
@@ -119,7 +120,7 @@ where
         PublicKeyCredential::<
             true,
             false,
-            AuthenticatorAssertionRelaxed<User>,
+            AuthenticatorAssertionRelaxed<U>,
             ClientExtensionsOutputsRelaxed,
         >::deserialize(deserializer)
         .map(|cred| {
@@ -133,18 +134,24 @@ where
         })
     }
 }
+/// `AuthenticationRelaxed` with a required `UserHandle`.
+pub type PasskeyAuthenticationRelaxed<T> = AuthenticationRelaxed<UserHandle<T>>;
+/// `AuthenticationRelaxed` with a required `UserHandle64`.
+pub type PasskeyAuthenticationRelaxed64 = AuthenticationRelaxed<UserHandle64>;
+/// `AuthenticationRelaxed` with a required `UserHandle16`.
+pub type PasskeyAuthenticationRelaxed16 = AuthenticationRelaxed<UserHandle16>;
 /// `newtype` around `Authentication` with a custom [`Self::deserialize`] implementation.
 #[derive(Debug)]
-pub struct CustomAuthentication<User>(pub Authentication<User>);
-impl<'de, User> Deserialize<'de> for CustomAuthentication<User>
+pub struct CustomAuthentication<U>(pub Authentication<U>);
+impl<'de, U> Deserialize<'de> for CustomAuthentication<U>
 where
-    UserHandle<User>: Deserialize<'de>,
+    U: Deserialize<'de> + User + Default,
 {
     /// Despite the spec having a
     /// [pre-defined format](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationresponsejson) that clients
     /// can follow, the downside is the superfluous data it contains.
     ///
-    /// There simply is no reason to send the [`CredentialId`] _two_ times. This redundant data puts RPs in
+    /// There simply is no reason to send the [`CredentialId`] twice. This redundant data puts RPs in
     /// a position where they either ignore the data or parse the data to ensure no contradictions exist
     /// (e.g., [FIDO conformance requires one to verify `id` and `rawId` exist and match](https://github.com/w3c/webauthn/issues/2119#issuecomment-2287875401)).
     ///
@@ -154,29 +161,43 @@ where
     ///
     /// ```json
     /// {
-    ///   "authenticatorAttachment":null|"platform"|"cross-platform",
-    ///   "authenticatorData":<base64url string>,
-    ///   "clientDataJSON":<base64url string>,
-    ///   "clientExtensionResults":{}|{"prf":null}|{"prf":{}}|{"prf":{"results":null}}|{"prf":{"results":{"first":null}}}|{"prf":{"results":{"first":null,"second":null}}},
-    ///   "id":<see CredentialId::deserialize>,
-    ///   "signature":<base64url string>,
-    ///   "type":null|"public-key",
-    ///   "userHandle":null|<see UserHandle::deserialize>
+    ///   "authenticatorAttachment": null | "platform" | "cross-platform",
+    ///   "authenticatorData": <base64url string>,
+    ///   "clientDataJSON": <base64url string>,
+    ///   "clientExtensionResults": {
+    ///     "prf": null | PRFJSON
+    ///   },
+    ///   "id": <see CredentialId::deserialize>,
+    ///   "signature": <base64url string>,
+    ///   "type": "public-key",
+    ///   "userHandle": null | <see UserHandle::deserialize>
+    /// }
+    /// // PRFJSON:
+    /// {
+    ///   "results": null | PRFOutputsJSON
+    /// }
+    /// // PRFOutputsJSON:
+    /// {
+    ///   "first": null,
+    ///   "second": null
     /// }
     /// ```
     ///
-    /// All of the above keys are required with the exceptions of `"authenticatorAttachment"`, `"type"`, and
-    /// `"userHandle"`.
+    /// `"userHandle"` is required to exist and not be `null` iff `U` is [`UserHandle`]. When it does exist and
+    /// is not `null`, then it is deserialized via [`UserHandle::deserialize`]. All of the remaining keys are
+    /// required with the exceptions of `"authenticatorAttachment"` and `"type"`. `"prf"` is not required in the
+    /// `clientExtensionResults` object, `"results"` is required in the `PRFJSON` object, and `"first"`
+    /// (but not `"second"`) is required in `PRFOutputsJSON`.
     ///
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::{request::register::USER_HANDLE_MIN_LEN, response::auth::ser_relaxed::CustomAuthentication};
+    /// # use webauthn_rp::{request::register::{UserHandle, USER_HANDLE_MIN_LEN}, response::auth::ser_relaxed::CustomAuthentication};
     /// assert!(
     ///     // The below payload is technically valid, but `AuthenticationServerState::verify` will fail
     ///     // since the authenticatorData is not valid. This is true for `Authentication::deserialize`
     ///     // as well since authenticatorData parsing is always deferred.
-    ///     serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+    ///     serde_json::from_str::<CustomAuthentication<UserHandle<[u8; USER_HANDLE_MIN_LEN]>>>(
     ///         r#"{
     ///             "authenticatorData": "AA",
     ///             "authenticatorAttachment": "cross-platform",
@@ -199,12 +220,12 @@ where
         D: Deserializer<'de>,
     {
         /// `Visitor` for `CustomAuthentication`.
-        struct CustomAuthenticationVisitor<U>(PhantomData<fn() -> U>);
-        impl<'d, U> Visitor<'d> for CustomAuthenticationVisitor<U>
+        struct CustomAuthenticationVisitor<UHand>(PhantomData<fn() -> UHand>);
+        impl<'d, UHand> Visitor<'d> for CustomAuthenticationVisitor<UHand>
         where
-            UserHandle<U>: Deserialize<'d>,
+            UHand: Deserialize<'d> + User + Default,
         {
-            type Value = CustomAuthentication<U>;
+            type Value = CustomAuthentication<UHand>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("CustomAuthentication")
             }
@@ -325,13 +346,13 @@ where
                             if typ {
                                 return Err(Error::duplicate_field(TYPE));
                             }
-                            typ = map.next_value::<Option<Type>>().map(|_| true)?;
+                            typ = map.next_value::<Type>().map(|_| true)?;
                         }
                         Field::UserHandle => {
                             if user_handle.is_some() {
                                 return Err(Error::duplicate_field(USER_HANDLE));
                             }
-                            user_handle = map.next_value::<Option<_>>().map(Some)?;
+                            user_handle = map.next_value().map(Some)?;
                         }
                     }
                 }
@@ -347,24 +368,30 @@ where
                                             .ok_or_else(|| Error::missing_field(SIGNATURE))
                                             .and_then(|sig| {
                                                 if ext {
-                                                    Ok(CustomAuthentication(Authentication {
-                                                        response: AuthenticatorAssertion::new_inner(
-                                                            c_data,
-                                                            auth_data,
-                                                            sig,
-                                                            user_handle.unwrap_or_default(),
-                                                        ),
-                                                        authenticator_attachment:
-                                                            authenticator_attachment.map_or(
-                                                                AuthenticatorAttachment::None,
-                                                                |auth_attach| {
-                                                                    auth_attach.unwrap_or(
-                                                                    AuthenticatorAttachment::None,
-                                                                )
-                                                                },
+                                                    if UHand::must_exist() {
+                                                        user_handle.ok_or_else(|| Error::missing_field(USER_HANDLE))
+                                                    } else {
+                                                        user_handle.map_or_else(|| Ok(UHand::default()), Ok)
+                                                    }.map(|user| {
+                                                        CustomAuthentication(Authentication {
+                                                            response: AuthenticatorAssertion::new_inner(
+                                                                c_data,
+                                                                auth_data,
+                                                                sig,
+                                                                user,
                                                             ),
-                                                        raw_id,
-                                                    }))
+                                                            authenticator_attachment:
+                                                                authenticator_attachment.map_or(
+                                                                    AuthenticatorAttachment::None,
+                                                                    |auth_attach| {
+                                                                        auth_attach.unwrap_or(
+                                                                        AuthenticatorAttachment::None,
+                                                                    )
+                                                                    },
+                                                                ),
+                                                            raw_id,
+                                                        })
+                                                    })
                                                 } else {
                                                     Err(Error::missing_field(
                                                         CLIENT_EXTENSION_RESULTS,
@@ -410,11 +437,21 @@ where
         )
     }
 }
+/// `CustomAuthentication` with a required `UserHandle`.
+pub type PasskeyCustomAuthentication<T> = CustomAuthentication<UserHandle<T>>;
+/// `CustomAuthentication` with a required `UserHandle64`.
+pub type PasskeyCustomAuthentication64 = CustomAuthentication<UserHandle64>;
+/// `CustomAuthentication` with a required `UserHandle16`.
+pub type PasskeyCustomAuthentication16 = CustomAuthentication<UserHandle16>;
 #[cfg(test)]
 mod tests {
     use super::{
-        super::{super::super::request::register::USER_HANDLE_MIN_LEN, AuthenticatorAttachment},
-        AuthenticationRelaxed, CustomAuthentication,
+        super::{
+            super::super::request::register::USER_HANDLE_MIN_LEN, AuthenticatorAttachment,
+            UserHandle,
+        },
+        AuthenticationRelaxed, CustomAuthentication, PasskeyAuthenticationRelaxed,
+        PasskeyCustomAuthentication,
     };
     use data_encoding::BASE64URL_NOPAD;
     use rsa::sha2::{Digest as _, Sha256};
@@ -471,7 +508,7 @@ mod tests {
         let b64_user = BASE64URL_NOPAD.encode(b"\x00".as_slice());
         // Base case is valid.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -511,7 +548,7 @@ mod tests {
         .to_string()
         .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "ABABABABABABABABABABAA",
@@ -536,7 +573,7 @@ mod tests {
         // missing `id`.
         err = Error::missing_field("id").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
@@ -558,11 +595,11 @@ mod tests {
             err
         );
         // `null` `id`.
-        err = Error::invalid_type(Unexpected::Other("null"), &"id")
+        err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": null,
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -585,7 +622,7 @@ mod tests {
         );
         // missing `rawId`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
@@ -603,8 +640,11 @@ mod tests {
             .is_ok()
         );
         // `null` `rawId`.
-        assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+        err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
+            .to_string()
+            .into_bytes();
+        assert_eq!(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": null,
@@ -620,14 +660,17 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .is_ok()
+            .unwrap_err()
+            .to_string()
+            .into_bytes()[..err.len()],
+            err
         );
         // Missing `authenticatorData`.
         err = Error::missing_field("authenticatorData")
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -652,7 +695,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -676,7 +719,7 @@ mod tests {
         // Missing `signature`.
         err = Error::missing_field("signature").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -701,7 +744,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -724,7 +767,9 @@ mod tests {
         );
         // Missing `userHandle`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<
+                AuthenticationRelaxed<Option<UserHandle<[u8; USER_HANDLE_MIN_LEN]>>>,
+            >(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -743,7 +788,9 @@ mod tests {
         );
         // `null` `userHandle`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<
+                AuthenticationRelaxed<Option<UserHandle<[u8; USER_HANDLE_MIN_LEN]>>>,
+            >(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -763,7 +810,7 @@ mod tests {
         );
         // `null` `authenticatorAttachment`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -793,7 +840,7 @@ mod tests {
         .to_string()
         .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -820,7 +867,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -845,7 +892,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -869,7 +916,7 @@ mod tests {
         // Missing `response`.
         err = Error::missing_field("response").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -889,7 +936,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -910,7 +957,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -928,7 +975,7 @@ mod tests {
         );
         // Missing `clientExtensionResults`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -947,7 +994,7 @@ mod tests {
         );
         // `null` `clientExtensionResults`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -967,7 +1014,7 @@ mod tests {
         );
         // Missing `type`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -985,8 +1032,11 @@ mod tests {
             .is_ok()
         );
         // `null` `type`.
-        assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+        err = Error::invalid_type(Unexpected::Other("null"), &"public-key")
+            .to_string()
+            .into_bytes();
+        assert_eq!(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1002,14 +1052,17 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .is_ok()
+            .unwrap_err()
+            .to_string()
+            .into_bytes()[..err.len()],
+            err
         );
         // Not exactly `public-type` `type`.
         err = Error::invalid_value(Unexpected::Str("Public-key"), &"public-key")
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1035,7 +1088,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!(null).to_string().as_str()
             )
             .unwrap_err()
@@ -1046,7 +1099,7 @@ mod tests {
         // Empty.
         err = Error::missing_field("response").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({}).to_string().as_str()
             )
             .unwrap_err()
@@ -1056,7 +1109,7 @@ mod tests {
         );
         // Unknown field in `response`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1080,7 +1133,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 format!(
                     "{{
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
@@ -1106,7 +1159,7 @@ mod tests {
         );
         // Unknown field in `PublicKeyCredential`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1128,7 +1181,7 @@ mod tests {
         // Duplicate field in `PublicKeyCredential`.
         err = Error::duplicate_field("id").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 format!(
                     "{{
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
@@ -1154,7 +1207,7 @@ mod tests {
         );
         // Base case is valid.
         assert!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1181,7 +1234,7 @@ mod tests {
         // missing `id`.
         err = Error::missing_field("id").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "clientDataJSON": b64_cdata,
                     "authenticatorData": b64_adata,
@@ -1204,7 +1257,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": null,
                     "clientDataJSON": b64_cdata,
@@ -1227,7 +1280,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1249,7 +1302,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1270,7 +1323,7 @@ mod tests {
         // Missing `signature`.
         err = Error::missing_field("signature").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1292,7 +1345,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1312,7 +1365,9 @@ mod tests {
         );
         // Missing `userHandle`.
         assert!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<
+                CustomAuthentication<Option<UserHandle<[u8; USER_HANDLE_MIN_LEN]>>>,
+            >(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1328,7 +1383,9 @@ mod tests {
         );
         // `null` `userHandle`.
         assert!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<
+                CustomAuthentication<Option<UserHandle<[u8; USER_HANDLE_MIN_LEN]>>>,
+            >(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1345,7 +1402,7 @@ mod tests {
         );
         // `null` `authenticatorAttachment`.
         assert!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1372,7 +1429,7 @@ mod tests {
         .to_string()
         .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1396,7 +1453,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "authenticatorData": b64_adata,
@@ -1418,7 +1475,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": null,
@@ -1441,7 +1498,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({}).to_string().as_str()
             )
             .unwrap_err()
@@ -1454,7 +1511,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1476,7 +1533,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1495,7 +1552,7 @@ mod tests {
             err
         );
         assert!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1509,8 +1566,12 @@ mod tests {
             )
             .is_ok()
         );
-        assert!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+        // `null` `type`.
+        err = Error::invalid_type(Unexpected::Other("null"), &"public-key")
+            .to_string()
+            .into_bytes();
+        assert_eq!(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1523,14 +1584,17 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .is_ok()
+            .unwrap_err()
+            .to_string()
+            .into_bytes()[..err.len()],
+            err
         );
         // Not exactly `public-type` `type`.
         err = Error::invalid_value(Unexpected::Str("Public-key"), &"public-key")
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1553,7 +1617,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!(null).to_string().as_str()
             )
             .unwrap_err()
@@ -1579,7 +1643,7 @@ mod tests {
         .to_string()
         .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "clientDataJSON": b64_cdata,
@@ -1603,7 +1667,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<CustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyCustomAuthentication<[u8; USER_HANDLE_MIN_LEN]>>(
                 format!(
                     "{{
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
@@ -1676,7 +1740,7 @@ mod tests {
         let b64_user = BASE64URL_NOPAD.encode(b"\x00".as_slice());
         // Base case is valid.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1705,7 +1769,7 @@ mod tests {
         );
         // `null` `prf`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1727,7 +1791,7 @@ mod tests {
         );
         // Unknown `clientExtensionResults`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1750,7 +1814,7 @@ mod tests {
         // Duplicate field.
         let mut err = Error::duplicate_field("prf").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 format!(
                     "{{
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
@@ -1777,7 +1841,7 @@ mod tests {
         );
         // `null` `results`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1802,7 +1866,7 @@ mod tests {
         // Duplicate field in `prf`.
         err = Error::duplicate_field("results").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 format!(
                     "{{
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
@@ -1831,7 +1895,7 @@ mod tests {
         );
         // Missing `first`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1855,7 +1919,7 @@ mod tests {
         );
         // `null` `first`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1881,7 +1945,7 @@ mod tests {
         );
         // `null` `second`.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1911,7 +1975,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1943,7 +2007,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1976,7 +2040,7 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -2004,7 +2068,7 @@ mod tests {
         );
         // Unknown `prf` field.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -2029,7 +2093,7 @@ mod tests {
         );
         // Unknown `results` field.
         assert!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -2057,7 +2121,7 @@ mod tests {
         // Duplicate field in `results`.
         err = Error::duplicate_field("first").to_string().into_bytes();
         assert_eq!(
-            serde_json::from_str::<AuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
+            serde_json::from_str::<PasskeyAuthenticationRelaxed<[u8; USER_HANDLE_MIN_LEN]>>(
                 format!(
                     "{{
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",

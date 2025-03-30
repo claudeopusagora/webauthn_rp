@@ -3091,6 +3091,7 @@ mod tests {
                 AggErr,
                 request::{AsciiDomain, RpId},
             },
+            UserHandle,
             auth::{AuthenticatorAssertion, AuthenticatorData},
         },
         AttestationFormat, AttestationObject, AuthDataContainer as _, AuthTransports,
@@ -3154,11 +3155,10 @@ mod tests {
             .unwrap();
         let client_data_json_2 = HEXLOWER.decode(b"7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a224f63446e55685158756c5455506f334a5558543049393770767a7a59425039745a63685879617630314167222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73657d".as_slice()).unwrap();
         let signature = HEXLOWER.decode(b"3046022100f50a4e2e4409249c4a853ba361282f09841df4dd4547a13a87780218deffcd380221008480ac0f0b93538174f575bf11a1dd5d78c6e486013f937295ea13653e331e87".as_slice()).unwrap();
-        let auth_assertion = AuthenticatorAssertion::new_user_vec(
+        let auth_assertion = AuthenticatorAssertion::<Option<UserHandle<Vec<u8>>>>::without_user(
             client_data_json_2,
             authenticator_data,
             signature,
-            None,
         );
         let auth_data = AuthenticatorData::try_from(auth_assertion.authenticator_data())?;
         assert_eq!(
@@ -3236,11 +3236,10 @@ mod tests {
             .unwrap();
         let client_data_json_2 = HEXLOWER.decode(b"7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a225248696843784e534e493352594d45314f7731476d3132786e726b634a5f6666707637546e2d4a71386773222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a206754623533727a36456853576f6d58477a696d4331513d3d227d".as_slice()).unwrap();
         let signature = HEXLOWER.decode(b"3044022076691be76a8618976d9803c4cdc9b97d34a7af37e3bdc894a2bf54f040ffae850220448033a015296ffb09a762efd0d719a55346941e17e91ebf64c60d439d0b9744".as_slice()).unwrap();
-        let auth_assertion = AuthenticatorAssertion::new_user_vec(
+        let auth_assertion = AuthenticatorAssertion::<Option<UserHandle<Vec<u8>>>>::without_user(
             client_data_json_2,
             authenticator_data,
             signature,
-            None,
         );
         let auth_data = AuthenticatorData::try_from(auth_assertion.authenticator_data())?;
         assert_eq!(

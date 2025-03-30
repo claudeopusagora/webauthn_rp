@@ -11,6 +11,7 @@ use super::{
 use super::{
     super::{
         AuthenticatedCredential,
+        request::register::User,
         response::{
             AuthenticatorAttachment,
             auth::{
@@ -873,7 +874,7 @@ impl<O, T> Default for AuthenticationVerificationOptions<'_, '_, O, T> {
     /// [`Self::backup_requirement`] is `None`, [`Self::error_on_unsolicited_extensions`] is `true`,
     /// [`Self::auth_attachment_enforcement`] is [`AuthenticatorAttachmentEnforcement::default`],
     /// [`Self::update_uv`] is `false`, [`Self::sig_counter_enforcement`] is
-    /// [`SignatureCounterEnforcement::Fail`], and [`Self::client_data_json_relaxed`] is `true`.
+    /// [`SignatureCounterEnforcement::default`], and [`Self::client_data_json_relaxed`] is `true`.
     #[inline]
     fn default() -> Self {
         Self {
@@ -956,11 +957,11 @@ impl AuthenticationServerState {
         P256Key: AsRef<[u8]>,
         P384Key: AsRef<[u8]>,
         RsaKey: AsRef<[u8]>,
-        User: AsRef<[u8]>,
+        U: User,
     >(
         self,
         rp_id: &RpId,
-        response: &'a Authentication<User>,
+        response: &'a Authentication<U>,
         cred: &mut AuthenticatedCredential<
             'a,
             'user,
@@ -1002,10 +1003,10 @@ impl AuthenticationServerState {
             response
                 .response
                 .user_handle()
-                .as_ref()
+                .is_same(cred.user_id)
                 .ok_or(AuthCeremonyErr::MissingUserHandle)
-                .and_then(|user| {
-                    if cred.user_id() == user {
+                .and_then(|same| {
+                    if same {
                         if cred.id == response.raw_id {
                             Ok(None)
                         } else {
@@ -1098,17 +1099,17 @@ impl AuthenticationServerState {
     /// Errors iff [`AuthenticatedCredential::user_handle`] does not match [`Authentication::user_handle`] or
     /// [`PublicKeyCredentialRequestOptions::allow_credentials`] does not have a [`CredInfo`] such that
     /// [`CredInfo::id`] matches [`Authentication::raw_id`].
-    fn verify_nondiscoverable<'a, PublicKey, User: AsRef<[u8]>>(
+    fn verify_nondiscoverable<'a, PublicKey, U: User>(
         &self,
-        response: &'a Authentication<User>,
+        response: &'a Authentication<U>,
         cred: &AuthenticatedCredential<'a, '_, PublicKey>,
     ) -> Result<Option<ServerCredSpecificExtensionInfo>, AuthCeremonyErr> {
         response
             .response
             .user_handle()
-            .as_ref()
-            .map_or(Ok(()), |user| {
-                if user == cred.user_id() {
+            .is_same(cred.user_id())
+            .map_or(Ok(()), |same| {
+                if same {
                     Ok(())
                 } else {
                     Err(AuthCeremonyErr::UserHandleMismatch)

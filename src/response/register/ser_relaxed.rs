@@ -175,7 +175,8 @@ impl<'de> Deserialize<'de> for RegistrationRelaxed {
     /// via [`AuthenticatorAttestationRelaxed::deserialize`],
     /// [`clientExtensionResults`](https://www.w3.org/TR/webauthn-3/#dom-registrationresponsejson-clientextensionresults)
     /// is `null` or deserialized via [`ClientExtensionsOutputsRelaxed::deserialize`], and only `response` is required.
-    /// For the other fields, they are allowed to not exist or be `null`.
+    /// `id`, `rawId`, and `type` are allowed to not exist. For the other fields, they are allowed to not exist or
+    /// be `null`.
     ///
     /// Note that duplicate keys are still forbidden, and data matching still applies when applicable.
     #[expect(clippy::indexing_slicing, reason = "comment justifies its correctness")]
@@ -229,12 +230,12 @@ impl<'de> Deserialize<'de> for CustomRegistration {
     ///
     /// ```json
     /// {
-    ///   "attestationObject":<base64url string>,
-    ///   "authenticatorAttachment":null|"platform"|"cross-platform",
-    ///   "clientDataJSON":<base64url string>,
-    ///   "clientExtensionResults":<see ClientExtensionsOutputs::deserialize>,
-    ///   "transports":<see AuthTransports::deserialize>,
-    ///   "type":null|"public-key"
+    ///   "attestationObject": <base64url string>,
+    ///   "authenticatorAttachment": null | "platform" | "cross-platform",
+    ///   "clientDataJSON": <base64url string>,
+    ///   "clientExtensionResults": <see ClientExtensionsOutputs::deserialize>,
+    ///   "transports": <see AuthTransports::deserialize>,
+    ///   "type": "public-key"
     /// }
     /// ```
     ///
@@ -376,7 +377,7 @@ impl<'de> Deserialize<'de> for CustomRegistration {
                             if typ {
                                 return Err(Error::duplicate_field(TYPE));
                             }
-                            typ = map.next_value::<Option<Type>>().map(|_| true)?;
+                            typ = map.next_value::<Type>().map(|_| true)?;
                         }
                     }
                 }
@@ -719,13 +720,16 @@ mod tests {
             .is_ok()
         );
         // `null` `id`.
-        assert!(
+        err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
+            .to_string()
+            .into_bytes();
+        assert_eq!(
             serde_json::from_str::<RegistrationRelaxed>(
                 serde_json::json!({
                     "id": null,
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": null,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -738,7 +742,10 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .is_ok()
+            .unwrap_err()
+            .to_string()
+            .into_bytes()[..err.len()],
+            err
         );
         // Missing `rawId`.
         assert!(
@@ -762,7 +769,10 @@ mod tests {
             .is_ok()
         );
         // `null` `rawId`.
-        assert!(
+        err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
+            .to_string()
+            .into_bytes();
+        assert_eq!(
             serde_json::from_str::<RegistrationRelaxed>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -781,7 +791,10 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .is_ok()
+            .unwrap_err()
+            .to_string()
+            .into_bytes()[..err.len()],
+            err
         );
         // `id` and the credential id in authenticator data mismatch.
         err = Error::invalid_value(
@@ -1433,7 +1446,10 @@ mod tests {
             .is_ok()
         );
         // `null` `type`.
-        assert!(
+        err = Error::invalid_type(Unexpected::Other("null"), &"public-key")
+            .to_string()
+            .into_bytes();
+        assert_eq!(
             serde_json::from_str::<RegistrationRelaxed>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -1452,7 +1468,10 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .is_ok()
+            .unwrap_err()
+            .to_string()
+            .into_bytes()[..err.len()],
+            err
         );
         // Not exactly `public-type` `type`.
         err = Error::invalid_value(Unexpected::Str("Public-key"), &"public-key")
@@ -1902,7 +1921,10 @@ mod tests {
             .map_or(false, |_| true)
         );
         // `null` `type`.
-        assert!(
+        err = Error::invalid_type(Unexpected::Other("null"), &"public-key")
+            .to_string()
+            .into_bytes();
+        assert_eq!(
             serde_json::from_str::<CustomRegistration>(
                 serde_json::json!({
                     "attestationObject": b64_aobj,
@@ -1914,7 +1936,10 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |_| true)
+            .unwrap_err()
+            .to_string()
+            .into_bytes()[..err.len()],
+            err
         );
         // Not exactly `public-type` `type`.
         err = Error::invalid_value(Unexpected::Str("Public-key"), &"public-key")

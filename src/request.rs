@@ -197,7 +197,7 @@ impl Challenge {
     /// The number of bytes a `Challenge` takes to encode in base64url.
     #[expect(clippy::unwrap_used, reason = "we want to crash when there is a bug")]
     pub(super) const BASE64_LEN: usize = super::base64url_nopad_len(16).unwrap();
-    /// Returns a new `Challenge` based on a randomly-generated `u128`.
+    /// Generates a random `Challenge`.
     ///
     /// # Examples
     ///
@@ -1634,16 +1634,18 @@ impl BuildHasher for BuildIdentityHasher {
         IdentityHasher(0)
     }
 }
-/// Prevent users from implementing [`ServerState`].
+/// Prevent users from implementing [`ServerState`] and [`super::register::User`].
 mod private {
-    /// Marker trait used as a supertrait of `ServerState`.
+    /// Marker trait used as a supertrait of `ServerState` and `User`.
     pub trait Sealed {}
     impl Sealed for super::AuthenticationServerState {}
     impl Sealed for super::RegistrationServerState {}
+    impl<T> Sealed for super::register::UserHandle<T> {}
+    impl<T> Sealed for Option<super::register::UserHandle<T>> {}
 }
 /// Subset of data shared by both [`RegistrationServerState`] and [`AuthenticationServerState`].
 ///
-/// This trait is sealed and cannot be implemented for types outside of `webauthn_rp`.
+/// This `trait` is sealed and cannot be implemented for types outside of `webauthn_rp`.
 pub trait ServerState: private::Sealed {
     /// Returns the `Instant` the ceremony expires.
     ///

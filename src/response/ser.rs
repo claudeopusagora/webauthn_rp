@@ -647,7 +647,7 @@ where
             }
         }
         let mut opt_id = None;
-        let mut typ = None;
+        let mut typ = false;
         let mut raw = None;
         let mut resp = None;
         let mut attach = None;
@@ -658,19 +658,19 @@ where
                     if opt_id.is_some() {
                         return Err(Error::duplicate_field(ID));
                     }
-                    opt_id = map.next_value::<Option<_>>().map(Some)?;
+                    opt_id = map.next_value::<CredentialId<_>>().map(Some)?;
                 }
                 Field::Type => {
-                    if typ.is_some() {
+                    if typ {
                         return Err(Error::duplicate_field(TYPE));
                     }
-                    typ = map.next_value::<Option<Type>>().map(Some)?;
+                    typ = map.next_value::<Type>().map(|_| true)?;
                 }
                 Field::RawId => {
                     if raw.is_some() {
                         return Err(Error::duplicate_field(RAW_ID));
                     }
-                    raw = map.next_value::<Option<CredentialId<_>>>().map(Some)?;
+                    raw = map.next_value::<CredentialId<_>>().map(Some)?;
                 }
                 Field::Response => {
                     if resp.is_some() {
@@ -695,12 +695,10 @@ where
         }
         resp.ok_or_else(|| Error::missing_field(RESPONSE))
             .and_then(|response| {
-                opt_id.ok_or(false).and_then(|id| id.ok_or(true)).map_or_else(
-                    |flag| {
+                opt_id.map_or_else(
+                    || {
                         if REL && REGI {
                             Ok(None)
-                        } else if flag {
-                            Err(Error::invalid_type(Unexpected::Other("null"), &format!("{ID} to be a base64url-encoded CredentialId").as_str()))
                         } else {
                             Err(Error::missing_field(ID))
                         }
@@ -708,12 +706,10 @@ where
                     |id| Ok(Some(id)),
                 )
                 .and_then(|id| {
-                    raw.ok_or(false).and_then(|opt_raw_id| opt_raw_id.ok_or(true)).map_or_else(
-                        |flag| {
+                    raw.map_or_else(
+                        || {
                             if REL {
                                 Ok(())
-                            } else if flag {
-                                Err(Error::invalid_type(Unexpected::Other("null"), &format!("{RAW_ID} to be a base64url-encoded CredentialId").as_str()))
                             } else {
                                 Err(Error::missing_field(RAW_ID))
                             }
@@ -748,23 +744,16 @@ where
                             Ok
                         )
                         .and_then(|client_extension_results| {
-                            typ.ok_or(false).and_then(|opt_typ| opt_typ.ok_or(true)).map_or_else(
-                                |flag| {
-                                    if REL {
-                                        Ok(())
-                                    } else if flag {
-                                        Err(Error::invalid_type(Unexpected::Other("null"), &format!("{TYPE} to be '{PUBLIC_KEY}'").as_str()))
-                                    } else {
-                                        Err(Error::missing_field(TYPE))
-                                    }
-                                },
-                                |_| Ok(()),
-                            ).map(|()| PublicKeyCredential {
-                                id,
-                                response,
-                                authenticator_attachment: attach.flatten().unwrap_or(AuthenticatorAttachment::None),
-                                client_extension_results,
-                            })
+                            if typ || REL {
+                                Ok(PublicKeyCredential {
+                                    id,
+                                    response,
+                                    authenticator_attachment: attach.flatten().unwrap_or(AuthenticatorAttachment::None),
+                                    client_extension_results,
+                                })
+                            } else {
+                                Err(Error::missing_field(TYPE))
+                            }
                         })
                     })
                 })

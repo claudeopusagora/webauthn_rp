@@ -961,7 +961,7 @@ where
         D: Deserializer<'de>,
     {
         /// `Visitor` for `PublicKeyCredentialUserEntity`.
-        #[expect(clippy::type_complexity, reason = "type alias doesn't fit well with lifetimes")]
+        #[expect(clippy::type_complexity, reason = "type aliases with bounds are even more problematic at least until lazy_type_alias is stable")]
         struct PublicKeyCredentialUserEntityVisitor<'a, 'b, U>(PhantomData<fn() -> (&'a (), &'b (), U)>);
         impl<'d: 'a + 'b, 'a, 'b, U> Visitor<'d> for PublicKeyCredentialUserEntityVisitor<'a, 'b, U>
         where
@@ -994,7 +994,7 @@ where
                         impl Visitor<'_> for FieldVisitor {
                             type Value = Field;
                             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                                write!(formatter, "'{NAME}', '{ID}', '{DISPLAY_NAME}'")
+                                write!(formatter, "'{NAME}', '{ID}', or '{DISPLAY_NAME}'")
                             }
                             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
                             where

@@ -35,7 +35,7 @@ use ser_relaxed::SerdeJsonErr;
 /// # use webauthn_rp::{
 /// #     request::{auth::{error::RequestOptionsErr, AuthenticationClientState, PublicKeyCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN}, AsciiDomain, BackupReq, RpId},
 /// #     response::{auth::{error::AuthCeremonyErr, Authentication}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKey, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
-/// #     AuthenticatedCredential, CredentialErr
+/// #     AuthenticatedCredential, CredentialErr, PasskeyAuthentication64
 /// # };
 /// # #[derive(Debug)]
 /// # enum E {
@@ -89,14 +89,13 @@ use ser_relaxed::SerdeJsonErr;
 ///     InsertResult::Success
 /// ));
 /// # #[cfg(feature = "serde")]
-/// let authentication = serde_json::from_str::<Authentication<[u8; USER_HANDLE_MAX_LEN]>>(get_authentication_json(client).as_str())?;
-/// // `UserHandle` must exist since we sent an empty `AllowedCredentials`.
+/// let authentication = serde_json::from_str::<PasskeyAuthentication64>(get_authentication_json(client).as_str())?;
 /// # #[cfg(feature = "serde")]
-/// let user_handle = authentication.response().user_handle().ok_or(E::MissingUserHandle)?;
+/// let user_handle = authentication.response().user_handle();
 /// # #[cfg(feature = "serde")]
-/// let (static_state, dynamic_state) = get_credential(authentication.raw_id(), user_handle).ok_or(E::UnknownCredential)?;
+/// let (static_state, dynamic_state) = get_credential(authentication.raw_id(), user_handle.into()).ok_or(E::UnknownCredential)?;
 /// # #[cfg(all(feature = "custom", feature = "serde"))]
-/// let mut cred = AuthenticatedCredential::new(authentication.raw_id(), user_handle, static_state, dynamic_state)?;
+/// let mut cred = AuthenticatedCredential::new(authentication.raw_id(), user_handle.into(), static_state, dynamic_state)?;
 /// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom", feature = "serde"))]
 /// if ceremonies.take(&authentication.challenge()?).ok_or(E::MissingCeremony)?.verify(&rp_id, &authentication, &mut cred, &AuthenticationVerificationOptions::<&str, &str>::default())? {
 ///     update_cred(authentication.raw_id(), cred.dynamic_state());

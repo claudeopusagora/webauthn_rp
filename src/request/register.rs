@@ -19,7 +19,10 @@ use super::{
 };
 #[cfg(doc)]
 use crate::{
-    request::{AsciiDomain, DomainOrigin, Url, auth::PublicKeyCredentialRequestOptions},
+    request::{
+        AsciiDomain, DomainOrigin, Url, auth::AuthenticationServerState,
+        auth::PublicKeyCredentialRequestOptions,
+    },
     response::{AuthTransports, AuthenticatorTransport, Backup, CollectedClientData},
 };
 use alloc::borrow::Cow;
@@ -228,29 +231,30 @@ impl<'a: 'b, 'b> From<Nickname<'a>> for Cow<'b, str> {
         value.0
     }
 }
-impl<'a: 'b, 'b> TryFrom<&'a str> for Nickname<'b> {
+impl<'a: 'b, 'b> TryFrom<Cow<'a, str>> for Nickname<'b> {
     type Error = NicknameErr;
     /// # Examples
     ///
     /// ```
+    /// # use std::borrow::Cow;
     /// # use webauthn_rp::request::register::{error::NicknameErr, Nickname};
     /// assert_eq!(
-    ///     Nickname::try_from("Srinivasa Ramanujan")?.as_ref(),
+    ///     Nickname::try_from(Cow::Borrowed("Srinivasa Ramanujan"))?.as_ref(),
     ///     "Srinivasa Ramanujan"
     /// );
     /// assert_eq!(
-    ///     Nickname::try_from("श्रीनिवास रामानुजन्")?.as_ref(),
+    ///     Nickname::try_from(Cow::Borrowed("श्रीनिवास रामानुजन्"))?.as_ref(),
     ///     "श्रीनिवास रामानुजन्"
     /// );
     /// // Empty strings are not valid.
-    /// assert!(Nickname::try_from("").map_or_else(
+    /// assert!(Nickname::try_from(Cow::Borrowed("")).map_or_else(
     ///     |e| matches!(e, NicknameErr::Rfc8266),
     ///     |_| false
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
     #[inline]
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+    fn try_from(value: Cow<'a, str>) -> Result<Self, Self::Error> {
         precis_profiles::Nickname::new()
             .enforce(value)
             .map_err(|_e| NicknameErr::Rfc8266)
@@ -261,6 +265,22 @@ impl<'a: 'b, 'b> TryFrom<&'a str> for Nickname<'b> {
                     Err(NicknameErr::Len)
                 }
             })
+    }
+}
+impl<'a: 'b, 'b> TryFrom<&'a str> for Nickname<'b> {
+    type Error = NicknameErr;
+    /// Same as [`Nickname::try_from`] except the input is a `str`.
+    #[inline]
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        Self::try_from(Cow::Borrowed(value))
+    }
+}
+impl TryFrom<String> for Nickname<'_> {
+    type Error = NicknameErr;
+    /// Same as [`Nickname::try_from`] except the input is a `String`.
+    #[inline]
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(Cow::Owned(value))
     }
 }
 /// String returned from the
@@ -294,25 +314,26 @@ impl Borrow<str> for Username<'_> {
         self.0.as_ref()
     }
 }
-impl<'a: 'b, 'b> TryFrom<&'a str> for Username<'b> {
+impl<'a: 'b, 'b> TryFrom<Cow<'a, str>> for Username<'b> {
     type Error = UsernameErr;
     /// # Examples
     ///
     /// ```
+    /// # use std::borrow::Cow;
     /// # use webauthn_rp::request::register::{error::UsernameErr, Username};
     /// assert_eq!(
-    ///     Username::try_from("leonhard.euler")?.as_ref(),
+    ///     Username::try_from(Cow::Borrowed("leonhard.euler"))?.as_ref(),
     ///     "leonhard.euler"
     /// );
     /// // Empty strings are not valid.
-    /// assert!(Username::try_from("").map_or_else(
+    /// assert!(Username::try_from(Cow::Borrowed("")).map_or_else(
     ///     |e| matches!(e, UsernameErr::Rfc8265),
     ///     |_| false
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
     #[inline]
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+    fn try_from(value: Cow<'a, str>) -> Result<Self, Self::Error> {
         UsernameCasePreserved::default()
             .enforce(value)
             .map_err(|_e| UsernameErr::Rfc8265)
@@ -323,6 +344,22 @@ impl<'a: 'b, 'b> TryFrom<&'a str> for Username<'b> {
                     Err(UsernameErr::Len)
                 }
             })
+    }
+}
+impl<'a: 'b, 'b> TryFrom<&'a str> for Username<'b> {
+    type Error = UsernameErr;
+    /// Same as [`Username::try_from`] except the input is a `str`.
+    #[inline]
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        Self::try_from(Cow::Borrowed(value))
+    }
+}
+impl TryFrom<String> for Username<'_> {
+    type Error = UsernameErr;
+    /// Same as [`Username::try_from`] except the input is a `String`.
+    #[inline]
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(Cow::Owned(value))
     }
 }
 impl<'a: 'b, 'b> From<Username<'a>> for Cow<'b, str> {
@@ -783,7 +820,8 @@ impl UserHandle<Vec<u8>> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        Self::rand(64).unwrap_or_else(|_e| unreachable!("there is a bug in UserHandle::rand"))
+        Self::rand(USER_HANDLE_MAX_LEN)
+            .unwrap_or_else(|_e| unreachable!("there is a bug in UserHandle::rand"))
     }
 }
 /// Implements [`Default`] for [`UserHandle`] of array of length of the passed `usize` literal.
@@ -921,6 +959,45 @@ impl<T: Hash> Hash for UserHandle<T> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state);
+    }
+}
+/// `UserHandle` that is based on the [spec recommendation](https://www.w3.org/TR/webauthn-3/#user-handle).
+pub type UserHandle64 = UserHandle<[u8; USER_HANDLE_MAX_LEN]>;
+/// `UserHandle` that is based on 16 bytes.
+///
+/// While not the recommended size like [`UserHandle64`], 16 bytes is common for many deployments since
+/// it's the same size as [Universally Unique IDentifiers (UUIDs)](https://www.rfc-editor.org/rfc/rfc9562).
+pub type UserHandle16 = UserHandle<[u8; 16]>;
+/// Unifies `Option<UserHandle<T>>` and [`UserHandle`] such that both can be used for
+/// [`AuthenticationServerState::verify`].
+///
+/// This `trait` is sealed and cannot be implemented for types outside of `webauthn_rp`.
+pub trait User: super::private::Sealed {
+    /// Returns `true` iff [`UserHandle`] must exist.
+    fn must_exist() -> bool;
+    /// Returns `None` iff `self` cannot be compared to `other`.
+    /// Returns `Some(true)` iff `self` is equivalent to `other`.
+    /// Returns `Some(false)` iff `self` is not equivalent to `other`.
+    fn is_same(&self, other: UserHandle<&[u8]>) -> Option<bool>;
+}
+impl<T: AsRef<[u8]>> User for UserHandle<T> {
+    #[inline]
+    fn must_exist() -> bool {
+        true
+    }
+    #[inline]
+    fn is_same(&self, other: UserHandle<&[u8]>) -> Option<bool> {
+        Some(self.as_slice() == other)
+    }
+}
+impl<T: AsRef<[u8]>> User for Option<UserHandle<T>> {
+    #[inline]
+    fn must_exist() -> bool {
+        false
+    }
+    #[inline]
+    fn is_same(&self, other: UserHandle<&[u8]>) -> Option<bool> {
+        self.as_ref().map(|val| val.as_slice() == other)
     }
 }
 /// [The `PublicKeyCredentialUserEntity`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialuserentity)

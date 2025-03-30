@@ -1,6 +1,9 @@
 #[cfg(feature = "serde_relaxed")]
 use self::{
-    super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr},
+    super::{
+        super::request::register::User,
+        ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr},
+    },
     ser_relaxed::{AuthenticationRelaxed, CustomAuthentication},
 };
 #[cfg(all(doc, feature = "serde_relaxed"))]
@@ -14,7 +17,10 @@ use super::super::{
     },
 };
 use super::{
-    super::UserHandle,
+    super::{
+        UserHandle,
+        request::register::{UserHandle16, UserHandle64},
+    },
     AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthenticatorAttachment,
     CborSuccess, ClientDataJsonParser as _, CollectedClientData, CredentialId, Flag, FromCbor,
     LimitedVerificationParser, ParsedAuthData, Response, SentChallenge,
@@ -278,7 +284,7 @@ impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AuthenticatorData<'b> {
 }
 /// [`AuthenticatorAssertionResponse`](https://www.w3.org/TR/webauthn-3/#authenticatorassertionresponse).
 #[derive(Debug)]
-pub struct AuthenticatorAssertion<User> {
+pub struct AuthenticatorAssertion<U> {
     /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     client_data_json: Vec<u8>,
     /// [`authenticatorData`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-authenticatordata)
@@ -287,9 +293,9 @@ pub struct AuthenticatorAssertion<User> {
     /// [`signature`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-signature).
     signature: Vec<u8>,
     /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
-    user_handle: Option<UserHandle<User>>,
+    user_handle: U,
 }
-impl<User> AuthenticatorAssertion<User> {
+impl<U> AuthenticatorAssertion<U> {
     /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     #[inline]
     #[must_use]
@@ -317,6 +323,12 @@ impl<User> AuthenticatorAssertion<User> {
     pub fn signature(&self) -> &[u8] {
         self.signature.as_slice()
     }
+    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
+    #[inline]
+    #[must_use]
+    pub const fn user_handle(&self) -> &U {
+        &self.user_handle
+    }
     /// Constructs an instance of `Self` with the contained data.
     ///
     /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
@@ -325,7 +337,7 @@ impl<User> AuthenticatorAssertion<User> {
         client_data_json: Vec<u8>,
         mut authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: Option<UserHandle<User>>,
+        user_handle: U,
     ) -> Self {
         authenticator_data
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
@@ -337,39 +349,41 @@ impl<User> AuthenticatorAssertion<User> {
         }
     }
 }
-impl<User: AsRef<[u8]>> AuthenticatorAssertion<User> {
-    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
-    #[inline]
-    #[must_use]
-    pub fn user_handle(&self) -> Option<UserHandle<&[u8]>> {
-        self.user_handle.as_ref().map(UserHandle::as_slice)
-    }
-}
-impl AuthenticatorAssertion<Vec<u8>> {
+impl<T> AuthenticatorAssertion<Option<UserHandle<T>>> {
     /// Constructs an instance of `Self` with the contained data.
     ///
     /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
     /// of available capacity; if not, a reallocation will occur.
     #[inline]
     #[must_use]
-    pub fn new_user_vec(
+    pub fn with_optional_user(
         client_data_json: Vec<u8>,
         authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: Option<UserHandle<Vec<u8>>>,
+        user_handle: Option<UserHandle<T>>,
     ) -> Self {
         Self::new_inner(client_data_json, authenticator_data, signature, user_handle)
     }
-    /// Same as [`Self::new_user_vec`] except `user_handle` is required.
+    /// Same as [`Self::with_optional_user`] with `None` used for `user_handle`.
     #[inline]
     #[must_use]
-    pub fn with_user_vec(
+    pub fn without_user(
         client_data_json: Vec<u8>,
         authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: UserHandle<Vec<u8>>,
     ) -> Self {
-        Self::new_inner(
+        Self::with_optional_user(client_data_json, authenticator_data, signature, None)
+    }
+    /// Same as [`Self::with_optional_user`] with `Some(user_handle)` used for `user_handle`.
+    #[inline]
+    #[must_use]
+    pub fn with_user(
+        client_data_json: Vec<u8>,
+        authenticator_data: Vec<u8>,
+        signature: Vec<u8>,
+        user_handle: UserHandle<T>,
+    ) -> Self {
+        Self::with_optional_user(
             client_data_json,
             authenticator_data,
             signature,
@@ -377,7 +391,7 @@ impl AuthenticatorAssertion<Vec<u8>> {
         )
     }
 }
-impl<const USER_LEN: usize> AuthenticatorAssertion<[u8; USER_LEN]> {
+impl<T> AuthenticatorAssertion<UserHandle<T>> {
     /// Constructs an instance of `Self` with the contained data.
     ///
     /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
@@ -388,28 +402,12 @@ impl<const USER_LEN: usize> AuthenticatorAssertion<[u8; USER_LEN]> {
         client_data_json: Vec<u8>,
         authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: Option<UserHandle<[u8; USER_LEN]>>,
+        user_handle: UserHandle<T>,
     ) -> Self {
         Self::new_inner(client_data_json, authenticator_data, signature, user_handle)
     }
-    /// Same as [`Self::new`] except `user_handle` is required.
-    #[inline]
-    #[must_use]
-    pub fn with_user(
-        client_data_json: Vec<u8>,
-        authenticator_data: Vec<u8>,
-        signature: Vec<u8>,
-        user_handle: UserHandle<[u8; USER_LEN]>,
-    ) -> Self {
-        Self::new_inner(
-            client_data_json,
-            authenticator_data,
-            signature,
-            Some(user_handle),
-        )
-    }
 }
-impl<User> AuthResponse for AuthenticatorAssertion<User> {
+impl<U> AuthResponse for AuthenticatorAssertion<U> {
     type Auth<'a>
         = AuthenticatorData<'a>
     where
@@ -449,7 +447,7 @@ impl<User> AuthResponse for AuthenticatorAssertion<User> {
                 .map_err(AuthRespErr::CollectedClientDataRelaxed)
         }
         if relaxed {
-            get_client_collected_data::<'_, User>(self.client_data_json.as_slice())
+            get_client_collected_data::<'_, U>(self.client_data_json.as_slice())
         } else {
             CollectedClientData::from_client_data_json::<false>(self.client_data_json.as_slice())
                 .map_err(AuthRespErr::CollectedClientData)
@@ -517,6 +515,8 @@ impl<User> AuthResponse for AuthenticatorAssertion<User> {
         })
     }
 }
+/// `AuthenticatorAssertion` with a required `UserHandle`.
+pub type PasskeyAuthenticatorAssertion<T> = AuthenticatorAssertion<UserHandle<T>>;
 /// [`PublicKeyCredential`](https://www.w3.org/TR/webauthn-3/#iface-pkcredential) for authentication ceremonies.
 #[expect(
     clippy::field_scoped_visibility_modifiers,
@@ -531,7 +531,7 @@ pub struct Authentication<User> {
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-authenticatorattachment).
     pub(crate) authenticator_attachment: AuthenticatorAttachment,
 }
-impl<User> Authentication<User> {
+impl<U> Authentication<U> {
     /// [`rawId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-rawid).
     #[inline]
     #[must_use]
@@ -541,7 +541,7 @@ impl<User> Authentication<User> {
     /// [`response`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-response).
     #[inline]
     #[must_use]
-    pub const fn response(&self) -> &AuthenticatorAssertion<User> {
+    pub const fn response(&self) -> &AuthenticatorAssertion<U> {
         &self.response
     }
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-authenticatorattachment).
@@ -557,7 +557,7 @@ impl<User> Authentication<User> {
     #[must_use]
     pub const fn new(
         raw_id: CredentialId<Vec<u8>>,
-        response: AuthenticatorAssertion<User>,
+        response: AuthenticatorAssertion<U>,
         authenticator_attachment: AuthenticatorAttachment,
     ) -> Self {
         Self {
@@ -618,9 +618,9 @@ impl<User> Authentication<User> {
     #[inline]
     pub fn from_json_relaxed<'a>(json: &'a [u8]) -> Result<Self, SerdeJsonErr>
     where
-        UserHandle<User>: Deserialize<'a>,
+        U: Deserialize<'a> + User + Default,
     {
-        serde_json::from_slice::<AuthenticationRelaxed<User>>(json).map(|val| val.0)
+        serde_json::from_slice::<AuthenticationRelaxed<U>>(json).map(|val| val.0)
     }
     /// Convenience function for [`CustomAuthentication::deserialize`].
     ///
@@ -632,14 +632,20 @@ impl<User> Authentication<User> {
     #[inline]
     pub fn from_json_custom<'a>(json: &'a [u8]) -> Result<Self, SerdeJsonErr>
     where
-        UserHandle<User>: Deserialize<'a>,
+        U: Deserialize<'a> + User + Default,
     {
-        serde_json::from_slice::<CustomAuthentication<User>>(json).map(|val| val.0)
+        serde_json::from_slice::<CustomAuthentication<U>>(json).map(|val| val.0)
     }
 }
-impl<User> Response for Authentication<User> {
-    type Auth = AuthenticatorAssertion<User>;
+impl<U> Response for Authentication<U> {
+    type Auth = AuthenticatorAssertion<U>;
     fn auth(&self) -> &Self::Auth {
         &self.response
     }
 }
+/// `Authentication` with a required `UserHandle`.
+pub type PasskeyAuthentication<T> = Authentication<UserHandle<T>>;
+/// `Authentication` with a required `UserHandle64`.
+pub type PasskeyAuthentication64 = Authentication<UserHandle64>;
+/// `Authentication` with a required `UserHandle16`.
+pub type PasskeyAuthentication16 = Authentication<UserHandle16>;

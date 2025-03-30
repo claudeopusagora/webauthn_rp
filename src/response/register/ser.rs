@@ -1792,7 +1792,7 @@ mod tests {
             err
         );
         // `null` `id`.
-        err = Error::invalid_type(Unexpected::Other("null"), &"id")
+        err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
             .to_string()
             .into_bytes();
         assert_eq!(
@@ -1845,7 +1845,7 @@ mod tests {
             err
         );
         // `null` `rawId`.
-        err = Error::invalid_type(Unexpected::Other("null"), &"rawId")
+        err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
             .to_string()
             .into_bytes();
         assert_eq!(
@@ -2585,7 +2585,7 @@ mod tests {
             err
         );
         // `null` `type`.
-        err = Error::invalid_type(Unexpected::Other("null"), &"type to be 'public-key'")
+        err = Error::invalid_type(Unexpected::Other("null"), &"public-key")
             .to_string()
             .into_bytes();
         assert_eq!(
