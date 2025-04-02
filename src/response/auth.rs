@@ -1,9 +1,6 @@
 #[cfg(feature = "serde_relaxed")]
 use self::{
-    super::{
-        super::request::register::User,
-        ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr},
-    },
+    super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr},
     ser_relaxed::{AuthenticationRelaxed, CustomAuthentication},
 };
 #[cfg(all(doc, feature = "serde_relaxed"))]
@@ -13,14 +10,15 @@ use super::super::{
     AuthenticatedCredential, RegisteredCredential, StaticState,
     request::{
         Challenge,
-        auth::{AuthenticationServerState, PublicKeyCredentialRequestOptions},
+        auth::{
+            DiscoverableAuthenticationServerState, NonDiscoverableAuthenticationServerState,
+            PublicKeyCredentialRequestOptions,
+        },
+        register::{UserHandle16, UserHandle64},
     },
 };
 use super::{
-    super::{
-        UserHandle,
-        request::register::{UserHandle16, UserHandle64},
-    },
+    super::{UserHandle, request::register::USER_HANDLE_MAX_LEN},
     AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthenticatorAttachment,
     CborSuccess, ClientDataJsonParser as _, CollectedClientData, CredentialId, Flag, FromCbor,
     LimitedVerificationParser, ParsedAuthData, Response, SentChallenge,
@@ -284,7 +282,7 @@ impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AuthenticatorData<'b> {
 }
 /// [`AuthenticatorAssertionResponse`](https://www.w3.org/TR/webauthn-3/#authenticatorassertionresponse).
 #[derive(Debug)]
-pub struct AuthenticatorAssertion<U> {
+pub struct AuthenticatorAssertion<const USER_LEN: usize, const DISCOVERABLE: bool> {
     /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     client_data_json: Vec<u8>,
     /// [`authenticatorData`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-authenticatordata)
@@ -293,9 +291,11 @@ pub struct AuthenticatorAssertion<U> {
     /// [`signature`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-signature).
     signature: Vec<u8>,
     /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
-    user_handle: U,
+    user_handle: Option<UserHandle<USER_LEN>>,
 }
-impl<U> AuthenticatorAssertion<U> {
+impl<const USER_LEN: usize, const DISCOVERABLE: bool>
+    AuthenticatorAssertion<USER_LEN, DISCOVERABLE>
+{
     /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     #[inline]
     #[must_use]
@@ -323,12 +323,6 @@ impl<U> AuthenticatorAssertion<U> {
     pub fn signature(&self) -> &[u8] {
         self.signature.as_slice()
     }
-    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
-    #[inline]
-    #[must_use]
-    pub const fn user_handle(&self) -> &U {
-        &self.user_handle
-    }
     /// Constructs an instance of `Self` with the contained data.
     ///
     /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
@@ -337,7 +331,7 @@ impl<U> AuthenticatorAssertion<U> {
         client_data_json: Vec<u8>,
         mut authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: U,
+        user_handle: Option<UserHandle<USER_LEN>>,
     ) -> Self {
         authenticator_data
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
@@ -349,7 +343,13 @@ impl<U> AuthenticatorAssertion<U> {
         }
     }
 }
-impl<T> AuthenticatorAssertion<Option<UserHandle<T>>> {
+impl<const USER_LEN: usize> AuthenticatorAssertion<USER_LEN, false> {
+    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
+    #[inline]
+    #[must_use]
+    pub const fn user_handle(&self) -> Option<&UserHandle<USER_LEN>> {
+        self.user_handle.as_ref()
+    }
     /// Constructs an instance of `Self` with the contained data.
     ///
     /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
@@ -360,7 +360,7 @@ impl<T> AuthenticatorAssertion<Option<UserHandle<T>>> {
         client_data_json: Vec<u8>,
         authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: Option<UserHandle<T>>,
+        user_handle: Option<UserHandle<USER_LEN>>,
     ) -> Self {
         Self::new_inner(client_data_json, authenticator_data, signature, user_handle)
     }
@@ -381,7 +381,7 @@ impl<T> AuthenticatorAssertion<Option<UserHandle<T>>> {
         client_data_json: Vec<u8>,
         authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: UserHandle<T>,
+        user_handle: UserHandle<USER_LEN>,
     ) -> Self {
         Self::with_optional_user(
             client_data_json,
@@ -391,7 +391,16 @@ impl<T> AuthenticatorAssertion<Option<UserHandle<T>>> {
         )
     }
 }
-impl<T> AuthenticatorAssertion<UserHandle<T>> {
+impl<const USER_LEN: usize> AuthenticatorAssertion<USER_LEN, true> {
+    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-userhandle).
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    #[inline]
+    #[must_use]
+    pub fn user_handle(&self) -> &UserHandle<USER_LEN> {
+        self.user_handle
+            .as_ref()
+            .unwrap_or_else(|| unreachable!("bug in AuthenticatorAssertion<USER_LEN, true>"))
+    }
     /// Constructs an instance of `Self` with the contained data.
     ///
     /// Note calling code is encouraged to ensure `authenticator_data` has at least 32 bytes
@@ -402,12 +411,19 @@ impl<T> AuthenticatorAssertion<UserHandle<T>> {
         client_data_json: Vec<u8>,
         authenticator_data: Vec<u8>,
         signature: Vec<u8>,
-        user_handle: UserHandle<T>,
+        user_handle: UserHandle<USER_LEN>,
     ) -> Self {
-        Self::new_inner(client_data_json, authenticator_data, signature, user_handle)
+        Self::new_inner(
+            client_data_json,
+            authenticator_data,
+            signature,
+            Some(user_handle),
+        )
     }
 }
-impl<U> AuthResponse for AuthenticatorAssertion<U> {
+impl<const USER_LEN: usize, const DISCOVERABLE: bool> AuthResponse
+    for AuthenticatorAssertion<USER_LEN, DISCOVERABLE>
+{
     type Auth<'a>
         = AuthenticatorData<'a>
     where
@@ -423,31 +439,27 @@ impl<U> AuthResponse for AuthenticatorAssertion<U> {
     > {
         /// Always `panic`s.
         #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
-        #[expect(
-            clippy::extra_unused_type_parameters,
-            reason = "same function signature as when serde_relaxed is enabled"
-        )]
         #[cfg(not(feature = "serde_relaxed"))]
-        fn get_client_collected_data<'b, U: 'b>(_: &'b [u8]) -> ! {
+        fn get_client_collected_data<const LEN: usize, const DISC: bool>(_: &[u8]) -> ! {
             unreachable!(
                 "AuthenticatorAssertion::parse_data_and_verify_sig must be passed false when serde_relaxed is not enabled"
             );
         }
         /// Parses `data` using `CollectedClientData::from_client_data_json_relaxed::<false>`.
         #[cfg(feature = "serde_relaxed")]
-        fn get_client_collected_data<'b, U: 'b>(
-            data: &'b [u8],
+        fn get_client_collected_data<const LEN: usize, const DISC: bool>(
+            data: &[u8],
         ) -> Result<
-            CollectedClientData<'b>,
+            CollectedClientData<'_>,
             AuthRespErr<
-                <<AuthenticatorAssertion<U> as AuthResponse>::Auth<'b> as AuthDataContainer<'b>>::Err,
+                <<AuthenticatorAssertion<LEN, DISC> as AuthResponse>::Auth<'_> as AuthDataContainer<'_>>::Err,
             >,
         >{
             CollectedClientData::from_client_data_json_relaxed::<false>(data)
                 .map_err(AuthRespErr::CollectedClientDataRelaxed)
         }
         if relaxed {
-            get_client_collected_data::<'_, U>(self.client_data_json.as_slice())
+            get_client_collected_data::<USER_LEN, DISCOVERABLE>(self.client_data_json.as_slice())
         } else {
             CollectedClientData::from_client_data_json::<false>(self.client_data_json.as_slice())
                 .map_err(AuthRespErr::CollectedClientData)
@@ -516,22 +528,26 @@ impl<U> AuthResponse for AuthenticatorAssertion<U> {
     }
 }
 /// `AuthenticatorAssertion` with a required `UserHandle`.
-pub type PasskeyAuthenticatorAssertion<T> = AuthenticatorAssertion<UserHandle<T>>;
+pub type DiscoverableAuthenticatorAssertion<const USER_LEN: usize> =
+    AuthenticatorAssertion<USER_LEN, true>;
+/// `AuthenticatorAssertion` with an optional `UserHandle`.
+pub type NonDiscoverableAuthenticatorAssertion<const USER_LEN: usize> =
+    AuthenticatorAssertion<USER_LEN, false>;
 /// [`PublicKeyCredential`](https://www.w3.org/TR/webauthn-3/#iface-pkcredential) for authentication ceremonies.
 #[expect(
     clippy::field_scoped_visibility_modifiers,
     reason = "no invariants to uphold"
 )]
 #[derive(Debug)]
-pub struct Authentication<User> {
+pub struct Authentication<const USER_LEN: usize, const DISCOVERABLE: bool> {
     /// [`rawId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-rawid).
     pub(crate) raw_id: CredentialId<Vec<u8>>,
     /// [`response`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-response)
-    pub(crate) response: AuthenticatorAssertion<User>,
+    pub(crate) response: AuthenticatorAssertion<USER_LEN, DISCOVERABLE>,
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-authenticatorattachment).
     pub(crate) authenticator_attachment: AuthenticatorAttachment,
 }
-impl<U> Authentication<U> {
+impl<const USER_LEN: usize, const DISCOVERABLE: bool> Authentication<USER_LEN, DISCOVERABLE> {
     /// [`rawId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-rawid).
     #[inline]
     #[must_use]
@@ -541,7 +557,7 @@ impl<U> Authentication<U> {
     /// [`response`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-response).
     #[inline]
     #[must_use]
-    pub const fn response(&self) -> &AuthenticatorAssertion<U> {
+    pub const fn response(&self) -> &AuthenticatorAssertion<USER_LEN, DISCOVERABLE> {
         &self.response
     }
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-authenticatorattachment).
@@ -557,7 +573,7 @@ impl<U> Authentication<U> {
     #[must_use]
     pub const fn new(
         raw_id: CredentialId<Vec<u8>>,
-        response: AuthenticatorAssertion<U>,
+        response: AuthenticatorAssertion<USER_LEN, DISCOVERABLE>,
         authenticator_attachment: AuthenticatorAttachment,
     ) -> Self {
         Self {
@@ -568,8 +584,9 @@ impl<U> Authentication<U> {
     }
     /// Returns the associated `SentChallenge`.
     ///
-    /// This is useful when wanting to extract the corresponding [`AuthenticationServerState`] from
-    /// an in-memory collection (e.g., [`FixedCapHashSet`]) or storage.
+    /// This is useful when wanting to extract the corresponding [`DiscoverableAuthenticationServerState`]
+    /// or [`NonDiscoverableAuthenticationServerState`] from an in-memory collection (e.g., [`FixedCapHashSet`]) or
+    /// storage.
     ///
     /// Note if [`CollectedClientData::from_client_data_json`] returns `Ok`, then this will return `Ok`
     /// containing the same value as [`CollectedClientData::challenge`]; however the converse is _not_ true.
@@ -587,8 +604,9 @@ impl<U> Authentication<U> {
     }
     /// Returns the associated `SentChallenge`.
     ///
-    /// This is useful when wanting to extract the corresponding [`AuthenticationServerState`] from
-    /// an in-memory collection (e.g., [`FixedCapHashSet`]) or storage.
+    /// This is useful when wanting to extract the corresponding [`DiscoverableAuthenticationServerState`]
+    /// or [`NonDiscoverableAuthenticationServerState`] from an in-memory collection (e.g.,
+    /// [`FixedCapHashSet`]) or storage.
     ///
     /// Note if [`CollectedClientData::from_client_data_json_relaxed`] returns `Ok`, then this will return
     /// `Ok` containing the same value as [`CollectedClientData::challenge`]; however the converse
@@ -618,9 +636,10 @@ impl<U> Authentication<U> {
     #[inline]
     pub fn from_json_relaxed<'a>(json: &'a [u8]) -> Result<Self, SerdeJsonErr>
     where
-        U: Deserialize<'a> + User + Default,
+        UserHandle<USER_LEN>: Deserialize<'a>,
     {
-        serde_json::from_slice::<AuthenticationRelaxed<U>>(json).map(|val| val.0)
+        serde_json::from_slice::<AuthenticationRelaxed<USER_LEN, DISCOVERABLE>>(json)
+            .map(|val| val.0)
     }
     /// Convenience function for [`CustomAuthentication::deserialize`].
     ///
@@ -632,20 +651,29 @@ impl<U> Authentication<U> {
     #[inline]
     pub fn from_json_custom<'a>(json: &'a [u8]) -> Result<Self, SerdeJsonErr>
     where
-        U: Deserialize<'a> + User + Default,
+        UserHandle<USER_LEN>: Deserialize<'a>,
     {
-        serde_json::from_slice::<CustomAuthentication<U>>(json).map(|val| val.0)
+        serde_json::from_slice::<CustomAuthentication<USER_LEN, DISCOVERABLE>>(json)
+            .map(|val| val.0)
     }
 }
-impl<U> Response for Authentication<U> {
-    type Auth = AuthenticatorAssertion<U>;
+impl<const USER_LEN: usize, const DISCOVERABLE: bool> Response
+    for Authentication<USER_LEN, DISCOVERABLE>
+{
+    type Auth = AuthenticatorAssertion<USER_LEN, DISCOVERABLE>;
     fn auth(&self) -> &Self::Auth {
         &self.response
     }
 }
-/// `Authentication` with a required `UserHandle`.
-pub type PasskeyAuthentication<T> = Authentication<UserHandle<T>>;
-/// `Authentication` with a required `UserHandle64`.
-pub type PasskeyAuthentication64 = Authentication<UserHandle64>;
-/// `Authentication` with a required `UserHandle16`.
-pub type PasskeyAuthentication16 = Authentication<UserHandle16>;
+/// `Authentication` with a required [`UserHandle`].
+pub type DiscoverableAuthentication<const USER_LEN: usize> = Authentication<USER_LEN, true>;
+/// `Authentication` with a required [`UserHandle64`].
+pub type DiscoverableAuthentication64 = Authentication<USER_HANDLE_MAX_LEN, true>;
+/// `Authentication` with a required [`UserHandle16`].
+pub type DiscoverableAuthentication16 = Authentication<16, true>;
+/// `Authentication` with an optional [`UserHandle`].
+pub type NonDiscoverableAuthentication<const USER_LEN: usize> = Authentication<USER_LEN, false>;
+/// `Authentication` with an optional [`UserHandle64`].
+pub type NonDiscoverableAuthentication64 = Authentication<USER_HANDLE_MAX_LEN, false>;
+/// `Authentication` with an optional [`UserHandle16`].
+pub type NonDiscoverableAuthentication16 = Authentication<16, false>;

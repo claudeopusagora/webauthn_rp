@@ -1,7 +1,7 @@
 extern crate alloc;
 use super::{
     super::super::bin::{Decode, Encode},
-    Nickname, NicknameErr, UserHandle, UserHandleErr, Username, UsernameErr,
+    Nickname, NicknameErr, UserHandle, Username, UsernameErr,
 };
 use alloc::borrow::Cow;
 use core::{
@@ -9,37 +9,18 @@ use core::{
     error::Error,
     fmt::{self, Display, Formatter},
 };
-impl<T: AsRef<[u8]>> Encode for UserHandle<T> {
+impl<const LEN: usize> Encode for UserHandle<LEN> {
     type Output<'a>
-        = &'a [u8]
+        = [u8; LEN]
     where
         Self: 'a;
     type Err = Infallible;
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
-        Ok(self.as_ref())
+        Ok(self.0)
     }
 }
-impl Decode for UserHandle<Vec<u8>> {
-    type Input<'a> = Vec<u8>;
-    type Err = UserHandleErr;
-    #[inline]
-    fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
-        match UserHandle::<&[u8]>::from_slice(input.as_slice()) {
-            Ok(_) => Ok(Self(input)),
-            Err(e) => Err(e),
-        }
-    }
-}
-impl<'b> Decode for UserHandle<&'b [u8]> {
-    type Input<'a> = &'b [u8];
-    type Err = UserHandleErr;
-    #[inline]
-    fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
-        UserHandle::<&[u8]>::from_slice(input)
-    }
-}
-impl<const LEN: usize> Decode for UserHandle<[u8; LEN]>
+impl<const LEN: usize> Decode for UserHandle<LEN>
 where
     Self: Default,
 {

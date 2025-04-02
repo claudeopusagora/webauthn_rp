@@ -805,7 +805,7 @@ where
         )
     }
 }
-impl Serialize for AllAcceptedCredentialsOptions<'_, '_> {
+impl<const USER_LEN: usize> Serialize for AllAcceptedCredentialsOptions<'_, '_, USER_LEN> {
     /// Serializes `self` to conform with
     /// [`AllAcceptedCredentialsOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-allacceptedcredentialsoptions).
     ///
@@ -821,13 +821,13 @@ impl Serialize for AllAcceptedCredentialsOptions<'_, '_> {
     /// # };
     /// /// Retrieves the `CredentialId`s associated with `user_id` from the database.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// fn get_credential_ids(user_id: UserHandle<&[u8]>) -> Result<Vec<CredentialId<Vec<u8>>>, CredentialIdErr> {
+    /// fn get_credential_ids(user_id: UserHandle<USER_HANDLE_MIN_LEN>) -> Result<Vec<CredentialId<Vec<u8>>>, CredentialIdErr> {
     ///     // ⋮
     /// #     CredentialId::decode(vec![0; 16]).map(|cred_id| vec![cred_id])
     /// }
     /// /// Retrieves the `UserHandle` from a session cookie.
     /// # #[cfg(feature = "custom")]
-    /// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MIN_LEN]> {
+    /// fn get_user_handle() -> UserHandle<USER_HANDLE_MIN_LEN> {
     ///     // ⋮
     /// #     [0].into()
     /// }
@@ -837,8 +837,8 @@ impl Serialize for AllAcceptedCredentialsOptions<'_, '_> {
     /// assert_eq!(
     ///     serde_json::to_string(&AllAcceptedCredentialsOptions {
     ///         rp_id: &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
-    ///         user_id: (&user_id).into(),
-    ///         all_accepted_credential_ids: get_credential_ids((&user_id).into())?,
+    ///         user_id: &user_id,
+    ///         all_accepted_credential_ids: get_credential_ids(user_id)?,
     ///     })
     ///     .unwrap(),
     ///     r#"{"rpId":"example.com","userId":"AA","allAcceptedCredentialIds":["AAAAAAAAAAAAAAAAAAAAAA"]}"#
@@ -865,7 +865,7 @@ impl Serialize for AllAcceptedCredentialsOptions<'_, '_> {
             })
     }
 }
-impl Serialize for CurrentUserDetailsOptions<'_, '_, '_, '_> {
+impl<const LEN: usize> Serialize for CurrentUserDetailsOptions<'_, '_, '_, '_, LEN> {
     /// Serializes `self` to conform with
     /// [`CurrentUserDetailsOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions).
     ///
@@ -882,27 +882,25 @@ impl Serialize for CurrentUserDetailsOptions<'_, '_, '_, '_> {
     /// # };
     /// /// Retrieves the `PublicKeyCredentialUserEntity` info associated with `user_id` from the database.
     /// # #[cfg(feature = "bin")]
-    /// fn get_user_info(user_id: UserHandle<&[u8]>) -> Result<(Username, Option<Nickname>), AggErr> {
+    /// fn get_user_info(user_id: UserHandle<USER_HANDLE_MIN_LEN>) -> Result<(Username<'static>, Option<Nickname<'static>>), AggErr> {
     ///     // ⋮
     /// #     Ok((Username::decode("foo").unwrap(), Some(Nickname::decode("foo").unwrap())))
     /// }
     /// /// Retrieves the `UserHandle` from a session cookie.
     /// # #[cfg(feature = "custom")]
-    /// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MIN_LEN]> {
+    /// fn get_user_handle() -> UserHandle<USER_HANDLE_MIN_LEN> {
     ///     // ⋮
     /// #     [0].into()
     /// }
     /// # #[cfg(feature = "custom")]
     /// let user_handle = get_user_handle();
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let id = (&user_handle).into();
-    /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let (name, display_name) = get_user_info(id)?;
+    /// let (name, display_name) = get_user_info(user_handle)?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// assert_eq!(
     ///     serde_json::to_string(&CurrentUserDetailsOptions {
     ///         rp_id: &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
-    ///         user: PublicKeyCredentialUserEntity { name, id, display_name, },
+    ///         user: PublicKeyCredentialUserEntity { name, id: &user_handle, display_name, },
     ///     })
     ///     .unwrap(),
     ///     r#"{"rpId":"example.com","userId":"AA","name":"foo","displayName":"foo"}"#

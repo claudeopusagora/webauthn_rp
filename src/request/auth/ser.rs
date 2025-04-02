@@ -1,6 +1,7 @@
 use super::{
-    AllowedCredential, AllowedCredentials, AuthenticationClientState, Extension, PrfInput,
-    PrfInputOwned,
+    AllowedCredential, AllowedCredentials, Credentials as _, DiscoverableAuthenticationClientState,
+    Extension, NonDiscoverableAuthenticationClientState, PrfInput, PrfInputOwned,
+    PublicKeyCredentialRequestOptions,
 };
 use data_encoding::BASE64URL_NOPAD;
 use serde::ser::{Serialize, SerializeMap as _, SerializeStruct as _, Serializer};
@@ -249,7 +250,118 @@ impl Serialize for ExtensionHelper<'_, '_> {
             })
     }
 }
-impl Serialize for AuthenticationClientState<'_, '_> {
+/// Helper type that peforms the serialization for both [`DiscoverableAuthenticationClientState`] and
+/// [`NonDiscoverableAuthenticationClientState`] and
+struct AuthenticationClientState<'rp_id, 'prf, 'opt, 'cred>(
+    &'opt PublicKeyCredentialRequestOptions<'rp_id, 'prf>,
+    &'cred AllowedCredentials,
+);
+impl Serialize for AuthenticationClientState<'_, '_, '_, '_> {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer
+            .serialize_struct("AuthenticationClientState", 9)
+            .and_then(|mut ser| {
+                ser.serialize_field("challenge", &self.0.challenge)
+                    .and_then(|()| {
+                        ser.serialize_field("timeout", &self.0.timeout)
+                            .and_then(|()| {
+                                ser.serialize_field("rpId", &self.0.rp_id).and_then(|()| {
+                                    ser.serialize_field("allowCredentials", &self.1).and_then(
+                                        |()| {
+                                            ser.serialize_field(
+                                                "userVerification",
+                                                &self.0.user_verification,
+                                            )
+                                            .and_then(
+                                                |()| {
+                                                    ser.serialize_field("hints", &self.0.hints)
+                                                        .and_then(|()| {
+                                                            ser.serialize_field(
+                                                                "extensions",
+                                                                &ExtensionHelper {
+                                                                    extension: &self.0.extensions,
+                                                                    allow_credentials: self.1,
+                                                                },
+                                                            )
+                                                            .and_then(|()| ser.end())
+                                                        })
+                                                },
+                                            )
+                                        },
+                                    )
+                                })
+                            })
+                    })
+            })
+    }
+}
+impl Serialize for DiscoverableAuthenticationClientState<'_, '_> {
+    /// Serializes `self` to conform with
+    /// [`PublicKeyCredentialRequestOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptionsjson).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::{
+    /// #     request::{
+    /// #         auth::{
+    /// #             AllowedCredential, AllowedCredentials, CredentialSpecificExtension, Extension,
+    /// #             PrfInput, PrfInputOwned, DiscoverableCredentialRequestOptions
+    /// #         },
+    /// #         AsciiDomain, ExtensionReq, Hint, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
+    /// #     },
+    /// #     response::{AuthTransports, CredentialId},
+    /// # };
+    /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
+    /// let mut options = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+    /// options.0.hints = Hint::SecurityKey;
+    /// options.0.extensions = Extension {
+    ///     prf: Some(PrfInput {
+    ///         first: [0; 4].as_slice(),
+    ///         second: None,
+    ///         ext_info: ExtensionReq::Require,
+    ///     }),
+    /// };
+    /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap();
+    /// let json = serde_json::json!({
+    ///     "challenge":"AAAAAAAAAAAAAAAAAAAAAA",
+    ///     "timeout":300000,
+    ///     "rpId":"example.com",
+    ///     "allowCredentials":[],
+    ///     "userVerification":"required",
+    ///     "hints":[
+    ///         "security-key"
+    ///     ],
+    ///     "extensions":{
+    ///         "prf":{
+    ///             "eval":{
+    ///                 "first":"AAAAAA"
+    ///             },
+    ///         }
+    ///     }
+    /// }).to_string();
+    /// // Since `Challenge`s are randomly generated, we don't know what it will be; thus
+    /// // we test the JSON string for everything except it.
+    /// # #[cfg(all(feature = "bin", feature = "custom"))]
+    /// assert_eq!(client_state.get(..14), json.get(..14));
+    /// # #[cfg(all(feature = "bin", feature = "custom"))]
+    /// assert_eq!(client_state.get(36..), json.get(36..));
+    /// # Ok::<_, webauthn_rp::AggErr>(())
+    /// ```
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        AuthenticationClientState(&self.0.0, &AllowedCredentials::with_capacity(0))
+            .serialize(serializer)
+    }
+}
+impl Serialize for NonDiscoverableAuthenticationClientState<'_, '_> {
     /// Serializes `self` to conform with
     /// [`PublicKeyCredentialRequestOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptionsjson).
     ///
@@ -262,7 +374,7 @@ impl Serialize for AuthenticationClientState<'_, '_> {
     /// #     request::{
     /// #         auth::{
     /// #             AllowedCredential, AllowedCredentials, CredentialSpecificExtension, Extension,
-    /// #             PrfInput, PrfInputOwned, PublicKeyCredentialRequestOptions
+    /// #             PrfInput, PrfInputOwned, NonDiscoverableCredentialRequestOptions
     /// #         },
     /// #         AsciiDomain, ExtensionReq, Hint, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
     /// #     },
@@ -296,15 +408,17 @@ impl Serialize for AuthenticationClientState<'_, '_> {
     /// });
     /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let mut options = PublicKeyCredentialRequestOptions::second_factor(&rp_id, creds)?;
+    /// let mut options = NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?;
+    /// # #[cfg(all(feature = "bin", feature = "custom"))]
+    /// let opts = options.options();
     /// # #[cfg(not(all(feature = "bin", feature = "custom")))]
-    /// # let mut options = PublicKeyCredentialRequestOptions::passkey(&rp_id);
-    /// options.hints = Hint::SecurityKey;
+    /// # let mut opts = webauthn_rp::DiscoverableCredentialRequestOptions::passkey(&rp_id).0;
+    /// opts.hints = Hint::SecurityKey;
     /// // This is actually useless since `CredentialSpecificExtension` takes priority
     /// // when the client receives the payload. We set it for illustration purposes only.
     /// // If `creds` contained an `AllowedCredential` that didn't set
     /// // `CredentialSpecificExtension::prf`, then this would be used for it.
-    /// options.extensions = Extension {
+    /// opts.extensions = Extension {
     ///     prf: Some(PrfInput {
     ///         first: [0; 4].as_slice(),
     ///         second: None,
@@ -312,8 +426,8 @@ impl Serialize for AuthenticationClientState<'_, '_> {
     ///     }),
     /// };
     /// // Since we are requesting the PRF extension, we must require user verification; otherwise
-    /// // `PublicKeyCredentialRequestOptions::start_ceremony` would error.
-    /// options.user_verification = UserVerificationRequirement::Required;
+    /// // `NonDiscoverableCredentialRequestOptions::start_ceremony` would error.
+    /// opts.user_verification = UserVerificationRequirement::Required;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap();
     /// let json = serde_json::json!({
@@ -358,43 +472,6 @@ impl Serialize for AuthenticationClientState<'_, '_> {
     where
         S: Serializer,
     {
-        serializer
-            .serialize_struct("AuthenticationClientState", 9)
-            .and_then(|mut ser| {
-                ser.serialize_field("challenge", &self.0.challenge)
-                    .and_then(|()| {
-                        ser.serialize_field("timeout", &self.0.timeout)
-                            .and_then(|()| {
-                                ser.serialize_field("rpId", &self.0.rp_id).and_then(|()| {
-                                    ser.serialize_field(
-                                        "allowCredentials",
-                                        &self.0.allow_credentials,
-                                    )
-                                    .and_then(|()| {
-                                        ser.serialize_field(
-                                            "userVerification",
-                                            &self.0.user_verification,
-                                        )
-                                        .and_then(|()| {
-                                            ser.serialize_field("hints", &self.0.hints).and_then(
-                                                |()| {
-                                                    ser.serialize_field(
-                                                        "extensions",
-                                                        &ExtensionHelper {
-                                                            extension: &self.0.extensions,
-                                                            allow_credentials: &self
-                                                                .0
-                                                                .allow_credentials,
-                                                        },
-                                                    )
-                                                    .and_then(|()| ser.end())
-                                                },
-                                            )
-                                        })
-                                    })
-                                })
-                            })
-                    })
-            })
+        AuthenticationClientState(&self.0.options, &self.0.allow_credentials).serialize(serializer)
     }
 }

@@ -9,15 +9,15 @@ use super::super::{
 use super::{
     super::{
         super::{
-            request::{
-                auth::{
-                    AllowedCredential, AllowedCredentials, AuthenticationServerState,
-                    AuthenticationVerificationOptions, Extension,
-                    PublicKeyCredentialRequestOptions,
-                },
-                BackupReq, UserVerificationRequirement,
-            },
             AuthenticatedCredential, DynamicState, StaticState,
+            request::{
+                BackupReq, UserVerificationRequirement,
+                auth::{
+                    AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
+                    DiscoverableAuthenticationServerState, Extension,
+                    NonDiscoverableAuthenticationServerState, PublicKeyCredentialRequestOptions,
+                },
+            },
         },
         Backup,
     },
@@ -181,7 +181,8 @@ impl Display for ExtensionErr {
     }
 }
 impl Error for ExtensionErr {}
-/// Error returned by [`AuthenticationServerState::verify`].
+/// Error returned by [`DiscoverableAuthenticationServerState::verify`] and
+/// [`NonDiscoverableAuthenticationServerState::verify`].
 #[derive(Debug)]
 pub enum AuthCeremonyErr {
     /// [`PublicKeyCredentialRequestOptions::timeout`] was exceeded.

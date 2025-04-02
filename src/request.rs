@@ -3,17 +3,18 @@ use super::{
     request::{
         auth::{
             AllowedCredential, AllowedCredentials, CredentialSpecificExtension,
+            DiscoverableAuthenticationServerState, DiscoverableCredentialRequestOptions,
+            NonDiscoverableAuthenticationServerState, NonDiscoverableCredentialRequestOptions,
             PublicKeyCredentialRequestOptions,
         },
-        register::PublicKeyCredentialCreationOptions,
+        register::{PublicKeyCredentialCreationOptions, RegistrationServerState},
     },
     response::register::ClientExtensionsOutputs,
 };
 use crate::{
     request::{
-        auth::AuthenticationServerState,
         error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
-        register::{RegistrationServerState, RegistrationVerificationOptions},
+        register::RegistrationVerificationOptions,
     },
     response::{
         AuthData as _, AuthDataContainer, AuthResponse, AuthTransports, Backup, CeremonyErr,
@@ -44,8 +45,8 @@ use url::Url as Uri;
 /// # use webauthn_rp::request::{FixedCapHashSet, InsertResult};
 /// # use webauthn_rp::{
 /// #     request::{
-/// #         auth::{AllowedCredentials, PublicKeyCredentialRequestOptions},
-/// #         register::{UserHandle, USER_HANDLE_MAX_LEN},
+/// #         auth::{AllowedCredentials, DiscoverableCredentialRequestOptions, NonDiscoverableCredentialRequestOptions},
+/// #         register::UserHandle64,
 /// #         AsciiDomain, Credentials, PublicKeyCredentialDescriptor, RpId,
 /// #     },
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
@@ -54,35 +55,37 @@ use url::Url as Uri;
 /// # #[cfg(not(feature = "serializable_server_state"))]
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-/// let (server, client) = PublicKeyCredentialRequestOptions::passkey(&rp_id).start_ceremony()?;
+/// let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id).start_ceremony()?;
 /// # #[cfg(not(feature = "serializable_server_state"))]
 /// assert!(matches!(
 ///     ceremonies.insert_or_replace_all_expired(server),
 ///     InsertResult::Success
 /// ));
+/// # #[cfg(all(feature = "custom", not(feature = "serializable_server_state")))]
+/// let mut ceremonies_2 = FixedCapHashSet::new(128);
 /// # #[cfg(feature = "serde")]
 /// assert!(serde_json::to_string(&client).is_ok());
 /// let user_handle = get_user_handle();
 /// # #[cfg(feature = "custom")]
-/// let creds = get_registered_credentials((&user_handle).into())?;
+/// let creds = get_registered_credentials(&user_handle)?;
 /// # #[cfg(feature = "custom")]
 /// let (server_2, client_2) =
-///     PublicKeyCredentialRequestOptions::second_factor(&rp_id, creds)?.start_ceremony()?;
+///     NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?.start_ceremony()?;
 /// # #[cfg(all(feature = "custom", not(feature = "serializable_server_state")))]
 /// assert!(matches!(
-///     ceremonies.insert_or_replace_all_expired(server_2),
+///     ceremonies_2.insert_or_replace_all_expired(server_2),
 ///     InsertResult::Success
 /// ));
 /// # #[cfg(all(feature = "custom", feature = "serde"))]
 /// assert!(serde_json::to_string(&client_2).is_ok());
 /// /// Extract `UserHandle` from session cookie.
-/// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MAX_LEN]> {
+/// fn get_user_handle() -> UserHandle64 {
 ///     // ⋮
-/// #     UserHandle::new_rand()
+/// #     UserHandle64::new()
 /// }
 /// # #[cfg(feature = "custom")]
 /// /// Fetch the `AllowedCredentials` associated with `user`.
-/// fn get_registered_credentials(user: UserHandle<&[u8]>) -> Result<AllowedCredentials, AggErr> {
+/// fn get_registered_credentials(user: &UserHandle64) -> Result<AllowedCredentials, AggErr> {
 ///     // ⋮
 /// #     let mut creds = AllowedCredentials::new();
 /// #     creds.push(
@@ -110,43 +113,49 @@ pub mod error;
 /// # use webauthn_rp::{
 /// #     request::{
 /// #         register::{
-/// #             PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN,
+/// #             PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
 /// #         },
 /// #         AsciiDomain, PublicKeyCredentialDescriptor, RpId
 /// #     },
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
 /// #     AggErr,
 /// # };
-/// # #[cfg(not(feature = "serializable_server_state"))]
+/// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom"))]
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
+/// # #[cfg(feature = "custom")]
 /// let user_handle = get_user_handle();
-/// let handle = (&user_handle).into();
-/// let user = get_user_entity(handle)?;
-/// let creds = get_registered_credentials(handle)?;
+/// # #[cfg(feature = "custom")]
+/// let user = get_user_entity(&user_handle)?;
+/// # #[cfg(feature = "custom")]
+/// let creds = get_registered_credentials(&user_handle)?;
+/// # #[cfg(feature = "custom")]
 /// let (server, client) = PublicKeyCredentialCreationOptions::passkey(&rp_id, user.clone(), creds)
 ///     .start_ceremony()?;
-/// # #[cfg(not(feature = "serializable_server_state"))]
+/// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom"))]
 /// assert!(matches!(
 ///     ceremonies.insert_or_replace_all_expired(server),
 ///     InsertResult::Success
 /// ));
-/// # #[cfg(feature = "serde")]
+/// # #[cfg(all(feature = "serde", feature = "custom"))]
 /// assert!(serde_json::to_string(&client).is_ok());
-/// let creds_2 = get_registered_credentials(handle)?;
+/// # #[cfg(feature = "custom")]
+/// let creds_2 = get_registered_credentials(&user_handle)?;
+/// # #[cfg(feature = "custom")]
 /// let (server_2, client_2) =
 ///     PublicKeyCredentialCreationOptions::second_factor(&rp_id, user, creds_2).start_ceremony()?;
-/// # #[cfg(not(feature = "serializable_server_state"))]
+/// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom"))]
 /// assert!(matches!(
 ///     ceremonies.insert_or_replace_all_expired(server_2),
 ///     InsertResult::Success
 /// ));
-/// # #[cfg(feature = "serde")]
+/// # #[cfg(all(feature = "serde", feature = "custom"))]
 /// assert!(serde_json::to_string(&client_2).is_ok());
-/// /// Extract `UserHandle` from session cookie if this is not the first credential registered.
-/// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MAX_LEN]> {
+/// /// Extract `UserHandle` from session cookie or storage if this is not the first credential registered.
+/// # #[cfg(feature = "custom")]
+/// fn get_user_handle() -> UserHandle64 {
 ///     // ⋮
-/// #     UserHandle::new_rand()
+/// #     [0; USER_HANDLE_MAX_LEN].into()
 /// }
 /// /// Fetch `PublicKeyCredentialUserEntity` info associated with `user`.
 /// ///
@@ -154,7 +163,8 @@ pub mod error;
 /// /// will need to be constructed with `name` and `display_name` passed from the client and `UserHandle::new`
 /// /// used for `id`. Once created, this info can be stored such that the entity information
 /// /// does not need to be requested for subsequent registrations.
-/// fn get_user_entity(user: UserHandle<&[u8]>) -> Result<PublicKeyCredentialUserEntity<&[u8]>, AggErr> {
+/// # #[cfg(feature = "custom")]
+/// fn get_user_entity(user: &UserHandle64) -> Result<PublicKeyCredentialUserEntity<'_, '_, '_, USER_HANDLE_MAX_LEN>, AggErr> {
 ///     // ⋮
 /// #     Ok(PublicKeyCredentialUserEntity {
 /// #         name: "foo".try_into()?,
@@ -167,7 +177,7 @@ pub mod error;
 /// /// This doesn't need to be called when this is the first credential registered for `user`; instead
 /// /// an empty `Vec` should be passed.
 /// fn get_registered_credentials(
-///     user: UserHandle<&[u8]>,
+///     user: &UserHandle64,
 /// ) -> Result<Vec<PublicKeyCredentialDescriptor<Vec<u8>>>, AggErr> {
 ///     // ⋮
 /// #     Ok(Vec::new())
@@ -179,8 +189,8 @@ pub mod register;
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
 mod ser;
-/// Contains functionality to (de)serialize data needed for [`RegistrationServerState`] and
-/// [`AuthenticationServerState`] to a data store.
+/// Contains functionality to (de)serialize data needed for [`RegistrationServerState`],
+/// [`DiscoverableAuthenticationServerState`], and [`NonDiscoverableAuthenticationServerState`] to a data store.
 #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 pub(super) mod ser_server_state;
@@ -1147,13 +1157,13 @@ impl From<Backup> for BackupReq {
 /// /// Fetches all credentials under `user_handle` to be allowed during authentication for non-discoverable
 /// /// requests.
 /// # #[cfg(feature = "custom")]
-/// fn get_allowed_credentials(user_handle: UserHandle<&[u8]>) -> AllowedCredentials {
+/// fn get_allowed_credentials<const LEN: usize>(user_handle: &UserHandle<LEN>) -> AllowedCredentials {
 ///     get_credentials(user_handle)
 /// }
 /// /// Fetches all credentials under `user_handle` to be excluded during registration.
 /// # #[cfg(feature = "custom")]
-/// fn get_excluded_credentials(
-///     user_handle: UserHandle<&[u8]>,
+/// fn get_excluded_credentials<const LEN: usize>(
+///     user_handle: &UserHandle<LEN>,
 /// ) -> Vec<PublicKeyCredentialDescriptor<Vec<u8>>> {
 ///     get_credentials(user_handle)
 /// }
@@ -1161,7 +1171,7 @@ impl From<Backup> for BackupReq {
 /// /// registration as well as the `AllowedCredentials` containing `AllowedCredential`s with no credential-specific
 /// /// extensions which is used for non-discoverable requests.
 /// # #[cfg(feature = "custom")]
-/// fn get_credentials<T>(user_handle: UserHandle<&[u8]>) -> T
+/// fn get_credentials<const LEN: usize, T>(user_handle: &UserHandle<LEN>) -> T
 /// where
 ///     T: Credentials,
 ///     PublicKeyCredentialDescriptor<Vec<u8>>: Into<T::Credential>,
@@ -1182,8 +1192,8 @@ impl From<Backup> for BackupReq {
 /// /// Fetches all `CredentialId`s and associated `AuthTransports` under `user_handle`
 /// /// from the database.
 /// # #[cfg(feature = "custom")]
-/// fn get_cred_parts(
-///     user_handle: UserHandle<&[u8]>,
+/// fn get_cred_parts<const LEN: usize>(
+///     user_handle: &UserHandle<LEN>,
 /// ) -> impl Iterator<Item = (CredentialId<Vec<u8>>, AuthTransports)> {
 ///     // ⋮
 /// #     [(
@@ -1270,7 +1280,7 @@ impl<'o, 't, O, T> From<&RegistrationVerificationOptions<'o, 't, O, T>>
 /// Functionality common to both registration and authentication ceremonies.
 ///
 /// Designed to be implemented on the _request_ side.
-trait Ceremony<U> {
+trait Ceremony<const USER_LEN: usize, const DISCOVERABLE: bool> {
     /// The type of response that is associated with the ceremony.
     type R: Response;
     /// Challenge.
@@ -1501,13 +1511,15 @@ pub(super) const THREE_HUNDRED_THOUSAND: NonZeroU32 = NonZeroU32::new(300_000).u
 /// based on at least 64 bits—the size of the integer returned from [`Self::finish`]—of entropy.
 /// This makes this `Hasher` usable (and ideal) in only the most niche circumstances.
 ///
-/// [`RegistrationServerState`] and [`AuthenticationServerState`] both implement [`Hash`] by simply writing the
+/// [`RegistrationServerState`], [`DiscoverableAuthenticationServerState`], and
+/// [`NonDiscoverableAuthenticationServerState`] implement [`Hash`] by simply writing the
 /// contained [`Challenge`]; thus when they are stored in a hashed collection (e.g., [`FixedCapHashSet`]), one can
 /// optimize without fear by using this `Hasher` since `Challenge`s are immutable and can only ever be created on
-/// the server via [`Challenge::new`] (and equivalently [`Challenge::default`]). `RegistrationServerState` and
-/// `AuthenticationServerState` are also immutable and only constructable via
-/// [`PublicKeyCredentialCreationOptions::start_ceremony`] and
-/// [`PublicKeyCredentialRequestOptions::start_ceremony`] respectively. Since `Challenge` is already based on
+/// the server via [`Challenge::new`] (and equivalently [`Challenge::default`]). `RegistrationServerState`,
+/// `DiscoverableAuthenticationServerState`, and `NonDiscoverableAuthenticationServerState` are also immutable and
+/// only constructable via [`PublicKeyCredentialCreationOptions::start_ceremony`],
+/// [`DiscoverableCredentialRequestOptions::start_ceremony`], and
+/// [`NonDiscoverableCredentialRequestOptions::start_ceremony`] respectively. Since `Challenge` is already based on
 /// a random `u128`, other `Hasher`s will be slower and likely produce lower-quality hashes (and never
 /// higher quality).
 #[cfg_attr(docsrs, doc(cfg(not(feature = "serializable_server_state"))))]
@@ -1634,19 +1646,11 @@ impl BuildHasher for BuildIdentityHasher {
         IdentityHasher(0)
     }
 }
-/// Prevent users from implementing [`ServerState`] and [`super::register::User`].
-mod private {
-    /// Marker trait used as a supertrait of `ServerState` and `User`.
-    pub trait Sealed {}
-    impl Sealed for super::AuthenticationServerState {}
-    impl Sealed for super::RegistrationServerState {}
-    impl<T> Sealed for super::register::UserHandle<T> {}
-    impl<T> Sealed for Option<super::register::UserHandle<T>> {}
-}
-/// Subset of data shared by both [`RegistrationServerState`] and [`AuthenticationServerState`].
+/// "Ceremonies" stored on the server that expire after a certain duration.
 ///
-/// This `trait` is sealed and cannot be implemented for types outside of `webauthn_rp`.
-pub trait ServerState: private::Sealed {
+/// Types like [`RegistrationServerState`] and [`DiscoverableAuthenticationServerState`] are based on [`Challenge`]s
+/// that expire after a certain duration.
+pub trait TimedCeremony {
     /// Returns the `Instant` the ceremony expires.
     ///
     /// Note when `serializable_server_state` is enabled, [`SystemTime`] is returned instead.
@@ -1656,7 +1660,7 @@ pub trait ServerState: private::Sealed {
     /// Returns the `SystemTime` the ceremony expires.
     #[cfg(all(not(doc), feature = "serializable_server_state"))]
     fn expiration(&self) -> SystemTime;
-    /// Returns the `SentChallenge` associated with the ceremony.
+    /// Returns the `SentChallenge`.
     fn sent_challenge(&self) -> SentChallenge;
 }
 /// Fixed-capacity hash set that only inserts items when there is available capacity.
@@ -1671,13 +1675,13 @@ pub trait ServerState: private::Sealed {
 /// by causing repeated inserts forcing repeated calls to functions like [`Self::retain`]. The second
 /// point is necessary; otherwise any in-memory collection would suffice.
 ///
-/// When `T` is a [`ServerState`], there are legitimate reasons why a ceremony will never finish (e.g.,
+/// When `T` is a [`TimedCeremony`], there are legitimate reasons why a ceremony will never finish (e.g.,
 /// an outage could kill a user's connection after starting a ceremony). The longer the application
 /// runs the more such instances occur to the point where the in-memory collection is full of expired
 /// ceremonies. Since this should rarely occur and as long as [`Self::capacity`] is appropriate,
 /// [`Self::insert`] should almost always succeed; however very rarely there will be a point when
 /// one will have to [`Self::remove_expired_ceremonies`]. A vast majority of the time a user
-/// will complete the ceremony which requires ownership of the `ServerState` which in turn requires
+/// will complete the ceremony which requires ownership of the `TimedCeremony` which in turn requires
 /// [`Self::take`] which will add an available slot.
 #[cfg_attr(docsrs, doc(cfg(not(feature = "serializable_server_state"))))]
 #[cfg(any(doc, not(feature = "serializable_server_state")))]
@@ -1748,7 +1752,7 @@ impl<T, S> FixedCapHashSet<T, S> {
     }
 }
 #[cfg(any(doc, not(feature = "serializable_server_state")))]
-impl<T: ServerState, S> FixedCapHashSet<T, S> {
+impl<T: TimedCeremony, S> FixedCapHashSet<T, S> {
     /// Removes all expired ceremonies.
     #[inline]
     pub fn remove_expired_ceremonies(&mut self) {
@@ -1840,7 +1844,7 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
     }
 }
 #[cfg(any(doc, not(feature = "serializable_server_state")))]
-impl<T: Borrow<SentChallenge> + Eq + Hash + ServerState, S: BuildHasher> FixedCapHashSet<T, S> {
+impl<T: Borrow<SentChallenge> + Eq + Hash + TimedCeremony, S: BuildHasher> FixedCapHashSet<T, S> {
     /// Adds a ceremony to the set.
     ///
     /// This will only insert `value` iff [`Self::capacity`] `>` [`Self::len`]. When [`Self::len`] `==`
@@ -1908,7 +1912,10 @@ mod tests {
             AggErr, AuthenticatedCredential,
             response::{
                 AuthTransports, AuthenticatorAttachment, Backup, CredentialId,
-                auth::{Authentication, AuthenticatorAssertion},
+                auth::{
+                    DiscoverableAuthentication, DiscoverableAuthenticatorAssertion,
+                    NonDiscoverableAuthentication, NonDiscoverableAuthenticatorAssertion,
+                },
                 register::{
                     AuthenticationExtensionsPrfOutputs, AuthenticatorAttestation,
                     AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputs,
@@ -1922,8 +1929,8 @@ mod tests {
         PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
         auth::{
             AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
-            CredentialSpecificExtension, Extension as AuthExt, PrfInputOwned,
-            PublicKeyCredentialRequestOptions,
+            CredentialSpecificExtension, DiscoverableCredentialRequestOptions,
+            Extension as AuthExt, NonDiscoverableCredentialRequestOptions, PrfInputOwned,
         },
         register::{
             CredProtect, Extension as RegExt, PublicKeyCredentialCreationOptions,
@@ -1965,12 +1972,12 @@ mod tests {
     #[cfg(feature = "custom")]
     fn ed25519_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let id = UserHandle::try_from([0; 1].as_slice())?;
+        let id = UserHandle::from([0]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
-                id,
+                id: &id,
                 display_name: None,
             },
             Vec::new(),
@@ -2288,7 +2295,6 @@ mod tests {
         attestation_object.truncate(261);
         assert!(matches!(opts.start_ceremony()?.0.verify(
             &rp_id,
-            id,
             &Registration {
                 response: AuthenticatorAttestation::new(
                     client_data_json,
@@ -2323,10 +2329,10 @@ mod tests {
                 }),
             },
         });
-        let mut opts = PublicKeyCredentialRequestOptions::second_factor(&rp_id, creds)?;
-        opts.user_verification = UserVerificationRequirement::Required;
-        opts.challenge = Challenge(0);
-        opts.extensions = AuthExt { prf: None };
+        let mut opts = NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?;
+        opts.options().user_verification = UserVerificationRequirement::Required;
+        opts.options().challenge = Challenge(0);
+        opts.options().extensions = AuthExt { prf: None };
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(164);
@@ -2484,9 +2490,9 @@ mod tests {
         authenticator_data.truncate(132);
         assert!(!opts.start_ceremony()?.0.verify(
             &rp_id,
-            &Authentication {
+            &NonDiscoverableAuthentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
-                response: AuthenticatorAssertion::with_user(
+                response: NonDiscoverableAuthenticatorAssertion::with_user(
                     client_data_json,
                     authenticator_data,
                     sig,
@@ -2496,7 +2502,7 @@ mod tests {
             },
             &mut AuthenticatedCredential::new(
                 CredentialId::try_from([0; 16].as_slice())?,
-                UserHandle::try_from([0].as_slice())?,
+                &UserHandle::from([0]),
                 StaticState {
                     credential_public_key: CompressedPubKey::<_, &[u8], &[u8], &[u8]>::Ed25519(
                         Ed25519PubKey::from(ed_priv.verifying_key().to_bytes()),
@@ -2521,12 +2527,12 @@ mod tests {
     #[cfg(feature = "custom")]
     fn p256_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let id = UserHandle::try_from([0; 1].as_slice())?;
+        let id = UserHandle::from([0]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
-                id,
+                id: &id,
                 display_name: None,
             },
             Vec::new(),
@@ -2759,7 +2765,6 @@ mod tests {
         attestation_object[146..].copy_from_slice(y);
         assert!(matches!(opts.start_ceremony()?.0.verify(
             &rp_id,
-            id,
             &Registration {
                 response: AuthenticatorAttestation::new(
                     client_data_json,
@@ -2780,8 +2785,8 @@ mod tests {
     #[cfg(feature = "custom")]
     fn p256_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let mut opts = PublicKeyCredentialRequestOptions::passkey(&rp_id);
-        opts.challenge = Challenge(0);
+        let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+        opts.0.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(69);
@@ -2850,9 +2855,9 @@ mod tests {
         authenticator_data.truncate(37);
         assert!(!opts.start_ceremony()?.0.verify(
             &rp_id,
-            &Authentication {
+            &DiscoverableAuthentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
-                response: AuthenticatorAssertion::with_user(
+                response: DiscoverableAuthenticatorAssertion::new(
                     client_data_json,
                     authenticator_data,
                     der_sig.as_bytes().into(),
@@ -2862,7 +2867,7 @@ mod tests {
             },
             &mut AuthenticatedCredential::new(
                 CredentialId::try_from([0; 16].as_slice())?,
-                UserHandle::try_from([0].as_slice())?,
+                &UserHandle::from([0]),
                 StaticState {
                     credential_public_key: CompressedPubKey::<&[u8], _, &[u8], &[u8]>::P256(
                         CompressedP256PubKey::from((
@@ -2890,12 +2895,12 @@ mod tests {
     #[cfg(feature = "custom")]
     fn p384_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let id = UserHandle::try_from([0; 1].as_slice())?;
+        let id = UserHandle::from([0]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
-                id,
+                id: &id,
                 display_name: None,
             },
             Vec::new(),
@@ -3163,7 +3168,6 @@ mod tests {
         attestation_object[163..].copy_from_slice(y);
         assert!(matches!(opts.start_ceremony()?.0.verify(
             &rp_id,
-            id,
             &Registration {
                 response: AuthenticatorAttestation::new(
                     client_data_json,
@@ -3184,8 +3188,8 @@ mod tests {
     #[cfg(feature = "custom")]
     fn p384_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let mut opts = PublicKeyCredentialRequestOptions::passkey(&rp_id);
-        opts.challenge = Challenge(0);
+        let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+        opts.0.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(69);
@@ -3255,9 +3259,9 @@ mod tests {
         authenticator_data.truncate(37);
         assert!(!opts.start_ceremony()?.0.verify(
             &rp_id,
-            &Authentication {
+            &DiscoverableAuthentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
-                response: AuthenticatorAssertion::with_user(
+                response: DiscoverableAuthenticatorAssertion::new(
                     client_data_json,
                     authenticator_data,
                     der_sig.as_bytes().into(),
@@ -3267,7 +3271,7 @@ mod tests {
             },
             &mut AuthenticatedCredential::new(
                 CredentialId::try_from([0; 16].as_slice())?,
-                UserHandle::try_from([0].as_slice())?,
+                &UserHandle::from([0]),
                 StaticState {
                     credential_public_key: CompressedPubKey::<&[u8], &[u8], _, &[u8]>::P384(
                         CompressedP384PubKey::from((
@@ -3295,12 +3299,12 @@ mod tests {
     #[cfg(feature = "custom")]
     fn rsa_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let id = UserHandle::try_from([0; 1].as_slice())?;
+        let id = UserHandle::from([0]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
-                id,
+                id: &id,
                 display_name: None,
             },
             Vec::new(),
@@ -3777,7 +3781,6 @@ mod tests {
         attestation_object[113..369].copy_from_slice(n.as_slice());
         assert!(matches!(opts.start_ceremony()?.0.verify(
             &rp_id,
-            id,
             &Registration {
                 response: AuthenticatorAttestation::new(
                     client_data_json,
@@ -3798,8 +3801,8 @@ mod tests {
     #[cfg(feature = "custom")]
     fn rsa_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let mut opts = PublicKeyCredentialRequestOptions::passkey(&rp_id);
-        opts.challenge = Challenge(0);
+        let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+        opts.0.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(69);
@@ -3922,9 +3925,9 @@ mod tests {
         authenticator_data.truncate(37);
         assert!(!opts.start_ceremony()?.0.verify(
             &rp_id,
-            &Authentication {
+            &DiscoverableAuthentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
-                response: AuthenticatorAssertion::with_user(
+                response: DiscoverableAuthenticatorAssertion::new(
                     client_data_json,
                     authenticator_data,
                     sig,
@@ -3934,7 +3937,7 @@ mod tests {
             },
             &mut AuthenticatedCredential::new(
                 CredentialId::try_from([0; 16].as_slice())?,
-                UserHandle::try_from([0].as_slice())?,
+                &UserHandle::from([0]),
                 StaticState {
                     credential_public_key: CompressedPubKey::<&[u8], &[u8], &[u8], _>::Rsa(
                         RsaPubKey::try_from((rsa_pub.as_ref().n().to_bytes_be(), e)).unwrap(),

@@ -21,7 +21,7 @@ data-encoding = { version = "2.8.0", default-features = false }
 ed25519-dalek = { version = "2.1.1", default-features = false, features = ["fast"] }
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.13.1", default-features = false, features = ["ecdsa"] }
-precis-profiles = { version = "0.1.11", default-features = false }
+precis-profiles = { version = "0.1.12", default-features = false }
 rand = { version = "0.9.0", default-features = false, features = ["thread_rng"] }
 rsa = { version = "0.9.8", default-features = false, features = ["sha2"] }
 serde = { version = "1.0.219", default-features = false, features = ["alloc"], optional = true }

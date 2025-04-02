@@ -8,7 +8,7 @@ use super::{
     },
     AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, CoseAlgorithmIdentifiers,
     CredProtect, CredentialMediationRequirement, CrossPlatformHint, Extension, ExtensionInfo, Hint,
-    PlatformHint, RegistrationServerState, ResidentKeyRequirement, SentChallenge,
+    PlatformHint, RegistrationServerState, ResidentKeyRequirement, SentChallenge, UserHandle,
     UserVerificationRequirement,
 };
 use core::{
@@ -186,7 +186,28 @@ impl<'a> DecodeBuffer<'a> for Extension {
         })
     }
 }
-impl Encode for RegistrationServerState {
+impl<const LEN: usize> EncodeBuffer for UserHandle<LEN> {
+    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
+        buffer.extend_from_slice(self.0.as_slice());
+    }
+}
+impl<'a, const LEN: usize> DecodeBuffer<'a> for UserHandle<LEN>
+where
+    Self: Default,
+{
+    type Err = EncDecErr;
+    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        data.split_at_checked(LEN)
+            .ok_or(EncDecErr)
+            .map(|(val_slice, rem)| {
+                *data = rem;
+                let mut val = Self::default();
+                val.0.copy_from_slice(val_slice);
+                val
+            })
+    }
+}
+impl<const USER_LEN: usize> Encode for RegistrationServerState<USER_LEN> {
     type Output<'a>
         = Vec<u8>
     where
@@ -201,15 +222,17 @@ impl Encode for RegistrationServerState {
         // * 6 for `AuthenticatorSelectionCriteria`
         // * 4–8 for `Extension` where we assume 4 is the most common
         // * 12 for `SystemTime`
-        let mut buffer = Vec::with_capacity(1 + 16 + 1 + 6 + 4 + 12);
+        // * Variable length for `U` where we assume a 16-byte `UserHandle` array is most common.
+        let mut buffer = Vec::with_capacity(1 + 16 + 1 + 6 + 4 + 12 + 16);
         self.mediation.encode_into_buffer(&mut buffer);
         self.challenge.encode_into_buffer(&mut buffer);
         self.pub_key_cred_params.encode_into_buffer(&mut buffer);
         self.authenticator_selection.encode_into_buffer(&mut buffer);
         self.extensions.encode_into_buffer(&mut buffer);
-        self.expiration
-            .encode_into_buffer(&mut buffer)
-            .map(|()| buffer)
+        self.expiration.encode_into_buffer(&mut buffer).map(|()| {
+            self.user_id.encode_into_buffer(&mut buffer);
+            buffer
+        })
     }
 }
 /// Error returned from [`RegistrationServerState::decode`].
@@ -230,7 +253,10 @@ impl Display for DecodeRegistrationServerStateErr {
     }
 }
 impl Error for DecodeRegistrationServerStateErr {}
-impl Decode for RegistrationServerState {
+impl<const USER_LEN: usize> Decode for RegistrationServerState<USER_LEN>
+where
+    UserHandle<USER_LEN>: Default,
+{
     type Input<'a> = &'a [u8];
     type Err = DecodeRegistrationServerStateErr;
     #[inline]
@@ -245,11 +271,13 @@ impl Decode for RegistrationServerState {
                                     .map_err(|_e| DecodeRegistrationServerStateErr::Other)
                                     .and_then(|()| {
                                         SystemTime::decode_from_buffer(&mut input).map_err(|_e| DecodeRegistrationServerStateErr::Other).and_then(|expiration| {
-                                            if input.is_empty() {
-                                                Ok(Self { mediation, challenge, pub_key_cred_params, authenticator_selection, extensions, expiration, })
-                                            } else {
-                                                Err(DecodeRegistrationServerStateErr::TrailingData)
-                                            }
+                                            UserHandle::decode_from_buffer(&mut input).map_err(|_e| DecodeRegistrationServerStateErr::Other).and_then(|user_id| {
+                                                if input.is_empty() {
+                                                    Ok(Self { mediation, challenge, pub_key_cred_params, authenticator_selection, extensions, expiration, user_id, })
+                                                } else {
+                                                    Err(DecodeRegistrationServerStateErr::TrailingData)
+                                                }
+                                            })
                                         })
                                     })
                             })

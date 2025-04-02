@@ -13,16 +13,13 @@ use super::{
         },
     },
     BackupReq, Ceremony, Challenge, CredentialMediationRequirement, ExtensionInfo, ExtensionReq,
-    Hint, Origin, PublicKeyCredentialDescriptor, RpId, SentChallenge, ServerState,
-    THREE_HUNDRED_THOUSAND, UserVerificationRequirement,
-    register::error::{CreationOptionsErr, NicknameErr, UserHandleErr, UsernameErr},
+    Hint, Origin, PublicKeyCredentialDescriptor, RpId, SentChallenge, THREE_HUNDRED_THOUSAND,
+    TimedCeremony, UserVerificationRequirement,
+    register::error::{CreationOptionsErr, NicknameErr, UsernameErr},
 };
 #[cfg(doc)]
 use crate::{
-    request::{
-        AsciiDomain, DomainOrigin, Url, auth::AuthenticationServerState,
-        auth::PublicKeyCredentialRequestOptions,
-    },
+    request::{AsciiDomain, DomainOrigin, Url, auth::PublicKeyCredentialRequestOptions},
     response::{AuthTransports, AuthenticatorTransport, Backup, CollectedClientData},
 };
 use alloc::borrow::Cow;
@@ -733,104 +730,17 @@ pub const USER_HANDLE_MAX_LEN: usize = 64;
 /// The minimum number of bytes a [`UserHandle`] can be made of per
 /// [WebAuthn](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-id).
 pub const USER_HANDLE_MIN_LEN: usize = 1;
-#[derive(Clone, Copy, Debug)]
 /// A [user handle](https://www.w3.org/TR/webauthn-3/#user-handle) that is made up of
 /// [`USER_HANDLE_MIN_LEN`]–[`USER_HANDLE_MAX_LEN`] bytes.
-pub struct UserHandle<T>(T);
-impl<T> UserHandle<T> {
-    /// Returns the contained data consuming `self`.
-    #[inline]
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-    /// Returns the contained data.
-    #[inline]
-    pub const fn inner(&self) -> &T {
-        &self.0
-    }
-}
-impl<T: AsRef<[u8]>> UserHandle<T> {
-    /// Returns a `UserHandle` containing a `slice`.
-    pub(crate) fn as_slice(&self) -> UserHandle<&[u8]> {
-        UserHandle(self.0.as_ref())
-    }
-}
-#[cfg(any(feature = "bin", feature = "custom"))]
-impl<'a> UserHandle<&'a [u8]> {
-    /// Creates a `UserHandle` from a `slice`.
-    fn from_slice<'b: 'a>(value: &'b [u8]) -> Result<Self, UserHandleErr> {
-        if (USER_HANDLE_MIN_LEN..=USER_HANDLE_MAX_LEN).contains(&value.len()) {
-            Ok(Self(value))
-        } else {
-            Err(UserHandleErr)
-        }
-    }
-}
-impl UserHandle<Vec<u8>> {
-    /// Returns a new `UserHandle` based on `len` randomly-generated [`u8`]s.
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `len` is not inclusively between [`USER_HANDLE_MIN_LEN`] and [`USER_HANDLE_MAX_LEN`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::{UserHandle, USER_HANDLE_MIN_LEN, USER_HANDLE_MAX_LEN};
-    /// assert_eq!(
-    ///     UserHandle::rand(USER_HANDLE_MIN_LEN)
-    ///         .unwrap_or_else(|_| unreachable!("there is a bug in UserHandle::rand"))
-    ///         .as_ref()
-    ///         .len(),
-    ///     1
-    /// );
-    /// // The probability of an all-zero `UserHandle` being generated (assuming a good entropy
-    /// // source) is 2^-512 ≈ 7.5 x 10^-155.
-    /// assert_ne!(
-    ///     UserHandle::rand(USER_HANDLE_MAX_LEN)
-    ///         .unwrap_or_else(|_| unreachable!("there is a bug in UserHandle::rand"))
-    ///         .as_ref(),
-    ///     [0; USER_HANDLE_MAX_LEN]
-    /// );
-    /// assert!(UserHandle::rand(0).is_err());
-    /// assert!(UserHandle::rand(65).is_err());
-    /// ```
-    #[inline]
-    pub fn rand(len: usize) -> Result<Self, UserHandleErr> {
-        if (USER_HANDLE_MIN_LEN..=USER_HANDLE_MAX_LEN).contains(&len) {
-            let mut data = vec![0; len];
-            rand::fill(data.as_mut_slice());
-            Ok(Self(data))
-        } else {
-            Err(UserHandleErr)
-        }
-    }
-    /// [Per WebAuthn](https://www.w3.org/TR/webauthn-3/#sctn-user-handle-privacy), user handles should be
-    /// a random 64 bytes; thus this is the same as [`Self::rand`] with `len` set to [`USER_HANDLE_MAX_LEN`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::{UserHandle, USER_HANDLE_MAX_LEN};
-    /// // The probability of an all-zero `UserHandle` being generated (assuming a good entropy
-    /// // source) is 2^-512 ≈ 7.5 x 10^-155.
-    /// assert_ne!(UserHandle::new().as_ref(), [0; USER_HANDLE_MAX_LEN]);
-    /// ```
-    #[expect(clippy::unreachable, reason = "when there is a bug, we want to crash")]
-    #[inline]
-    #[must_use]
-    pub fn new() -> Self {
-        Self::rand(USER_HANDLE_MAX_LEN)
-            .unwrap_or_else(|_e| unreachable!("there is a bug in UserHandle::rand"))
-    }
-}
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct UserHandle<const LEN: usize>([u8; LEN]);
 /// Implements [`Default`] for [`UserHandle`] of array of length of the passed `usize` literal.
 ///
 /// Only [`USER_HANDLE_MIN_LEN`]–[`USER_HANDLE_MAX_LEN`] inclusively are allowed to be passed.
 macro_rules! user {
     ( $( $x:literal),* ) => {
         $(
-impl Default for UserHandle<[u8; $x]> {
+impl Default for UserHandle<$x> {
     #[inline]
     fn default() -> Self {
         let mut data = [0; $x];
@@ -847,7 +757,7 @@ user!(
     27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
     51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64
 );
-impl<const LEN: usize> UserHandle<[u8; LEN]>
+impl<const LEN: usize> UserHandle<LEN>
 where
     Self: Default,
 {
@@ -856,9 +766,9 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::register::{UserHandle, USER_HANDLE_MIN_LEN, USER_HANDLE_MAX_LEN};
+    /// # use webauthn_rp::request::register::{UserHandle, UserHandle64, USER_HANDLE_MIN_LEN, USER_HANDLE_MAX_LEN};
     /// assert_eq!(
-    ///     UserHandle::<[u8; USER_HANDLE_MIN_LEN]>::new_rand()
+    ///     UserHandle::<USER_HANDLE_MIN_LEN>::new()
     ///         .as_ref()
     ///         .len(),
     ///     1
@@ -866,178 +776,78 @@ where
     /// // The probability of an all-zero `UserHandle` being generated (assuming a good entropy
     /// // source) is 2^-512 ≈ 7.5 x 10^-155.
     /// assert_ne!(
-    ///     UserHandle::<[u8; USER_HANDLE_MAX_LEN]>::new_rand().as_ref(),
+    ///     UserHandle64::new().as_ref(),
     ///     [0; USER_HANDLE_MAX_LEN]
     /// );
     /// ```
     #[inline]
     #[must_use]
-    pub fn new_rand() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 }
-impl Default for UserHandle<Vec<u8>> {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-impl<T: AsRef<[u8]>> AsRef<[u8]> for UserHandle<T> {
+impl<const LEN: usize> AsRef<[u8]> for UserHandle<LEN> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
+        self.0.as_slice()
     }
 }
-impl<T: Borrow<[u8]>> Borrow<[u8]> for UserHandle<T> {
+impl<const LEN: usize> Borrow<[u8]> for UserHandle<LEN> {
     #[inline]
     fn borrow(&self) -> &[u8] {
-        self.0.borrow()
-    }
-}
-impl<'a: 'b, 'b, const LEN: usize> From<&'a UserHandle<[u8; LEN]>> for UserHandle<&'b [u8; LEN]> {
-    #[inline]
-    fn from(value: &'a UserHandle<[u8; LEN]>) -> Self {
-        Self(&value.0)
-    }
-}
-impl<'a: 'b, 'b, const LEN: usize> From<UserHandle<&'a [u8; LEN]>> for UserHandle<&'b [u8]> {
-    #[inline]
-    fn from(value: UserHandle<&'a [u8; LEN]>) -> Self {
-        Self(value.0.as_slice())
-    }
-}
-impl<'a: 'b, 'b, const LEN: usize> From<&'a UserHandle<[u8; LEN]>> for UserHandle<&'b [u8]> {
-    #[inline]
-    fn from(value: &'a UserHandle<[u8; LEN]>) -> Self {
-        Self(value.0.as_slice())
-    }
-}
-impl<'a: 'b, 'b> From<&'a UserHandle<Vec<u8>>> for UserHandle<&'b Vec<u8>> {
-    #[inline]
-    fn from(value: &'a UserHandle<Vec<u8>>) -> Self {
-        Self(&value.0)
-    }
-}
-impl<'a: 'b, 'b> From<UserHandle<&'a Vec<u8>>> for UserHandle<&'b [u8]> {
-    #[inline]
-    fn from(value: UserHandle<&'a Vec<u8>>) -> Self {
-        Self(value.0.as_slice())
-    }
-}
-impl<'a: 'b, 'b> From<&'a UserHandle<Vec<u8>>> for UserHandle<&'b [u8]> {
-    #[inline]
-    fn from(value: &'a UserHandle<Vec<u8>>) -> Self {
-        Self(value.0.as_slice())
-    }
-}
-impl From<UserHandle<&[u8]>> for UserHandle<Vec<u8>> {
-    #[inline]
-    fn from(value: UserHandle<&[u8]>) -> Self {
-        Self(value.0.to_owned())
-    }
-}
-impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<UserHandle<T>> for UserHandle<T2> {
-    #[inline]
-    fn eq(&self, other: &UserHandle<T>) -> bool {
-        self.0 == other.0
-    }
-}
-impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<UserHandle<T>> for &UserHandle<T2> {
-    #[inline]
-    fn eq(&self, other: &UserHandle<T>) -> bool {
-        **self == *other
-    }
-}
-impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<&UserHandle<T>> for UserHandle<T2> {
-    #[inline]
-    fn eq(&self, other: &&UserHandle<T>) -> bool {
-        *self == **other
-    }
-}
-impl<T: Eq> Eq for UserHandle<T> {}
-impl<T: Hash> Hash for UserHandle<T> {
-    #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
+        self.0.as_slice()
     }
 }
 /// `UserHandle` that is based on the [spec recommendation](https://www.w3.org/TR/webauthn-3/#user-handle).
-pub type UserHandle64 = UserHandle<[u8; USER_HANDLE_MAX_LEN]>;
+pub type UserHandle64 = UserHandle<USER_HANDLE_MAX_LEN>;
 /// `UserHandle` that is based on 16 bytes.
 ///
 /// While not the recommended size like [`UserHandle64`], 16 bytes is common for many deployments since
 /// it's the same size as [Universally Unique IDentifiers (UUIDs)](https://www.rfc-editor.org/rfc/rfc9562).
-pub type UserHandle16 = UserHandle<[u8; 16]>;
-/// Unifies `Option<UserHandle<T>>` and [`UserHandle`] such that both can be used for
-/// [`AuthenticationServerState::verify`].
-///
-/// This `trait` is sealed and cannot be implemented for types outside of `webauthn_rp`.
-pub trait User: super::private::Sealed {
-    /// Returns `true` iff [`UserHandle`] must exist.
-    fn must_exist() -> bool;
-    /// Returns `None` iff `self` cannot be compared to `other`.
-    /// Returns `Some(true)` iff `self` is equivalent to `other`.
-    /// Returns `Some(false)` iff `self` is not equivalent to `other`.
-    fn is_same(&self, other: UserHandle<&[u8]>) -> Option<bool>;
-}
-impl<T: AsRef<[u8]>> User for UserHandle<T> {
-    #[inline]
-    fn must_exist() -> bool {
-        true
-    }
-    #[inline]
-    fn is_same(&self, other: UserHandle<&[u8]>) -> Option<bool> {
-        Some(self.as_slice() == other)
-    }
-}
-impl<T: AsRef<[u8]>> User for Option<UserHandle<T>> {
-    #[inline]
-    fn must_exist() -> bool {
-        false
-    }
-    #[inline]
-    fn is_same(&self, other: UserHandle<&[u8]>) -> Option<bool> {
-        self.as_ref().map(|val| val.as_slice() == other)
-    }
-}
+pub type UserHandle16 = UserHandle<16>;
 /// [The `PublicKeyCredentialUserEntity`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialuserentity)
 /// sent to the client.
 #[derive(Clone, Debug)]
-pub struct PublicKeyCredentialUserEntity<'name, 'display_name, T> {
+pub struct PublicKeyCredentialUserEntity<'name, 'display_name, 'id, const LEN: usize> {
     /// [`name`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialentity-name).
     pub name: Username<'name>,
     /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-id).
-    pub id: UserHandle<T>,
+    pub id: &'id UserHandle<LEN>,
     /// [`displayName`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-displayname).
     ///
     /// `None` iff the display name should be the empty string.
     pub display_name: Option<Nickname<'display_name>>,
 }
-impl PublicKeyCredentialUserEntity<'_, '_, Vec<u8>> {
-    /// Returns a `PublicKeyCredentialUserEntity` that consumes `self`. When `self` owns the data, the data is
-    /// simply moved; when the data is borrowed, then it is cloned into an owned instance.
-    #[inline]
-    #[must_use]
-    pub fn into_owned<'a, 'b>(self) -> PublicKeyCredentialUserEntity<'a, 'b, Vec<u8>> {
-        PublicKeyCredentialUserEntity {
-            name: self.name.into_owned(),
-            id: self.id,
-            display_name: self.display_name.map(Nickname::into_owned),
-        }
-    }
-}
-impl<'a: 'b, 'b, T: AsRef<[u8]>> From<&'a PublicKeyCredentialUserEntity<'_, '_, T>>
-    for PublicKeyCredentialUserEntity<'b, 'b, &'b [u8]>
+impl<'a: 'b, 'b, const LEN: usize> From<&'a UserHandle<LEN>>
+    for PublicKeyCredentialUserEntity<'_, '_, 'b, LEN>
 {
+    /// Returns a `PublicKeyCredentialUserEntity` with [`Self::name`] set to `"blank"`,
+    /// [`Self::id`] set to `value`, and [`Self::display_name`] set to `None`.
+    ///
+    /// One should let users set their own user name and user display name; however this can technically happen
+    /// _after_ successfully completing the registration ceremony since this information is not used during
+    /// [`RegistrationServerState::verify`]. For example the client can send such information along with
+    /// [`Registration`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::register::{PublicKeyCredentialUserEntity, UserHandle64};
+    /// let user_handle = UserHandle64::new();
+    /// let entity = PublicKeyCredentialUserEntity::from(&user_handle);
+    /// assert_eq!("blank", entity.name.as_ref());
+    /// assert_eq!(user_handle, *entity.id);
+    /// assert!(entity.display_name.is_none());
+    /// # Ok::<_, webauthn_rp::AggErr>(())
+    /// ```
+    #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
     #[inline]
-    fn from(value: &'a PublicKeyCredentialUserEntity<'_, '_, T>) -> Self {
+    fn from(value: &'a UserHandle<LEN>) -> Self {
         Self {
-            name: Username(Cow::Borrowed(&value.name.0)),
-            id: UserHandle(value.id.0.as_ref()),
-            display_name: value
-                .display_name
-                .as_ref()
-                .map(|v| Nickname(Cow::Borrowed(&v.0))),
+            name: Username::try_from("blank")
+                .unwrap_or_else(|_e| unreachable!("'blank' is no longer a valid Username")),
+            id: value,
+            display_name: None,
         }
     }
 }
@@ -1344,14 +1154,19 @@ const fn validate_options_helper(
 /// [`RegistrationClientState`] to the client ASAP. After receiving the newly created [`Registration`], it is
 /// validated using [`RegistrationServerState::verify`].
 #[derive(Debug)]
-pub struct PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_name, 'user_handle>
-{
+pub struct PublicKeyCredentialCreationOptions<
+    'rp_id,
+    'user_name,
+    'user_display_name,
+    'user_id,
+    const USER_LEN: usize,
+> {
     /// [`mediation`](https://www.w3.org/TR/credential-management-1/#dom-credentialcreationoptions-mediation).
     pub mediation: CredentialMediationRequirement,
     /// [`rp`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-rp).
     pub rp_id: &'rp_id RpId,
     /// [`user`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-user).
-    pub user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, &'user_handle [u8]>,
+    pub user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
     /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-challenge).
     pub challenge: Challenge,
     /// [`pubKeyCredParams`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-pubkeycredparams).
@@ -1369,8 +1184,8 @@ pub struct PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_
     /// [`extensions`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-extensions).
     pub extensions: Extension,
 }
-impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
-    PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_name, 'user_handle>
+impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
+    PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_name, 'user_id, USER_LEN>
 {
     /// Most deployments of passkeys should use this function. Specifically deployments that are both userless and
     /// passwordless and desire multi-factor authentication (MFA) to be done entirely on the authenticator. It
@@ -1389,7 +1204,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     /// ```
     /// # use webauthn_rp::request::{
     /// #     register::{
-    /// #         PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
+    /// #         PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle64
     /// #     },
     /// #     AsciiDomain, RpId, UserVerificationRequirement
     /// # };
@@ -1398,7 +1213,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     ///         &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
     ///         PublicKeyCredentialUserEntity {
     ///             name: "archimedes.of.syracuse".try_into()?,
-    ///             id: (&UserHandle::new()).into(),
+    ///             id: &UserHandle64::new(),
     ///             display_name: Some("Αρχιμήδης ο Συρακούσιος".try_into()?),
     ///         },
     ///         Vec::new()
@@ -1409,9 +1224,9 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     /// ```
     #[inline]
     #[must_use]
-    pub fn passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_handle>(
+    pub fn passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
         rp_id: &'a RpId,
-        user: PublicKeyCredentialUserEntity<'b, 'c, &'d [u8]>,
+        user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
         exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
     ) -> Self {
         Self {
@@ -1432,6 +1247,33 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
                 prf: None,
             },
         }
+    }
+    /// Convenience function for [`Self::passkey`] passing an empty `Vec`.
+    ///
+    /// This MUST only be used when this is the first credential for a user.
+    #[inline]
+    #[must_use]
+    pub fn first_passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
+        rp_id: &'a RpId,
+        user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
+    ) -> Self {
+        Self::passkey(rp_id, user, Vec::new())
+    }
+    /// Convenience function for [`Self::first_passkey`] passing [`PublicKeyCredentialUserEntity::from`] applied
+    /// to `user_id` for `user`.
+    ///
+    /// This MUST only be used when user information is provided _after_ registration (e.g., when the client
+    /// sends user name and user display name along with [`Registration`]).
+    ///
+    /// Because user information is likely known for existing accounts, this will often only be called during
+    /// greenfield deployments.
+    #[inline]
+    #[must_use]
+    pub fn first_passkey_with_blank_user_info<'a: 'rp_id, 'b: 'user_id>(
+        rp_id: &'a RpId,
+        user_id: &'b UserHandle<USER_LEN>,
+    ) -> Self {
+        Self::first_passkey(rp_id, user_id.into())
     }
     /// Deployments that want to incorporate a "something a user has" factor into a larger multi-factor
     /// authentication (MFA) setup. Specifically deployments that are _not_ userless or passwordless. It
@@ -1458,14 +1300,14 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     ///
     /// ```
     /// # use webauthn_rp::request::{register::{
-    /// #     PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
+    /// #     PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle64
     /// # }, AsciiDomain, RpId};
     /// assert_eq!(
     ///     PublicKeyCredentialCreationOptions::second_factor(
     ///         &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
     ///         PublicKeyCredentialUserEntity {
     ///             name: "carl.gauss".try_into()?,
-    ///             id: (&UserHandle::new()).into(),
+    ///             id: &UserHandle64::new(),
     ///             display_name: Some("Johann Carl Friedrich Gauß".try_into()?),
     ///         },
     ///         Vec::new()
@@ -1478,9 +1320,9 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     /// ```
     #[inline]
     #[must_use]
-    pub fn second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_handle>(
+    pub fn second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
         rp_id: &'a RpId,
-        user: PublicKeyCredentialUserEntity<'b, 'c, &'d [u8]>,
+        user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
         exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
     ) -> Self {
         let mut opts = Self::passkey(rp_id, user, exclude_credentials);
@@ -1488,6 +1330,17 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
         opts.extensions.cred_props = Some(ExtensionReq::Allow);
         opts.extensions.cred_protect = CredProtect::None;
         opts
+    }
+    /// Convenience function for [`Self::second_factor`] passing an empty `Vec`.
+    ///
+    /// This MUST only be used when this is the first credential for a user.
+    #[inline]
+    #[must_use]
+    pub fn first_second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
+        rp_id: &'a RpId,
+        user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
+    ) -> Self {
+        Self::second_factor(rp_id, user, Vec::new())
     }
     /// Begins the [registration ceremony](https://www.w3.org/TR/webauthn-3/#registration-ceremony) consuming
     /// `self`. Note that the expiration [`Instant`]/[`SystemTime`] is saved, so `RegistrationClientState` MUST be
@@ -1504,9 +1357,9 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     /// # #[cfg(not(feature = "serializable_server_state"))]
     /// # use std::time::Instant;
     /// # #[cfg(not(feature = "serializable_server_state"))]
-    /// # use webauthn_rp::request::ServerState;
+    /// # use webauthn_rp::request::TimedCeremony as _;
     /// # use webauthn_rp::request::{
-    /// #     register::{PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle},
+    /// #     register::{PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle64},
     /// #     AsciiDomain, RpId
     /// # };
     /// # #[cfg(not(feature = "serializable_server_state"))]
@@ -1515,7 +1368,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     ///         &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
     ///         PublicKeyCredentialUserEntity {
     ///             name: "bernard.riemann".try_into()?,
-    ///             id: (&UserHandle::new()).into(),
+    ///             id: &UserHandle64::new(),
     ///             display_name: Some("Georg Friedrich Bernhard Riemann".try_into()?)
     ///         },
     ///         Vec::new()
@@ -1528,8 +1381,8 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
         mut self,
     ) -> Result<
         (
-            RegistrationServerState,
-            RegistrationClientState<'rp_id, 'user_name, 'user_display_name, 'user_handle>,
+            RegistrationServerState<USER_LEN>,
+            RegistrationClientState<'rp_id, 'user_name, 'user_display_name, 'user_id, USER_LEN>,
         ),
         CreationOptionsErr,
     > {
@@ -1554,6 +1407,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
                             authenticator_selection: self.authenticator_selection,
                             extensions: self.extensions,
                             expiration,
+                            user_id: *self.user.id,
                         },
                         RegistrationClientState(self),
                     )
@@ -1564,11 +1418,15 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
 /// Container of a [`PublicKeyCredentialCreationOptions`] that has been used to start the registration ceremony.
 /// This gets sent to the client ASAP.
 #[derive(Debug)]
-pub struct RegistrationClientState<'rp_id, 'user_name, 'user_display_name, 'user_handle>(
-    PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_name, 'user_handle>,
-);
-impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
-    RegistrationClientState<'rp_id, 'user_name, 'user_display_name, 'user_handle>
+pub struct RegistrationClientState<
+    'rp_id,
+    'user_name,
+    'user_display_name,
+    'user_id,
+    const USER_LEN: usize,
+>(PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_name, 'user_id, USER_LEN>);
+impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
+    RegistrationClientState<'rp_id, 'user_name, 'user_display_name, 'user_id, USER_LEN>
 {
     /// Returns the `PublicKeyCredentialCreationOptions` that was used to start a registration ceremony.
     ///
@@ -1577,14 +1435,14 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     /// ```
     /// # use webauthn_rp::request::{register::{
     /// #     CoseAlgorithmIdentifiers, PublicKeyCredentialCreationOptions,
-    /// #     PublicKeyCredentialUserEntity, UserHandle
+    /// #     PublicKeyCredentialUserEntity, UserHandle64,
     /// # }, AsciiDomain, RpId};
     /// assert_eq!(
     ///     PublicKeyCredentialCreationOptions::passkey(
     ///         &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
     ///         PublicKeyCredentialUserEntity {
     ///             name: "david.hilbert".try_into()?,
-    ///             id: (&UserHandle::new()).into(),
+    ///             id: &UserHandle64::new(),
     ///             display_name: Some("David Hilbert".try_into()?)
     ///         },
     ///         Vec::new()
@@ -1601,8 +1459,13 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_handle>
     #[must_use]
     pub const fn options(
         &self,
-    ) -> &PublicKeyCredentialCreationOptions<'rp_id, 'user_name, 'user_display_name, 'user_handle>
-    {
+    ) -> &PublicKeyCredentialCreationOptions<
+        'rp_id,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        USER_LEN,
+    > {
         &self.0
     }
 }
@@ -1665,7 +1528,7 @@ impl<O, T> Default for RegistrationVerificationOptions<'_, '_, O, T> {
 /// `RegistrationServerState` associated with a [`Registration`], one should use its corresponding
 /// [`Registration::challenge`].
 #[derive(Debug)]
-pub struct RegistrationServerState {
+pub struct RegistrationServerState<const USER_LEN: usize> {
     /// [`mediation`](https://www.w3.org/TR/credential-management-1/#dom-credentialcreationoptions-mediation).
     mediation: CredentialMediationRequirement,
     // This is a `SentChallenge` since we need `RegistrationServerState` to be fetchable after receiving the
@@ -1690,13 +1553,15 @@ pub struct RegistrationServerState {
     /// `SystemTime` the ceremony expires.
     #[cfg(feature = "serializable_server_state")]
     expiration: SystemTime,
+    /// User handle.
+    user_id: UserHandle<USER_LEN>,
 }
-impl RegistrationServerState {
+impl<const USER_LEN: usize> RegistrationServerState<USER_LEN> {
     /// Verifies `response` is valid based on `self` consuming `self` and returning a `RegisteredCredential` that
-    /// borrows the necessary data from `response` as well as borrowing `user_handle`.
+    /// borrows the necessary data from `response`.
     ///
-    /// `rp_id` and `user_handle` MUST be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] and
-    /// [`PublicKeyCredentialUserEntity::id`] used when starting the ceremony.
+    /// `rp_id` MUST be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] used when starting the
+    /// ceremony.
     ///
     /// It is _essential_ to ensure [`RegisteredCredential::id`] has not been previously registered; if
     /// so, the ceremony SHOULD be aborted and a failure reported. When saving `RegisteredCredential`, one may
@@ -1711,13 +1576,12 @@ impl RegistrationServerState {
     /// [registration ceremony criteria](https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential)
     /// or violates any of the settings in `options`.
     #[inline]
-    pub fn verify<'a, 'b, O: PartialEq<Origin<'b>>, T: PartialEq<Origin<'b>>>(
+    pub fn verify<'a, O: PartialEq<Origin<'a>>, T: PartialEq<Origin<'a>>>(
         self,
         rp_id: &RpId,
-        user_handle: UserHandle<&'a [u8]>,
-        response: &'b Registration,
+        response: &'a Registration,
         options: &RegistrationVerificationOptions<'_, '_, O, T>,
-    ) -> Result<RegisteredCredential<'b, 'a>, RegCeremonyErr> {
+    ) -> Result<RegisteredCredential<'a, USER_LEN>, RegCeremonyErr> {
         // [Registration ceremony](https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential)
         // is handled by:
         //
@@ -1787,7 +1651,7 @@ impl RegistrationServerState {
                                             RegisteredCredential::new(
                                                 attested_credential_data.credential_id,
                                                 response.response.transports(),
-                                                user_handle,
+                                                self.user_id,
                                                 StaticState {
                                                     credential_public_key: attested_credential_data
                                                         .credential_public_key,
@@ -1833,7 +1697,9 @@ impl RegistrationServerState {
                 }
             })
     }
-    #[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
+}
+#[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
+impl<const USER_LEN: usize> RegistrationServerState<USER_LEN> {
     fn is_eq(&self, other: &Self) -> bool {
         self.mediation == other.mediation
             && self.challenge == other.challenge
@@ -1841,9 +1707,10 @@ impl RegistrationServerState {
             && self.authenticator_selection == other.authenticator_selection
             && self.extensions == other.extensions
             && self.expiration == other.expiration
+            && self.user_id == other.user_id
     }
 }
-impl ServerState for RegistrationServerState {
+impl<const USER_LEN: usize> TimedCeremony for RegistrationServerState<USER_LEN> {
     #[cfg(any(doc, not(feature = "serializable_server_state")))]
     #[inline]
     fn expiration(&self) -> Instant {
@@ -1859,7 +1726,7 @@ impl ServerState for RegistrationServerState {
         self.challenge
     }
 }
-impl Ceremony<()> for RegistrationServerState {
+impl<const USER_LEN: usize> Ceremony<USER_LEN, false> for RegistrationServerState<USER_LEN> {
     type R = Registration;
     fn rand_challenge(&self) -> SentChallenge {
         self.challenge
@@ -1876,44 +1743,46 @@ impl Ceremony<()> for RegistrationServerState {
         self.authenticator_selection.user_verification
     }
 }
-impl Borrow<SentChallenge> for RegistrationServerState {
+impl<const USER_LEN: usize> Borrow<SentChallenge> for RegistrationServerState<USER_LEN> {
     #[inline]
     fn borrow(&self) -> &SentChallenge {
         &self.challenge
     }
 }
-impl PartialEq for RegistrationServerState {
+impl<const USER_LEN: usize> PartialEq for RegistrationServerState<USER_LEN> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.challenge == other.challenge
     }
 }
-impl PartialEq<&Self> for RegistrationServerState {
+impl<const USER_LEN: usize> PartialEq<&Self> for RegistrationServerState<USER_LEN> {
     #[inline]
     fn eq(&self, other: &&Self) -> bool {
         *self == **other
     }
 }
-impl PartialEq<RegistrationServerState> for &RegistrationServerState {
+impl<const USER_LEN: usize> PartialEq<RegistrationServerState<USER_LEN>>
+    for &RegistrationServerState<USER_LEN>
+{
     #[inline]
-    fn eq(&self, other: &RegistrationServerState) -> bool {
+    fn eq(&self, other: &RegistrationServerState<USER_LEN>) -> bool {
         **self == *other
     }
 }
-impl Eq for RegistrationServerState {}
-impl Hash for RegistrationServerState {
+impl<const USER_LEN: usize> Eq for RegistrationServerState<USER_LEN> {}
+impl<const USER_LEN: usize> Hash for RegistrationServerState<USER_LEN> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.challenge.hash(state);
     }
 }
-impl PartialOrd for RegistrationServerState {
+impl<const USER_LEN: usize> PartialOrd for RegistrationServerState<USER_LEN> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
-impl Ord for RegistrationServerState {
+impl<const USER_LEN: usize> Ord for RegistrationServerState<USER_LEN> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.challenge.cmp(&other.challenge)
@@ -1955,12 +1824,12 @@ mod tests {
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
     fn ed25519_reg_ser() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let id = UserHandle::try_from([0; 1].as_slice())?;
+        let id = UserHandle::from([0; 1]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
-                id,
+                id: &id,
                 display_name: None,
             },
             Vec::new(),
@@ -2277,9 +2146,14 @@ mod tests {
         attestation_object[32..96].copy_from_slice(sig.to_bytes().as_slice());
         attestation_object.truncate(261);
         let server = opts.start_ceremony()?.0;
-        assert!(server.is_eq(&RegistrationServerState::decode(
-            server.encode()?.as_slice()
-        )?));
+        assert!(
+            server.is_eq(&RegistrationServerState::decode(
+                server
+                    .encode()
+                    .map_err(AggErr::EncodeRegistrationServerState)?
+                    .as_slice()
+            )?)
+        );
         Ok(())
     }
 }

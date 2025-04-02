@@ -113,11 +113,12 @@ impl<'b> Decode for CredentialId<&'b [u8]> {
         }
     }
 }
-impl EncodeBuffer for CredentialId<&[u8]> {
+impl<T: AsRef<[u8]>> EncodeBuffer for CredentialId<T> {
     #[expect(clippy::unreachable, reason = "when there is a bug, we want to crash")]
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         // Max length is 1023, so this won't error.
         self.0
+            .as_ref()
             .encode_into_buffer(buffer)
             .unwrap_or_else(|_e| unreachable!("there is a bug in [u8]::encode_into_buffer"));
     }

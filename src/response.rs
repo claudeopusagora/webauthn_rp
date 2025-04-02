@@ -33,9 +33,9 @@ use ser_relaxed::SerdeJsonErr;
 /// # #[cfg(not(feature = "serializable_server_state"))]
 /// # use webauthn_rp::request::{FixedCapHashSet, InsertResult};
 /// # use webauthn_rp::{
-/// #     request::{auth::{error::RequestOptionsErr, AuthenticationClientState, PublicKeyCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN}, AsciiDomain, BackupReq, RpId},
-/// #     response::{auth::{error::AuthCeremonyErr, Authentication}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKey, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
-/// #     AuthenticatedCredential, CredentialErr, PasskeyAuthentication64
+/// #     request::{auth::{error::RequestOptionsErr, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, AsciiDomain, BackupReq, RpId},
+/// #     response::{auth::{error::AuthCeremonyErr, DiscoverableAuthentication64}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKey, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
+/// #     AuthenticatedCredential, CredentialErr
 /// # };
 /// # #[derive(Debug)]
 /// # enum E {
@@ -82,32 +82,32 @@ use ser_relaxed::SerdeJsonErr;
 /// # #[cfg(not(feature = "serializable_server_state"))]
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-/// let (server, client) = PublicKeyCredentialRequestOptions::passkey(&rp_id).start_ceremony()?;
+/// let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id).start_ceremony()?;
 /// # #[cfg(not(feature = "serializable_server_state"))]
 /// assert!(matches!(
 ///     ceremonies.insert_or_replace_all_expired(server),
 ///     InsertResult::Success
 /// ));
 /// # #[cfg(feature = "serde")]
-/// let authentication = serde_json::from_str::<PasskeyAuthentication64>(get_authentication_json(client).as_str())?;
+/// let authentication = serde_json::from_str::<DiscoverableAuthentication64>(get_authentication_json(client).as_str())?;
 /// # #[cfg(feature = "serde")]
 /// let user_handle = authentication.response().user_handle();
 /// # #[cfg(feature = "serde")]
-/// let (static_state, dynamic_state) = get_credential(authentication.raw_id(), user_handle.into()).ok_or(E::UnknownCredential)?;
+/// let (static_state, dynamic_state) = get_credential(authentication.raw_id(), &user_handle).ok_or(E::UnknownCredential)?;
 /// # #[cfg(all(feature = "custom", feature = "serde"))]
-/// let mut cred = AuthenticatedCredential::new(authentication.raw_id(), user_handle.into(), static_state, dynamic_state)?;
+/// let mut cred = AuthenticatedCredential::new(authentication.raw_id(), &user_handle, static_state, dynamic_state)?;
 /// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom", feature = "serde"))]
 /// if ceremonies.take(&authentication.challenge()?).ok_or(E::MissingCeremony)?.verify(&rp_id, &authentication, &mut cred, &AuthenticationVerificationOptions::<&str, &str>::default())? {
 ///     update_cred(authentication.raw_id(), cred.dynamic_state());
 /// }
-/// /// Send `AuthenticationClientState` and receive `Authentication` JSON from client.
+/// /// Send `DiscoverableAuthenticationClientState` and receive `DiscoverableAuthentication64` JSON from client.
 /// # #[cfg(feature = "serde")]
-/// fn get_authentication_json(client: AuthenticationClientState<'_, '_>) -> String {
+/// fn get_authentication_json(client: DiscoverableAuthenticationClientState<'_, '_>) -> String {
 ///     // ⋮
 /// #     let client_data_json = BASE64URL_NOPAD.encode(serde_json::json!({
 /// #         "type": "webauthn.get",
-/// #         "challenge": client.options().challenge,
-/// #         "origin": format!("https://{}", client.options().rp_id.as_ref()),
+/// #         "challenge": client.options().0.challenge,
+/// #         "origin": format!("https://{}", client.options().0.rp_id.as_ref()),
 /// #         "crossOrigin": false
 /// #     }).to_string().as_bytes());
 /// #     serde_json::json!({
@@ -124,7 +124,7 @@ use ser_relaxed::SerdeJsonErr;
 /// #     }).to_string()
 /// }
 /// /// Gets the `AuthenticatedCredential` parts associated with `id` and `user_handle` from the database.
-/// fn get_credential(id: CredentialId<&[u8]>, user_handle: UserHandle<&[u8]>) -> Option<(StaticState<CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>>, DynamicState)> {
+/// fn get_credential(id: CredentialId<&[u8]>, user_handle: &UserHandle64) -> Option<(StaticState<CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>>, DynamicState)> {
 ///     // ⋮
 /// #     Some((StaticState { credential_public_key: CompressedPubKey::Ed25519(Ed25519PubKey::from([0; 32])), extensions: AuthenticatorExtensionOutputStaticState { cred_protect: CredentialProtectionPolicy::UserVerificationRequired, hmac_secret: None, } }, DynamicState { user_verified: true, backup: Backup::NotEligible, sign_count: 1, authenticator_attachment: AuthenticatorAttachment::None }))
 /// }
@@ -159,7 +159,7 @@ pub mod error;
 /// # #[cfg(not(feature = "serializable_server_state"))]
 /// # use webauthn_rp::request::{FixedCapHashSet, InsertResult};
 /// # use webauthn_rp::{
-/// #     request::{register::{error::CreationOptionsErr, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomain, PublicKeyCredentialDescriptor, RpId},
+/// #     request::{register::{error::CreationOptionsErr, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomain, PublicKeyCredentialDescriptor, RpId},
 /// #     response::{register::{error::RegCeremonyErr, Registration}, error::CollectedClientDataErr, CollectedClientData},
 /// #     RegisteredCredential
 /// # };
@@ -197,28 +197,32 @@ pub mod error;
 /// #         Self::RegCeremony(value)
 /// #     }
 /// # }
-/// # #[cfg(not(feature = "serializable_server_state"))]
+/// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom"))]
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
+/// # #[cfg(feature = "custom")]
 /// let user_handle = get_user_handle();
-/// let handle = (&user_handle).into();
-/// let user = get_user_entity(handle);
-/// let creds = get_registered_credentials(handle);
+/// # #[cfg(feature = "custom")]
+/// let user = get_user_entity(&user_handle);
+/// # #[cfg(feature = "custom")]
+/// let creds = get_registered_credentials(user_handle);
+/// # #[cfg(feature = "custom")]
 /// let (server, client) = PublicKeyCredentialCreationOptions::passkey(&rp_id, user, creds).start_ceremony()?;
-/// # #[cfg(not(feature = "serializable_server_state"))]
+/// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom"))]
 /// assert!(matches!(
 ///     ceremonies.insert_or_replace_all_expired(server),
 ///     InsertResult::Success
 /// ));
-/// # #[cfg(feature = "serde_relaxed")]
+/// # #[cfg(all(feature = "serde_relaxed", feature = "custom"))]
 /// let registration = serde_json::from_str::<Registration>(get_registration_json(client).as_str())?;
 /// let ver_opts = RegistrationVerificationOptions::<&str, &str>::default();
 /// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom", feature = "serde_relaxed"))]
-/// insert_cred(ceremonies.take(&registration.challenge()?).ok_or(E::MissingCeremony)?.verify(&rp_id, handle, &registration, &ver_opts)?);
+/// insert_cred(ceremonies.take(&registration.challenge()?).ok_or(E::MissingCeremony)?.verify(&rp_id, &registration, &ver_opts)?);
 /// /// Extract `UserHandle` from session cookie if this is not the first credential registered.
-/// fn get_user_handle() -> UserHandle<[u8; USER_HANDLE_MAX_LEN]> {
+/// # #[cfg(feature = "custom")]
+/// fn get_user_handle() -> UserHandle64 {
 ///     // ⋮
-/// #     UserHandle::new_rand()
+/// #     [0; USER_HANDLE_MAX_LEN].into()
 /// }
 /// /// Fetch `PublicKeyCredentialUserEntity` info associated with `user`.
 /// ///
@@ -226,7 +230,8 @@ pub mod error;
 /// /// will need to be constructed with `name` and `display_name` passed from the client and `UserHandle::new`
 /// /// used for `id`. Once created, this info can be stored such that the entity information
 /// /// does not need to be requested for subsequent registrations.
-/// fn get_user_entity(user: UserHandle<&[u8]>) -> PublicKeyCredentialUserEntity<&[u8]> {
+/// # #[cfg(feature = "custom")]
+/// fn get_user_entity(user: &UserHandle<USER_HANDLE_MAX_LEN>) -> PublicKeyCredentialUserEntity<'_, '_, '_, USER_HANDLE_MAX_LEN> {
 ///     // ⋮
 /// #     PublicKeyCredentialUserEntity {
 /// #         name: "foo".try_into().unwrap(),
@@ -236,7 +241,7 @@ pub mod error;
 /// }
 /// /// Send `RegistrationClientState` and receive `Registration` JSON from client.
 /// # #[cfg(feature = "serde")]
-/// fn get_registration_json(client: RegistrationClientState<'_, '_, '_, '_>) -> String {
+/// fn get_registration_json(client: RegistrationClientState<'_, '_, '_, '_, USER_HANDLE_MAX_LEN>) -> String {
 ///     // ⋮
 /// #     let client_data_json = BASE64URL_NOPAD.encode(serde_json::json!({
 /// #         "type": "webauthn.create",
@@ -256,13 +261,13 @@ pub mod error;
 /// /// This doesn't need to be called when this is the first credential registered for `user`; instead
 /// /// an empty `Vec` should be passed.
 /// fn get_registered_credentials(
-///     user: UserHandle<&[u8]>,
+///     user: UserHandle<USER_HANDLE_MAX_LEN>,
 /// ) -> Vec<PublicKeyCredentialDescriptor<Vec<u8>>> {
 ///     // ⋮
 /// #     Vec::new()
 /// }
 /// /// Inserts `RegisteredCredential::into_parts` into the database.
-/// fn insert_cred(cred: RegisteredCredential<'_, '_>) {
+/// fn insert_cred(cred: RegisteredCredential<'_, USER_HANDLE_MAX_LEN>) {
 ///     // ⋮
 /// }
 /// # Ok::<_, E>(())
@@ -1591,11 +1596,11 @@ impl From<CeremonyErr<AuthAuthDataErr>> for AuthCeremonyErr {
 /// When the client forwards this response to the authenticator, it can remove all credentials that don't have
 /// a [`CredentialId`] in [`Self::all_accepted_credential_ids`].
 #[derive(Debug)]
-pub struct AllAcceptedCredentialsOptions<'rp, 'user> {
+pub struct AllAcceptedCredentialsOptions<'rp, 'user, const USER_LEN: usize> {
     /// [`rpId`](https://www.w3.org/TR/webauthn-3/#dictdef-allacceptedcredentialsoptions-rpid).
     pub rp_id: &'rp RpId,
     /// [`userId`](https://www.w3.org/TR/webauthn-3/#dictdef-allacceptedcredentialsoptions-userid).
-    pub user_id: UserHandle<&'user [u8]>,
+    pub user_id: &'user UserHandle<USER_LEN>,
     /// [`allAcceptedCredentialIds`](https://www.w3.org/TR/webauthn-3/#dictdef-allacceptedcredentialsoptions-allacceptedcredentialids).
     pub all_accepted_credential_ids: Vec<CredentialId<Vec<u8>>>,
 }
@@ -1605,13 +1610,13 @@ pub struct AllAcceptedCredentialsOptions<'rp, 'user> {
 /// This can be useful when a user updates their user information on the RP's side but does not do so on the authenticator.
 /// When the client forwards this response to the authenticator, it can update the user info for the associated credential.
 #[derive(Debug)]
-pub struct CurrentUserDetailsOptions<'rp, 'user_name, 'user_display_name, 'user_handle> {
+pub struct CurrentUserDetailsOptions<'rp_id, 'name, 'display_name, 'id, const LEN: usize> {
     /// [`rpId`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions-rpid).
-    pub rp_id: &'rp RpId,
+    pub rp_id: &'rp_id RpId,
     /// [`userId`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions-userid),
     /// [`name`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions-name), and
     /// [`displayName`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions-displayname).
-    pub user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, &'user_handle [u8]>,
+    pub user: PublicKeyCredentialUserEntity<'name, 'display_name, 'id, LEN>,
 }
 #[cfg(test)]
 mod tests {

@@ -14,6 +14,328 @@ to adapt to native applications as well. It achieves this by not assuming how da
 having said that, there are pre-defined serialization formats for "common" deployments which can be used when
 [`serde`](#serde) is enabled.
 
+## `webauthn_rp` in action
+
+```rust
+use webauthn_rp::{
+    AuthenticatedCredential, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
+    DiscoverableCredentialRequestOptions, PublicKeyCredentialCreationOptions, RegisteredCredential,
+    Registration, RegistrationServerState,
+    request::{
+        AsciiDomain, PublicKeyCredentialDescriptor, RpId,
+        auth::AuthenticationVerificationOptions,
+        register::{
+            Nickname, PublicKeyCredentialUserEntity, RegistrationVerificationOptions,
+            USER_HANDLE_MAX_LEN, UserHandle64, Username,
+        },
+    },
+    response::{
+        CredentialId,
+        auth::error::AuthCeremonyErr,
+        register::{CompressedPubKey, DynamicState, error::RegCeremonyErr},
+    },
+};
+// These are available iff `serializable_server_state` is _not_ enabled.
+use webauthn_rp::request::{FixedCapHashSet, InsertResult};
+use serde::de::{Deserialize, Deserializer};
+use serde_json::Error as JsonErr;
+/// The RP ID our application uses.
+const RP_ID: &str = "example.com";
+/// Error we return in our application when a function fails.
+enum AppErr {
+    /// WebAuthn registration ceremony failed.
+    RegCeremony(RegCeremonyErr),
+    /// WebAuthn authentication ceremony failed.
+    AuthCeremony(AuthCeremonyErr),
+    /// Unable to insert a WebAuthn ceremony.
+    WebAuthnCeremonyCreation,
+    /// WebAuthn ceremony does not exist; thus the ceremony could not be completed.
+    MissingWebAuthnCeremony,
+    /// General error related to JSON deserialization.
+    Json(JsonErr),
+    /// No account exists associated with a particular `UserHandle64`.
+    NoAccount,
+    /// No credential exists associated with a particular `CredentialId`.
+    NoCredential,
+    /// `CredentialId` exists but the associated `UserHandle64` does not match.
+    CredentialUserIdMismatch,
+}
+impl From<JsonErr> for AppErr {
+    fn from(value: JsonErr) -> Self {
+        Self::Json(value)
+    }
+}
+impl From<RegCeremonyErr> for AppErr {
+    fn from(value: RegCeremonyErr) -> Self {
+        Self::RegCeremony(value)
+    }
+}
+impl From<AuthCeremonyErr> for AppErr {
+    fn from(value: AuthCeremonyErr) -> Self {
+        Self::AuthCeremony(value)
+    }
+}
+/// First-time account creation.
+///
+/// This gets sent from the user after an account is created on their side. The registration ceremony
+/// still has to be successfully completed for the account to be created server side. In the event of an error,
+/// the user should delete the created passkey since it won't be usable.
+struct AccountReg<'a, 'b> {
+    registration: Registration,
+    user_name: Username<'a>,
+    user_display_name: Nickname<'b>,
+}
+impl<'de: 'a + 'b, 'a, 'b> Deserialize<'de> for AccountReg<'a, 'b> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // ⋮
+    }
+}
+/// Starts account creation.
+///
+/// This only makes sense for greenfield deployments since account information (e.g., user name) would likely
+/// already exist otherwise. This is similar to credential creation except a random `UserHandle64` is generated and
+/// will be used for subsequent credential registrations.
+fn start_account_creation(
+    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+) -> Result<Vec<u8>, AppErr> {
+    let rp_id = RpId::Domain(
+        AsciiDomain::try_from(RP_ID.to_owned())
+            .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+    );
+    let user_id = UserHandle64::new();
+    let (server, client) =
+        PublicKeyCredentialCreationOptions::first_passkey_with_blank_user_info(
+            &rp_id, &user_id,
+        )
+        .start_ceremony()
+        .unwrap_or_else(|_e| {
+            unreachable!("we don't manually mutate the options; thus this can't fail")
+        });
+    if matches!(
+        reg_ceremonies.insert_or_replace_all_expired(server),
+        InsertResult::Success
+    ) {
+        Ok(serde_json::to_vec(&client)
+            .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize")))
+    } else {
+        Err(AppErr::WebAuthnCeremonyCreation)
+    }
+}
+/// Finishes account creation.
+///
+/// Pending a successful registration ceremony, a new account associated with the randomly generated
+/// `UserHandle64` will be created with a corresponding passkey entry. This passkey will be used to
+/// log into the application.
+///
+/// Note if this errors, then the user should be notified to delete the passkey created on their
+/// authenticator.
+fn finish_account_creation(
+    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+    client_data: Vec<u8>,
+) -> Result<(), AppErr> {
+    let account = serde_json::from_slice::<AccountReg<'_, '_>>(client_data.as_slice())?;
+    insert_account(
+        &account,
+        reg_ceremonies
+            .take(&account.registration.challenge_relaxed()?)
+            .ok_or(AppErr::MissingWebAuthnCeremony)?
+            .verify(
+                &RpId::Domain(
+                    AsciiDomain::try_from(RP_ID.to_owned())
+                        .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+                ),
+                &account.registration,
+                &RegistrationVerificationOptions::<&str, &str>::default(),
+            )?,
+    )
+}
+/// Starts passkey registration.
+///
+/// This is used for _existing_ accounts where the user is already logged in and wants to register another
+/// passkey. This is similar to account creation except we already have the user entity info and we need to
+/// fetch the registered `PublicKeyCredentialDescriptor`s to avoid accidentally overwriting a passkey on
+/// the authenticator.
+fn start_cred_registration(
+    user_id: &UserHandle64,
+    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+) -> Result<Vec<u8>, AppErr> {
+    let rp_id = RpId::Domain(
+        AsciiDomain::try_from(RP_ID.to_owned())
+            .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+    );
+    let (entity, creds) = select_user_info(user_id)?.ok_or_else(|| AppErr::NoAccount)?;
+    let (server, client) = PublicKeyCredentialCreationOptions::passkey(&rp_id, entity, creds)
+        .start_ceremony()
+        .unwrap_or_else(|_e| {
+            unreachable!("we don't manually mutate the options; thus this won't error")
+        });
+    if matches!(
+        reg_ceremonies.insert_or_replace_all_expired(server),
+        InsertResult::Success
+    ) {
+        Ok(serde_json::to_vec(&client)
+            .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize")))
+    } else {
+        Err(AppErr::WebAuthnCeremonyCreation)
+    }
+}
+/// Finishes passkey registration.
+///
+/// Pending a successful registration ceremony, a new credential associated with the `UserHandle64`
+/// will be created. This passkey can then be used to log into the application just like any other registered
+/// passkey.
+///
+/// Note if this errors, then the user should be notified to delete the passkey created on their
+/// authenticator.
+fn finish_cred_registration(
+    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+    client_data: Vec<u8>,
+) -> Result<(), AppErr> {
+    let registration = Registration::from_json_custom(client_data.as_slice())?;
+    insert_credential(
+        reg_ceremonies
+            .take(&registration.challenge_relaxed()?)
+            .ok_or(AppErr::MissingWebAuthnCeremony)?
+            .verify(
+                &RpId::Domain(
+                    AsciiDomain::try_from(RP_ID.to_owned())
+                        .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+                ),
+                &registration,
+                &RegistrationVerificationOptions::<&str, &str>::default(),
+            )?,
+    )
+}
+/// Starts the passkey authentication ceremony.
+fn start_auth(
+    auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
+) -> Result<Vec<u8>, AppErr> {
+    let rp_id = RpId::Domain(
+        AsciiDomain::try_from(RP_ID.to_owned())
+            .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+    );
+    let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id)
+        .start_ceremony()
+        .unwrap_or_else(|_e| {
+            unreachable!("we don't manually mutate the options; thus this won't error")
+        });
+    if matches!(
+        auth_ceremonies.insert_or_replace_all_expired(server),
+        InsertResult::Success
+    ) {
+        Ok(serde_json::to_vec(&client).unwrap_or_else(|_e| {
+            unreachable!("bug in DiscoverableAuthenticationClientState::serialize")
+        }))
+    } else {
+        Err(AppErr::WebAuthnCeremonyCreation)
+    }
+}
+/// Finishes the passkey authentication ceremony.
+fn finish_auth(
+    auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
+    client_data: Vec<u8>,
+) -> Result<(), AppErr> {
+    let authentication =
+        DiscoverableAuthentication64::from_json_custom(client_data.as_slice())?;
+    let mut cred = select_credential(
+        authentication.raw_id(),
+        authentication.response().user_handle(),
+    )?
+    .ok_or_else(|| AppErr::NoCredential)?;
+    if auth_ceremonies
+        .take(&authentication.challenge_relaxed()?)
+        .ok_or(AppErr::MissingWebAuthnCeremony)?
+        .verify(
+            &RpId::Domain(
+                AsciiDomain::try_from(RP_ID.to_owned())
+                    .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+            ),
+            &authentication,
+            &mut cred,
+            &AuthenticationVerificationOptions::<&str, &str>::default(),
+        )?
+    {
+        update_credential(cred.id(), cred.dynamic_state())
+    } else {
+        Ok(())
+    }
+}
+/// Writes `account` and `cred` to storage.
+///
+/// # Errors
+///
+/// Errors iff writing `account` or `cred` errors,  there already exists a credential using the same
+/// `CredentialId`, or there already exists an account using the same `UserHandle64`.
+fn insert_account(
+    account: &AccountReg<'_, '_>,
+    cred: RegisteredCredential<'_, USER_HANDLE_MAX_LEN>,
+) -> Result<(), AppErr> {
+    // ⋮
+}
+/// Fetches the user info and registered credentials associated with `user_id`.
+///
+/// # Errors
+///
+/// Errors iff fetching the data errors.
+fn select_user_info<'a>(
+    user_id: &'a UserHandle64,
+) -> Result<
+    Option<(
+        PublicKeyCredentialUserEntity<'static, 'static, 'a, USER_HANDLE_MAX_LEN>,
+        Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+    )>,
+    AppErr,
+> {
+    // ⋮
+}
+/// Writes `cred` to storage.
+///
+/// # Errors
+///
+/// Errors iff writing `cred` errors or there already exists a credential using the same `CredentialId`.
+fn insert_credential(
+    cred: RegisteredCredential<'_, USER_HANDLE_MAX_LEN>,
+) -> Result<(), AppErr> {
+    // ⋮
+}
+/// Fetches the `AuthenticatedCredential` associated with `cred_id` ensuring `user_id` matches the
+/// `UserHandle64` associated with the account.
+///
+/// # Errors
+///
+/// Errors iff fetching the data errors or the `user_id` does not match the stored `UserHandle64`.
+fn select_credential<'cred, 'user>(
+    cred_id: CredentialId<&'cred [u8]>,
+    user_id: &'user UserHandle64,
+) -> Result<
+    Option<
+        AuthenticatedCredential<
+            'cred,
+            'user,
+            USER_HANDLE_MAX_LEN,
+            CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>,
+        >,
+    >,
+    AppErr,
+> {
+    // ⋮
+}
+/// Overwrites the current `DynamicState` associated with `cred_id` with `dynamic_state`.
+///
+/// # Errors
+///
+/// Errors iff writing errors or `cred_id` does not exist.
+fn update_credential(
+    cred_id: CredentialId<&[u8]>,
+    dynamic_state: DynamicState,
+) -> Result<(), AppErr> {
+    // ⋮
+}
+```
+
 ## Cargo "features"
 
 [`custom`](#custom) or both [`bin`](#bin) and [`serde`](#serde) must be enabled; otherwise a `compile_error`

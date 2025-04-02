@@ -1,15 +1,9 @@
-#![expect(
-    clippy::question_mark_used,
-    clippy::unseparated_literal_suffix,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 extern crate alloc;
 use super::{
     AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
     CoseAlgorithmIdentifier, CoseAlgorithmIdentifiers, CredProtect, CrossPlatformHint, Extension,
     ExtensionInfo, Hint, Nickname, PlatformHint, PublicKeyCredentialUserEntity,
     RegistrationClientState, ResidentKeyRequirement, RpId, UserHandle, Username,
-    USER_HANDLE_MAX_LEN, USER_HANDLE_MIN_LEN,
 };
 use alloc::borrow::Cow;
 #[cfg(doc)]
@@ -21,7 +15,7 @@ use core::{
 };
 use data_encoding::BASE64URL_NOPAD;
 use serde::{
-    de::{Deserialize, Deserializer, Error, MapAccess, Unexpected, Visitor},
+    de::{Deserialize, Deserializer, Error, Unexpected, Visitor},
     ser::{Serialize, SerializeSeq as _, SerializeStruct, Serializer},
 };
 impl Serialize for Nickname<'_> {
@@ -182,7 +176,7 @@ impl Serialize for PublicKeyCredentialRpEntity<'_> {
             })
     }
 }
-impl<T: AsRef<[u8]>> Serialize for UserHandle<T> {
+impl<const LEN: usize> Serialize for UserHandle<LEN> {
     /// Serializes `self` to conform with
     /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-id).
     ///
@@ -193,10 +187,10 @@ impl<T: AsRef<[u8]>> Serialize for UserHandle<T> {
     /// # #[cfg(feature = "custom")]
     /// // We create this manually purely for example. One should almost always
     /// // randomly generate this (e.g., `UserHandle::new`).
-    /// let id = UserHandle::try_from(vec![0])?;
+    /// let id = UserHandle::from([0]);
     /// # #[cfg(feature = "custom")]
-    /// assert_eq!(serde_json::to_string(&id).unwrap(), r#""AA""#);
-    /// # Ok::<_, webauthn_rp::AggErr>(())
+    /// assert_eq!(serde_json::to_string(&id)?, r#""AA""#);
+    /// # Ok::<_, serde_json::Error>(())
     /// ```
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -206,9 +200,7 @@ impl<T: AsRef<[u8]>> Serialize for UserHandle<T> {
         serializer.serialize_str(BASE64URL_NOPAD.encode(self.0.as_ref()).as_str())
     }
 }
-/// `"displayName"`.
-const DISPLAY_NAME: &str = "displayName";
-impl<T: AsRef<[u8]>> Serialize for PublicKeyCredentialUserEntity<'_, '_, T> {
+impl<const LEN: usize> Serialize for PublicKeyCredentialUserEntity<'_, '_, '_, LEN> {
     /// Serializes `self` to conform with
     /// [`PublicKeyCredentialUserEntityJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialuserentityjson).
     ///
@@ -219,15 +211,14 @@ impl<T: AsRef<[u8]>> Serialize for PublicKeyCredentialUserEntity<'_, '_, T> {
     /// # #[cfg(feature = "custom")]
     /// // We create this manually purely for example. One should almost always
     /// // randomly generate this (e.g., `UserHandle::new`).
-    /// let id = UserHandle::try_from(vec![0])?;
+    /// let id = UserHandle::from([0]);
     /// # #[cfg(feature = "custom")]
     /// assert_eq!(
     ///     serde_json::to_string(&PublicKeyCredentialUserEntity {
     ///         name: "georg.cantor".try_into()?,
-    ///         id: id.clone(),
+    ///         id: &id,
     ///         display_name: Some("Гео́рг Ка́нтор".try_into()?),
-    ///     })
-    ///     .unwrap(),
+    ///     }).unwrap(),
     ///     r#"{"name":"georg.cantor","id":"AA","displayName":"Гео́рг Ка́нтор"}"#
     /// );
     /// // The display name gets serialized as an empty string
@@ -236,10 +227,9 @@ impl<T: AsRef<[u8]>> Serialize for PublicKeyCredentialUserEntity<'_, '_, T> {
     /// assert_eq!(
     ///     serde_json::to_string(&PublicKeyCredentialUserEntity {
     ///         name: "georg.cantor".try_into()?,
-    ///         id,
+    ///         id: &id,
     ///         display_name: None,
-    ///     })
-    ///     .unwrap(),
+    ///     }).unwrap(),
     ///     r#"{"name":"georg.cantor","id":"AA","displayName":""}"#
     /// );
     /// # Ok::<_, webauthn_rp::AggErr>(())
@@ -255,7 +245,7 @@ impl<T: AsRef<[u8]>> Serialize for PublicKeyCredentialUserEntity<'_, '_, T> {
                 ser.serialize_field(NAME, &self.name).and_then(|()| {
                     ser.serialize_field(ID, &self.id).and_then(|()| {
                         ser.serialize_field(
-                            DISPLAY_NAME,
+                            "displayName",
                             self.display_name.as_ref().map_or("", |val| val.as_ref()),
                         )
                         .and_then(|()| ser.end())
@@ -556,7 +546,7 @@ impl Serialize for Extension {
             })
     }
 }
-impl Serialize for RegistrationClientState<'_, '_, '_, '_> {
+impl<const USER_LEN: usize> Serialize for RegistrationClientState<'_, '_, '_, '_, USER_LEN> {
     /// Serializes `self` to conform with
     /// [`PublicKeyCredentialCreationOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialcreationoptionsjson).
     ///
@@ -568,7 +558,7 @@ impl Serialize for RegistrationClientState<'_, '_, '_, '_> {
     /// # use webauthn_rp::{
     /// #     request::{
     /// #         register::{
-    /// #             AuthenticatorAttachmentReq, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
+    /// #             UserHandle64, AuthenticatorAttachmentReq, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
     /// #         },
     /// #         AsciiDomain, ExtensionInfo, Hint, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
     /// #     },
@@ -592,8 +582,8 @@ impl Serialize for RegistrationClientState<'_, '_, '_, '_> {
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// creds.push(PublicKeyCredentialDescriptor { id, transports });
     /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-    /// let user_handle = UserHandle::new();
-    /// let mut options = PublicKeyCredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: (&user_handle).into(), display_name: Some("Pierre de Fermat".try_into()?) }, creds);
+    /// let user_handle = UserHandle64::new();
+    /// let mut options = PublicKeyCredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: &user_handle, display_name: Some("Pierre de Fermat".try_into()?) }, creds);
     /// options.authenticator_selection.authenticator_attachment = AuthenticatorAttachmentReq::None(Hint::SecurityKey);
     /// options.extensions.min_pin_length = Some((16, ExtensionInfo::RequireEnforceValue));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
@@ -804,56 +794,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for Username<'a> {
         deserializer.deserialize_str(UsernameVisitor(PhantomData))
     }
 }
-impl<'de> Deserialize<'de> for UserHandle<Vec<u8>> {
-    /// Deserializes [`prim@str`] based on
-    /// [`userHandle`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponsejson-userhandle).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::UserHandle;
-    /// # #[cfg(feature = "custom")]
-    /// assert_eq!(
-    ///     serde_json::from_str::<UserHandle<Vec<u8>>>(r#""AA""#).unwrap(),
-    ///     UserHandle::try_from(vec![0; 1])?
-    /// );
-    /// # Ok::<_, webauthn_rp::AggErr>(())
-    ///```
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        /// `Visitor` for `UserHandle`.
-        struct UserHandleVisitor;
-        impl Visitor<'_> for UserHandleVisitor {
-            type Value = UserHandle<Vec<u8>>;
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                formatter.write_str("UserHandle")
-            }
-            #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                // Any value between `USER_HANDLE_MIN_LEN` and `USER_HANDLE_MAX_LEN` can be base64url encoded
-                // without fear since that range is just 1 to 64, and 4/3 of 64 is less than `usize::MAX`.
-                if (crate::base64url_nopad_len(USER_HANDLE_MIN_LEN).unwrap_or_else(|| unreachable!("there is a bug in webauthn_rp::base64url_nopad_len"))..=crate::base64url_nopad_len(USER_HANDLE_MAX_LEN).unwrap_or_else(|| unreachable!("there is a bug in webauthn_rp::base64url_nopad_len"))).contains(&v.len()) {
-                    BASE64URL_NOPAD
-                        .decode(v.as_bytes())
-                        .map_err(E::custom)
-                        .map(UserHandle)
-                } else {
-                    Err(E::invalid_value(
-                        Unexpected::Str(v), &"1 to 64 bytes encoded in base64url without padding"
-                    ))
-                }
-            }
-        }
-        deserializer.deserialize_str(UserHandleVisitor)
-    }
-}
-impl<'de, const LEN: usize> Deserialize<'de> for UserHandle<[u8; LEN]>
+impl<'de, const LEN: usize> Deserialize<'de> for UserHandle<LEN>
 where
     Self: Default,
 {
@@ -866,8 +807,8 @@ where
     /// # use webauthn_rp::request::register::{UserHandle, USER_HANDLE_MIN_LEN};
     /// # #[cfg(feature = "custom")]
     /// assert_eq!(
-    ///     serde_json::from_str::<UserHandle<[u8; USER_HANDLE_MIN_LEN]>>(r#""AA""#)?,
-    ///     UserHandle::from([0; USER_HANDLE_MIN_LEN])
+    ///     serde_json::from_str::<UserHandle<USER_HANDLE_MIN_LEN>>(r#""AA""#)?,
+    ///     UserHandle::from([0])
     /// );
     /// # Ok::<_, serde_json::Error>(())
     ///```
@@ -878,11 +819,11 @@ where
     {
         /// `Visitor` for `UserHandle`.
         struct UserHandleVisitor<const L: usize>;
-        impl<const L: usize> Visitor<'_> for UserHandleVisitor::<L>
+        impl<const L: usize> Visitor<'_> for UserHandleVisitor<L>
         where
-            UserHandle<[u8; L]>: Default,
+            UserHandle<L>: Default,
         {
-            type Value = UserHandle<[u8; L]>;
+            type Value = UserHandle<L>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("UserHandle")
             }
@@ -910,197 +851,6 @@ where
             }
         }
         deserializer.deserialize_str(UserHandleVisitor)
-    }
-}
-impl<'de: 'name + 'display_name, 'name, 'display_name, T> Deserialize<'de>
-    for PublicKeyCredentialUserEntity<'name, 'display_name, T>
-where
-    UserHandle<T>: Deserialize<'de>,
-{
-    /// Deserializes a `struct` based on
-    /// [`PublicKeyCredentialUserEntityJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialuserentityjson).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::{Nickname, PublicKeyCredentialUserEntity, USER_HANDLE_MIN_LEN};
-    /// assert_eq!(
-    ///     serde_json::from_str::<PublicKeyCredentialUserEntity<[u8; USER_HANDLE_MIN_LEN]>>(
-    ///         serde_json::json!({
-    ///             "name": "pythagoras.of.samos",
-    ///             "id": "AA",
-    ///             "displayName": "Πυθαγόρας ο Σάμιος"
-    ///         })
-    ///         .to_string()
-    ///         .as_str()
-    ///     )?
-    ///     .display_name
-    ///     .as_ref()
-    ///     .map(Nickname::as_ref),
-    ///     Some("Πυθαγόρας ο Σάμιος")
-    /// );
-    /// // Display name is `None` iff the empty string was sent.
-    /// assert!(
-    ///     serde_json::from_str::<PublicKeyCredentialUserEntity<Vec<u8>>>(
-    ///         serde_json::json!({
-    ///             "name": "pythagoras.of.samos",
-    ///             "id": "AA",
-    ///             "displayName": ""
-    ///         })
-    ///         .to_string()
-    ///         .as_str()
-    ///     )?
-    ///     .display_name.is_none()
-    /// );
-    /// # Ok::<_, serde_json::Error>(())
-    ///```
-    #[expect(clippy::too_many_lines, reason = "116 lines is fine")]
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        /// `Visitor` for `PublicKeyCredentialUserEntity`.
-        #[expect(clippy::type_complexity, reason = "type aliases with bounds are even more problematic at least until lazy_type_alias is stable")]
-        struct PublicKeyCredentialUserEntityVisitor<'a, 'b, U>(PhantomData<fn() -> (&'a (), &'b (), U)>);
-        impl<'d: 'a + 'b, 'a, 'b, U> Visitor<'d> for PublicKeyCredentialUserEntityVisitor<'a, 'b, U>
-        where
-            UserHandle<U>: Deserialize<'d>,
-        {
-            type Value = PublicKeyCredentialUserEntity<'a, 'b, U>;
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                formatter.write_str("PublicKeyCredentialUserEntity")
-            }
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'d>,
-            {
-                /// Fields for `PublicKeyCredentialUserEntityJSON`.
-                enum Field {
-                    /// `"name"` field.
-                    Name,
-                    /// `"id"` field.
-                    Id,
-                    /// `"displayName"` field.
-                    DisplayName,
-                }
-                impl<'e> Deserialize<'e> for Field {
-                    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-                    where
-                        D: Deserializer<'e>,
-                    {
-                        /// `Visitor` for `Field`.
-                        struct FieldVisitor;
-                        impl Visitor<'_> for FieldVisitor {
-                            type Value = Field;
-                            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                                write!(formatter, "'{NAME}', '{ID}', or '{DISPLAY_NAME}'")
-                            }
-                            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                            where
-                                E: Error,
-                            {
-                                match v {
-                                    NAME => Ok(Field::Name),
-                                    ID => Ok(Field::Id),
-                                    DISPLAY_NAME => Ok(Field::DisplayName),
-                                    _ => Err(E::unknown_field(v, FIELDS)),
-                                }
-                            }
-                        }
-                        deserializer.deserialize_identifier(FieldVisitor)
-                    }
-                }
-                /// `display_name`.
-                struct DisplayName<'c>(Option<Nickname<'c>>);
-                impl<'e: 'c, 'c> Deserialize<'e> for DisplayName<'c> {
-                    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-                    where
-                        D: Deserializer<'e>,
-                    {
-                        /// `Visitor` for `DisplayName`.
-                        struct DisplayNameVisitor<'a>(PhantomData<fn() -> &'a ()>);
-                        impl<'d: 'a, 'a> Visitor<'d> for DisplayNameVisitor<'a> {
-                            type Value = DisplayName<'a>;
-                            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                                formatter.write_str("Nickname or empty string")
-                            }
-                            fn visit_borrowed_str<E>(self, v: &'d str) -> Result<Self::Value, E>
-                            where
-                                E: Error,
-                            {
-                                if v.is_empty() {
-                                    Ok(DisplayName(None))
-                                } else {
-                                    Nickname::try_from(v)
-                                        .map_err(E::custom)
-                                        .map(|name| DisplayName(Some(name)))
-                                }
-                            }
-                            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                            where
-                                E: Error,
-                            {
-                                if v.is_empty() {
-                                    Ok(DisplayName(None))
-                                } else {
-                                    Nickname::try_from(v).map_err(E::custom).map(|name| {
-                                        DisplayName(Some(Nickname(Cow::Owned(name.0.into_owned()))))
-                                    })
-                                }
-                            }
-                        }
-                        deserializer.deserialize_str(DisplayNameVisitor(PhantomData))
-                    }
-                }
-                let mut nam = None;
-                let mut ident = None;
-                let mut display = None;
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Name => {
-                            if nam.is_some() {
-                                return Err(Error::duplicate_field(NAME));
-                            }
-                            nam = Some(map.next_value()?);
-                        }
-                        Field::Id => {
-                            if ident.is_some() {
-                                return Err(Error::duplicate_field(ID));
-                            }
-                            ident = map.next_value().map(Some)?;
-                        }
-                        Field::DisplayName => {
-                            if display.is_some() {
-                                return Err(Error::duplicate_field(DISPLAY_NAME));
-                            }
-                            display = map.next_value::<DisplayName<'_>>().map(|val| Some(val.0))?;
-                        }
-                    }
-                }
-                nam.ok_or_else(|| Error::missing_field(NAME))
-                    .and_then(|name| {
-                        ident
-                            .ok_or_else(|| Error::missing_field(ID))
-                            .and_then(|id| {
-                                display
-                                    .ok_or_else(|| Error::missing_field(DISPLAY_NAME))
-                                    .map(|display_name| PublicKeyCredentialUserEntity {
-                                        name,
-                                        id,
-                                        display_name,
-                                    })
-                            })
-                    })
-            }
-        }
-        /// Fields for `PublicKeyCredentialUserEntityJSON`.
-        const FIELDS: &[&str; 3] = &[NAME, ID, DISPLAY_NAME];
-        deserializer.deserialize_struct(
-            "PublicKeyCredentialUserEntity",
-            FIELDS,
-            PublicKeyCredentialUserEntityVisitor(PhantomData),
-        )
     }
 }
 impl<'de> Deserialize<'de> for CoseAlgorithmIdentifier {

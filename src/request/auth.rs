@@ -11,19 +11,19 @@ use super::{
 use super::{
     super::{
         AuthenticatedCredential,
-        request::register::User,
         response::{
             AuthenticatorAttachment,
             auth::{
-                Authentication, AuthenticatorExtensionOutput, HmacSecret,
+                Authentication, AuthenticatorExtensionOutput, DiscoverableAuthentication,
+                HmacSecret, NonDiscoverableAuthentication,
                 error::{AuthCeremonyErr, ExtensionErr, OneOrTwo},
             },
             register::CompressedPubKey,
         },
     },
     BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, Credentials, ExtensionReq, Hint,
-    Origin, PublicKeyCredentialDescriptor, RpId, SentChallenge, ServerState,
-    THREE_HUNDRED_THOUSAND, UserVerificationRequirement,
+    Origin, PublicKeyCredentialDescriptor, RpId, SentChallenge, THREE_HUNDRED_THOUSAND,
+    TimedCeremony, UserVerificationRequirement,
     auth::error::{RequestOptionsErr, SecondFactorErr},
 };
 use core::{
@@ -43,7 +43,8 @@ pub mod error;
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
 mod ser;
-/// Contains functionality to (de)serialize [`AuthenticationServerState`] to a data store.
+/// Contains functionality to (de)serialize [`DiscoverableAuthenticationServerState`] and
+/// [`NonDiscoverableAuthenticationServerState`] to a data store.
 #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 pub mod ser_server_state;
@@ -102,11 +103,9 @@ impl SignatureCounterEnforcement {
 ///
 /// For the owned analog, see [`PrfInputOwned`].
 ///
-/// When relying on discoverable requests
-/// (i.e., [`PublicKeyCredentialRequestOptions::allow_credentials`] is empty),
-/// one will likely use a static PRF input for _all_ credentials since rolling over PRF inputs
-/// is not feasible. One uses this type for such a thing. In other words, `'a` will likely
-/// be `'static` and [`Self::second`] will likely be `None`.
+/// When relying on [`DiscoverableCredentialRequestOptions`]), one will likely use a static PRF input for _all_
+/// credentials since rolling over PRF inputs is not feasible. One uses this type for such a thing. In other words,
+/// `'a` will likely be `'static` and [`Self::second`] will likely be `None`.
 #[derive(Clone, Copy, Debug)]
 pub struct PrfInput<'a> {
     /// [`first`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-first).
@@ -118,10 +117,8 @@ pub struct PrfInput<'a> {
 }
 /// Owned version of [`PrfInput`].
 ///
-/// When relying on non-discoverable requests
-/// (i.e., [`PublicKeyCredentialRequestOptions::allow_credentials`] is non-empty),
-/// it's recommended to use credential-specific PRF inputs that are continuously rolled over.
-/// One uses this type for such a thing.
+/// When relying on [`NonDiscoverableCredentialRequestOptions`], it's recommended to use credential-specific PRF
+/// inputs that are continuously rolled over. One uses this type for such a thing.
 #[derive(Debug)]
 pub struct PrfInputOwned {
     /// [`first`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-first).
@@ -284,78 +281,57 @@ impl From<&AllowedCredentials> for Vec<CredInfo> {
             })
     }
 }
-/// Helper that verifies the overlap of [`PublicKeyCredentialRequestOptions::start_ceremony`] and
-/// [`AuthenticationServerState::decode`].
-fn validate_options_helper(
+/// Helper that verifies the overlap of [`DiscoverableCredentialRequestOptions::start_ceremony`] and
+/// [`DiscoverableAuthenticationServerState::decode`].
+fn validate_discoverable_options_helper(
     ext: ServerExtensionInfo,
+    uv: UserVerificationRequirement,
+) -> Result<(), RequestOptionsErr> {
+    // If PRF is set, the user has to verify themselves.
+    ext.prf.as_ref().map_or(Ok(()), |_| {
+        if matches!(uv, UserVerificationRequirement::Required) {
+            Ok(())
+        } else {
+            Err(RequestOptionsErr::PrfWithoutUserVerification)
+        }
+    })
+}
+/// Helper that verifies the overlap of [`NonDiscoverableCredentialRequestOptions::start_ceremony`] and
+/// [`NonDiscoverableAuthenticationServerState::decode`].
+fn validate_non_discoverable_options_helper(
     uv: UserVerificationRequirement,
     creds: &[CredInfo],
 ) -> Result<(), RequestOptionsErr> {
-    // If PRF is set, the user has to verify themselves.
-    ext.prf
-        .as_ref()
-        .map_or(Ok(()), |_| {
+    creds.iter().try_fold((), |(), cred| {
+        // If PRF is set, the user has to verify themselves.
+        cred.ext.prf.as_ref().map_or(Ok(()), |_| {
             if matches!(uv, UserVerificationRequirement::Required) {
                 Ok(())
             } else {
                 Err(RequestOptionsErr::PrfWithoutUserVerification)
             }
         })
-        .and_then(|()| {
-            creds.iter().try_fold((), |(), cred| {
-                // If PRF is set, the user has to verify themselves.
-                cred.ext.prf.as_ref().map_or(Ok(()), |_| {
-                    if matches!(uv, UserVerificationRequirement::Required) {
-                        Ok(())
-                    } else {
-                        Err(RequestOptionsErr::PrfWithoutUserVerification)
-                    }
-                })
-            })
-        })
+    })
 }
 /// The [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions)
 /// to send to the client when authenticating a credential.
 ///
-/// Upon saving the [`AuthenticationServerState`] returned from [`Self::start_ceremony`], one MUST send
-/// [`AuthenticationClientState`] to the client ASAP. After receiving the newly created [`Authentication`], it
-/// is validated using [`AuthenticationServerState::verify`].
+/// Upon saving the [`DiscoverableAuthenticationServerState`] returned from [`Self::start_ceremony`], one MUST send
+/// [`DiscoverableAuthenticationClientState`] to the client ASAP. After receiving the newly created
+/// [`DiscoverableAuthentication`], it is validated using [`DiscoverableAuthenticationServerState::verify`].
 #[derive(Debug)]
-pub struct PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
-    /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-challenge).
-    pub challenge: Challenge,
-    /// [`timeout`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-timeout).
-    ///
-    /// Note we require a positive value despite the spec allowing an optional nonnegative value. This jives
-    /// with the fact that in-memory storage is required when `serializable_server_state` is not enabled
-    /// when authenticating credentials as no timeout would make out-of-memory (OOM) conditions more likely.
-    pub timeout: NonZeroU32,
-    /// [`rpId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-rpid).
-    ///
-    /// This MUST be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] used when the credential was registered.
-    pub rp_id: &'rp_id RpId,
-    /// [`allowCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-allowcredentials).
-    pub allow_credentials: AllowedCredentials,
-    /// [`userVerification`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-userverification).
-    pub user_verification: UserVerificationRequirement,
-    /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-hints).
-    pub hints: Hint,
-    /// [`extensions`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-extensions).
-    pub extensions: Extension<'prf>,
-}
-impl<'rp_id, 'prf> PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
-    /// Creates a `PublicKeyCredentialRequestOptions` with [`Self::user_verification`] set to
-    /// [`UserVerificationRequirement::Required`] and [`Self::timeout`] set to 5 minutes,
-    ///
-    /// Note `rp_id` _must_ be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] when the
-    /// credential was registered.
+pub struct DiscoverableCredentialRequestOptions<'rp_id, 'prf>(
+    pub PublicKeyCredentialRequestOptions<'rp_id, 'prf>,
+);
+impl<'rp_id, 'prf> DiscoverableCredentialRequestOptions<'rp_id, 'prf> {
+    /// Creates a `DiscoverableCredentialRequestOptions` containing [`PublicKeyCredentialRequestOptions::passkey`].
     ///
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::{auth::PublicKeyCredentialRequestOptions, AsciiDomain, RpId, UserVerificationRequirement};
+    /// # use webauthn_rp::request::{auth::DiscoverableCredentialRequestOptions, AsciiDomain, RpId, UserVerificationRequirement};
     /// assert!(matches!(
-    ///     PublicKeyCredentialRequestOptions::passkey(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?)).user_verification,
+    ///     DiscoverableCredentialRequestOptions::passkey(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?)).0.user_verification,
     ///     UserVerificationRequirement::Required
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
@@ -363,25 +339,82 @@ impl<'rp_id, 'prf> PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
-        Self {
-            challenge: Challenge::new(),
-            timeout: THREE_HUNDRED_THOUSAND,
-            rp_id,
-            allow_credentials: AllowedCredentials::new(),
-            user_verification: UserVerificationRequirement::Required,
-            hints: Hint::None,
-            extensions: Extension::default(),
-        }
+        Self(PublicKeyCredentialRequestOptions::passkey(rp_id))
     }
-    /// Creates a `PublicKeyCredentialRequestOptions` with [`Self::user_verification`] set to
-    /// [`UserVerificationRequirement::Discouraged`] and [`Self::timeout`] set to 5 minutes.
-    ///
-    /// Note `rp_id` _must_ be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] when the
-    /// [`AllowedCredential`]s were registered.
+    /// Begins the [authentication ceremony](https://www.w3.org/TR/webauthn-3/#authentication-ceremony) consuming
+    /// `self`. Note that the expiration [`Instant`]/[`SystemTime`] is saved, so
+    /// `DiscoverableAuthenticationClientState` MUST be sent ASAP. In order to complete authentication, the returned
+    /// `DiscoverableAuthenticationServerState` MUST be saved so that it can later be used to verify the credential
+    /// assertion with [`DiscoverableAuthenticationServerState::verify`].
     ///
     /// # Errors
     ///
-    /// Errors iff [`AllowedCredentials`] is empty.
+    /// Errors iff `self` contains incompatible configuration.
+    #[inline]
+    pub fn start_ceremony(
+        self,
+    ) -> Result<
+        (
+            DiscoverableAuthenticationServerState,
+            DiscoverableAuthenticationClientState<'rp_id, 'prf>,
+        ),
+        RequestOptionsErr,
+    > {
+        let extensions = self.0.extensions.into();
+        validate_discoverable_options_helper(extensions, self.0.user_verification).and_then(|()| {
+            #[cfg(not(feature = "serializable_server_state"))]
+            let res = Instant::now();
+            #[cfg(feature = "serializable_server_state")]
+            let res = SystemTime::now();
+            res.checked_add(Duration::from_millis(
+                NonZeroU64::from(self.0.timeout).get(),
+            ))
+            .ok_or(RequestOptionsErr::InvalidTimeout)
+            .map(|expiration| {
+                (
+                    DiscoverableAuthenticationServerState(AuthenticationServerState {
+                        challenge: SentChallenge(self.0.challenge.0),
+                        user_verification: self.0.user_verification,
+                        extensions,
+                        expiration,
+                    }),
+                    DiscoverableAuthenticationClientState(self),
+                )
+            })
+        })
+    }
+}
+/// The [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions)
+/// to send to the client when authenticating a credential.
+///
+/// Upon saving the [`NonDiscoverableAuthenticationServerState`] returned from [`Self::start_ceremony`], one MUST send
+/// [`NonDiscoverableAuthenticationClientState`] to the client ASAP. After receiving the newly created
+/// [`NonDiscoverableAuthentication`], it is validated using [`NonDiscoverableAuthenticationServerState::verify`].
+#[derive(Debug)]
+pub struct NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
+    /// [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions).
+    options: PublicKeyCredentialRequestOptions<'rp_id, 'prf>,
+    /// [`allowCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-allowcredentials).
+    allow_credentials: AllowedCredentials,
+}
+impl<'rp_id, 'prf> NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
+    /// Returns a mutable reference to the configurable options.
+    #[inline]
+    pub const fn options(&mut self) -> &mut PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
+        &mut self.options
+    }
+    /// Returns the `slice` of [`AllowedCredential`]s.
+    #[inline]
+    #[must_use]
+    pub fn allow_credentials(&self) -> &[AllowedCredential] {
+        self.allow_credentials.as_ref()
+    }
+    /// Creates a `NonDiscoverableCredentialRequestOptions` containing
+    /// [`PublicKeyCredentialRequestOptions::second_factor`] and the passed [`AllowedCredentials`].
+    ///
+    /// # Errors
+    ///
+    /// Errors iff `allow_credentials` is empty.
     ///
     /// # Examples
     ///
@@ -390,7 +423,7 @@ impl<'rp_id, 'prf> PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
     /// # use webauthn_rp::{bin::Decode, response::bin::DecodeAuthTransportsErr};
     /// # use webauthn_rp::{
     /// #     request::{
-    /// #         auth::{AllowedCredentials, PublicKeyCredentialRequestOptions},
+    /// #         auth::{AllowedCredentials, NonDiscoverableCredentialRequestOptions},
     /// #         AsciiDomain, RpId, PublicKeyCredentialDescriptor, Credentials
     /// #     },
     /// #     response::{AuthTransports, CredentialId},
@@ -415,9 +448,8 @@ impl<'rp_id, 'prf> PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
     /// assert!(creds.push(PublicKeyCredentialDescriptor { id, transports }.into()));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// assert_eq!(
-    ///     PublicKeyCredentialRequestOptions::second_factor(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?), creds)?
-    ///         .allow_credentials
-    ///         .as_ref()
+    ///     NonDiscoverableCredentialRequestOptions::second_factor(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?), creds)?
+    ///         .allow_credentials()
     ///         .len(),
     ///     1
     /// );
@@ -426,104 +458,175 @@ impl<'rp_id, 'prf> PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
     #[inline]
     pub fn second_factor<'a: 'rp_id>(
         rp_id: &'a RpId,
-        creds: AllowedCredentials,
+        allow_credentials: AllowedCredentials,
     ) -> Result<Self, SecondFactorErr> {
-        if creds.as_ref().is_empty() {
+        if allow_credentials.is_empty() {
             Err(SecondFactorErr)
         } else {
-            let mut opts = Self::passkey(rp_id);
-            opts.allow_credentials = creds;
-            opts.user_verification = UserVerificationRequirement::Discouraged;
-            Ok(opts)
+            Ok(Self {
+                options: PublicKeyCredentialRequestOptions::second_factor(rp_id),
+                allow_credentials,
+            })
         }
     }
     /// Begins the [authentication ceremony](https://www.w3.org/TR/webauthn-3/#authentication-ceremony) consuming
-    /// `self`. Note that the expiration [`Instant`]/[`SystemTime`] is saved, so `AuthenticationClientState` MUST be
-    /// sent ASAP. In order to complete authentication, the returned `AuthenticationServerState` MUST be saved so
-    /// that it can later be used to verify the credential assertion with [`AuthenticationServerState::verify`].
+    /// `self`. Note that the expiration [`Instant`]/[`SystemTime`] is saved, so `NonDiscoverableAuthenticationClientState`
+    /// MUST be sent ASAP. In order to complete authentication, the returned `NonDiscoverableAuthenticationServerState`
+    /// MUST be saved so that it can later be used to verify the credential assertion with
+    /// [`NonDiscoverableAuthenticationServerState::verify`].
     ///
     /// # Errors
     ///
     /// Errors iff `self` contains incompatible configuration.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[cfg(not(feature = "serializable_server_state"))]
-    /// # use std::time::Instant;
-    /// # #[cfg(not(feature = "serializable_server_state"))]
-    /// # use webauthn_rp::request::ServerState;
-    /// # use webauthn_rp::request::{auth::PublicKeyCredentialRequestOptions, AsciiDomain, RpId};
-    /// # #[cfg(not(feature = "serializable_server_state"))]
-    /// assert!(
-    ///     PublicKeyCredentialRequestOptions::passkey(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?))
-    ///         .start_ceremony()?
-    ///         .0
-    ///         .expiration() > Instant::now()
-    /// );
-    /// # Ok::<_, webauthn_rp::AggErr>(())
-    /// ```
     #[inline]
     pub fn start_ceremony(
         self,
     ) -> Result<
         (
-            AuthenticationServerState,
-            AuthenticationClientState<'rp_id, 'prf>,
+            NonDiscoverableAuthenticationServerState,
+            NonDiscoverableAuthenticationClientState<'rp_id, 'prf>,
         ),
         RequestOptionsErr,
     > {
-        let extensions = self.extensions.into();
-        let allow_credentials = Vec::from(&self.allow_credentials);
-        validate_options_helper(extensions, self.user_verification, &allow_credentials).and_then(
+        let extensions = self.options.extensions.into();
+        validate_discoverable_options_helper(extensions, self.options.user_verification).and_then(
             |()| {
-                #[cfg(not(feature = "serializable_server_state"))]
-                let res = Instant::now();
-                #[cfg(feature = "serializable_server_state")]
-                let res = SystemTime::now();
-                res.checked_add(Duration::from_millis(NonZeroU64::from(self.timeout).get()))
+                let allow_credentials = Vec::from(&self.allow_credentials);
+                validate_non_discoverable_options_helper(
+                    self.options.user_verification,
+                    allow_credentials.as_slice(),
+                )
+                .and_then(|()| {
+                    #[cfg(not(feature = "serializable_server_state"))]
+                    let res = Instant::now();
+                    #[cfg(feature = "serializable_server_state")]
+                    let res = SystemTime::now();
+                    res.checked_add(Duration::from_millis(
+                        NonZeroU64::from(self.options.timeout).get(),
+                    ))
                     .ok_or(RequestOptionsErr::InvalidTimeout)
                     .map(|expiration| {
                         (
-                            AuthenticationServerState {
-                                challenge: SentChallenge(self.challenge.0),
+                            NonDiscoverableAuthenticationServerState {
+                                state: AuthenticationServerState {
+                                    challenge: SentChallenge(self.options.challenge.0),
+                                    user_verification: self.options.user_verification,
+                                    extensions,
+                                    expiration,
+                                },
                                 allow_credentials,
-                                user_verification: self.user_verification,
-                                extensions,
-                                expiration,
                             },
-                            AuthenticationClientState(self),
+                            NonDiscoverableAuthenticationClientState(self),
                         )
                     })
+                })
             },
         )
     }
 }
-/// Container of a [`PublicKeyCredentialRequestOptions`] that has been used to start the authentication ceremony.
-/// This gets sent to the client ASAP.
+/// The [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions)
+/// to send to the client when authenticating a credential.
+///
+/// This does _not_ contain [`allowCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-allowcredentials).
 #[derive(Debug)]
-pub struct AuthenticationClientState<'rp_id, 'prf>(PublicKeyCredentialRequestOptions<'rp_id, 'prf>);
-impl<'rp_id, 'prf> AuthenticationClientState<'rp_id, 'prf> {
-    /// Returns the `PublicKeyCredentialRequestOptions` that was used to start an authentication ceremony.
+pub struct PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
+    /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-challenge).
+    pub challenge: Challenge,
+    /// [`timeout`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-timeout).
+    ///
+    /// Note we require a positive value despite the spec allowing an optional nonnegative value. This jives
+    /// with the fact that in-memory storage is required when `serializable_server_state` is not enabled
+    /// when authenticating credentials as no timeout would make out-of-memory (OOM) conditions more likely.
+    pub timeout: NonZeroU32,
+    /// [`rpId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-rpid).
+    ///
+    /// This MUST be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] used when the credential was registered.
+    pub rp_id: &'rp_id RpId,
+    /// [`userVerification`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-userverification).
+    pub user_verification: UserVerificationRequirement,
+    /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-hints).
+    pub hints: Hint,
+    /// [`extensions`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-extensions).
+    pub extensions: Extension<'prf>,
+}
+impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_> {
+    /// Creates a `PublicKeyCredentialRequestOptions` with [`Self::user_verification`] set to
+    /// [`UserVerificationRequirement::Required`] and [`Self::timeout`] set to 5 minutes,
+    ///
+    /// Note `rp_id` _must_ be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] when the
+    /// credential was registered.
     ///
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::{auth::PublicKeyCredentialRequestOptions, AsciiDomain, RpId};
-    /// assert!(
-    ///     PublicKeyCredentialRequestOptions::passkey(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?))
-    ///         .start_ceremony()?
-    ///         .1
-    ///         .options()
-    ///         .allow_credentials
-    ///         .as_ref()
-    ///         .is_empty()
-    /// );
+    /// # use webauthn_rp::request::{auth::PublicKeyCredentialRequestOptions, AsciiDomain, RpId, UserVerificationRequirement};
+    /// assert!(matches!(
+    ///     PublicKeyCredentialRequestOptions::passkey(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?)).user_verification,
+    ///     UserVerificationRequirement::Required
+    /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
     #[inline]
     #[must_use]
-    pub const fn options(&self) -> &PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
+    pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
+        Self {
+            challenge: Challenge::new(),
+            timeout: THREE_HUNDRED_THOUSAND,
+            rp_id,
+            user_verification: UserVerificationRequirement::Required,
+            hints: Hint::None,
+            extensions: Extension::default(),
+        }
+    }
+    /// Creates a `PublicKeyCredentialRequestOptions` with [`Self::user_verification`] set to
+    /// [`UserVerificationRequirement::Discouraged`] and [`Self::timeout`] set to 5 minutes.
+    ///
+    /// Note `rp_id` _must_ be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] when the
+    /// credentials were registered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::{auth::PublicKeyCredentialRequestOptions, AsciiDomain, RpId, UserVerificationRequirement};
+    /// assert!(matches!(
+    ///     PublicKeyCredentialRequestOptions::second_factor(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?)).user_verification,
+    ///     UserVerificationRequirement::Discouraged
+    /// ));
+    /// # Ok::<_, webauthn_rp::AggErr>(())
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn second_factor<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
+        let mut opts = Self::passkey(rp_id);
+        opts.user_verification = UserVerificationRequirement::Discouraged;
+        opts
+    }
+}
+/// Container of a [`DiscoverableCredentialRequestOptions`] that has been used to start the authentication ceremony.
+/// This gets sent to the client ASAP.
+#[derive(Debug)]
+pub struct DiscoverableAuthenticationClientState<'rp_id, 'prf>(
+    DiscoverableCredentialRequestOptions<'rp_id, 'prf>,
+);
+impl<'rp_id, 'prf> DiscoverableAuthenticationClientState<'rp_id, 'prf> {
+    /// Returns the `DiscoverableCredentialRequestOptions` that was used to start an authentication ceremony.
+    #[inline]
+    #[must_use]
+    pub const fn options(&self) -> &DiscoverableCredentialRequestOptions<'rp_id, 'prf> {
+        &self.0
+    }
+}
+/// Container of a [`NonDiscoverableCredentialRequestOptions`] that has been used to start the authentication
+/// ceremony. This gets sent to the client ASAP.
+#[derive(Debug)]
+pub struct NonDiscoverableAuthenticationClientState<'rp_id, 'prf>(
+    NonDiscoverableCredentialRequestOptions<'rp_id, 'prf>,
+);
+impl<'rp_id, 'prf> NonDiscoverableAuthenticationClientState<'rp_id, 'prf> {
+    /// Returns the `NonDiscoverableCredentialRequestOptions` that was used to start an authentication ceremony.
+    #[inline]
+    #[must_use]
+    pub const fn options(&self) -> &NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
         &self.0
     }
 }
@@ -832,15 +935,16 @@ impl Default for AuthenticatorAttachmentEnforcement {
         Self::Ignore(false)
     }
 }
-/// Additional verification options to perform in [`AuthenticationServerState::verify`].
+/// Additional verification options to perform in [`DiscoverableAuthenticationServerState::verify`] and
+/// [`NonDiscoverableAuthenticationServerState::verify`].
 #[derive(Clone, Copy, Debug)]
 pub struct AuthenticationVerificationOptions<'origins, 'top_origins, O, T> {
     /// Origins to use for [origin validation](https://www.w3.org/TR/webauthn-3/#sctn-validating-origin).
     ///
-    /// When this is empty, the origin that will be used will be based on
-    /// the [`RpId`] passed to [`AuthenticationServerState::verify`]. If [`RpId::Domain`], then the [`DomainOrigin`] returned from
-    /// passing [`AsciiDomain::as_ref`] to [`DomainOrigin::new`] will be used; otherwise the [`Url`] in
-    /// [`RpId::Url`] will be used.
+    /// When this is empty, the origin that will be used will be based on the [`RpId`] passed to
+    /// [`DiscoverableAuthenticationServerState::verify`] or [`NonDiscoverableAuthenticationServerState::verify`]. If
+    /// [`RpId::Domain`], then the [`DomainOrigin`] returned from passing [`AsciiDomain::as_ref`] to
+    /// [`DomainOrigin::new`] will be used; otherwise the [`Url`] in [`RpId::Url`] will be used.
     pub allowed_origins: &'origins [O],
     /// [Top-level origins](https://html.spec.whatwg.org/multipage/webappapis.html#concept-environment-top-level-origin)
     /// to use for [origin validation](https://www.w3.org/TR/webauthn-3/#sctn-validating-origin).
@@ -853,7 +957,8 @@ pub struct AuthenticationVerificationOptions<'origins, 'top_origins, O, T> {
     ///
     /// Note that `None` is _not_ the same as `Some(BackupReq::None)` as the latter indicates that any [`Backup`]
     /// is allowed. This is rarely what you want; instead, `None` indicates that [`BackupReq::from`] applied to
-    /// [`DynamicState::backup`] will be used in [`AuthenticationServerState::verify`].
+    /// [`DynamicState::backup`] will be used in [`DiscoverableAuthenticationServerState::verify`] and
+    /// [`NonDiscoverableAuthenticationServerState::verify`] and
     pub backup_requirement: Option<BackupReq>,
     /// Error when unsolicited extensions are sent back iff `true`.
     pub error_on_unsolicited_extensions: bool,
@@ -890,26 +995,176 @@ impl<O, T> Default for AuthenticationVerificationOptions<'_, '_, O, T> {
         }
     }
 }
-// This is essentially the `PublicKeyCredentialRequestOptions` used to create it; however to reduce
-// memory usage, we remove all unnecessary data making an instance of this 64 bytes in size when
-// `Self::allow_credentials` is empty on `x86_64-unknown-linux-gnu` platforms.
+// This is essentially the `DiscoverableCredentialRequestOptions` used to create it; however to reduce
+// memory usage, we remove all unnecessary data making an instance of this 48 bytes in size
+// `x86_64-unknown-linux-gnu` platforms.
 //
-// The total memory used is dependent on the number of `AllowedCredential`s and the size of each `CredentialId`.
-// To be exact, it is the following:
-// 64 + i(32 + 56n + Σj_k from k=0 to k=m-1) where i is 0 iff `AllowedCredentials` has capacity 0; otherwise 1,
-// n is `AllowedCredentials` capacity, j_k is the kth `CredentialId` in `AllowedCredentials` and `m` is
-// `AllowedCredentials::len`.
 /// State needed to be saved when beginning the authentication ceremony.
 ///
-/// Saves the necessary information associated with the [`PublicKeyCredentialRequestOptions`] used to create it
-/// via [`PublicKeyCredentialRequestOptions::start_ceremony`] so that authentication of a credential can be
+/// Saves the necessary information associated with the [`DiscoverableCredentialRequestOptions`] used to create it
+/// via [`DiscoverableCredentialRequestOptions::start_ceremony`] so that authentication of a credential can be
 /// performed with [`Self::verify`].
 ///
-/// `AuthenticationServerState` implements [`Borrow`] of [`SentChallenge`]; thus to obtain the correct
-/// `AuthenticationServerState` associated with an [`Authentication`], one should use its corresponding
-/// [`Authentication::challenge`].
+/// `DiscoverableAuthenticationServerState` implements [`Borrow`] of [`SentChallenge`]; thus to obtain the correct
+/// `DiscoverableAuthenticationServerState` associated with a [`DiscoverableAuthentication`], one should use its
+/// corresponding [`DiscoverableAuthentication::challenge`].
 #[derive(Debug)]
-pub struct AuthenticationServerState {
+pub struct DiscoverableAuthenticationServerState(AuthenticationServerState);
+impl DiscoverableAuthenticationServerState {
+    /// Verifies `response` is valid based on `self` consuming `self` and updating `cred`. Returns `true`
+    /// iff `cred` was mutated.
+    ///
+    /// `rp_id` MUST be the same as the [`PublicKeyCredentialRequestOptions::rp_id`] used when starting the
+    /// ceremony.
+    ///
+    /// It is _essential_ to save [`AuthenticatedCredential::dynamic_state`] overwriting the original value iff `Ok(true)`
+    /// is returned.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff `response` is not valid according to the
+    /// [authentication ceremony](https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion) or violates any
+    /// of the settings in `options`.
+    #[inline]
+    pub fn verify<
+        'a,
+        'cred_id,
+        'user,
+        const USER_LEN: usize,
+        O: PartialEq<Origin<'a>>,
+        T: PartialEq<Origin<'a>>,
+        EdKey: AsRef<[u8]>,
+        P256Key: AsRef<[u8]>,
+        P384Key: AsRef<[u8]>,
+        RsaKey: AsRef<[u8]>,
+    >(
+        self,
+        rp_id: &RpId,
+        response: &'a DiscoverableAuthentication<USER_LEN>,
+        cred: &mut AuthenticatedCredential<
+            'cred_id,
+            'user,
+            USER_LEN,
+            CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
+        >,
+        options: &AuthenticationVerificationOptions<'_, '_, O, T>,
+    ) -> Result<bool, AuthCeremonyErr> {
+        // Step 6 item 2.
+        if cred.user_id == response.response.user_handle() {
+            // Step 6 item 2.
+            if cred.id == response.raw_id {
+                self.0.verify(rp_id, response, cred, options, None)
+            } else {
+                Err(AuthCeremonyErr::CredentialIdMismatch)
+            }
+        } else {
+            Err(AuthCeremonyErr::UserHandleMismatch)
+        }
+    }
+    #[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
+    fn is_eq(&self, other: &Self) -> bool {
+        self.0.is_eq(&other.0)
+    }
+}
+// This is essentially the `NonDiscoverableCredentialRequestOptions` used to create it; however to reduce
+// memory usage, we remove all unnecessary data making an instance of this as small as 80 bytes in size on
+// `x86_64-unknown-linux-gnu` platforms. This does not include the size of each `CredInfo` which should exist
+// elsewhere on the heap but obviously contributes memory overall.
+/// State needed to be saved when beginning the authentication ceremony.
+///
+/// Saves the necessary information associated with the [`NonDiscoverableCredentialRequestOptions`] used to create
+/// it via [`NonDiscoverableCredentialRequestOptions::start_ceremony`] so that authentication of a credential can be
+/// performed with [`Self::verify`].
+///
+/// `NonDiscoverableAuthenticationServerState` implements [`Borrow`] of [`SentChallenge`]; thus to obtain the
+/// correct `NonDiscoverableAuthenticationServerState` associated with a [`NonDiscoverableAuthentication`], one
+/// should use its corresponding [`NonDiscoverableAuthentication::challenge`].
+#[derive(Debug)]
+pub struct NonDiscoverableAuthenticationServerState {
+    /// Most server state.
+    state: AuthenticationServerState,
+    /// The set of credentials that are allowed.
+    allow_credentials: Vec<CredInfo>,
+}
+impl NonDiscoverableAuthenticationServerState {
+    /// Verifies `response` is valid based on `self` consuming `self` and updating `cred`. Returns `true`
+    /// iff `cred` was mutated.
+    ///
+    /// `rp_id` MUST be the same as the [`PublicKeyCredentialRequestOptions::rp_id`] used when starting the
+    /// ceremony.
+    ///
+    /// It is _essential_ to save [`AuthenticatedCredential::dynamic_state`] overwriting the original value iff `Ok(true)`
+    /// is returned.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff `response` is not valid according to the
+    /// [authentication ceremony](https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion) or violates any
+    /// of the settings in `options`.
+    #[inline]
+    pub fn verify<
+        'a,
+        'cred_id,
+        'user,
+        const USER_LEN: usize,
+        O: PartialEq<Origin<'a>>,
+        T: PartialEq<Origin<'a>>,
+        EdKey: AsRef<[u8]>,
+        P256Key: AsRef<[u8]>,
+        P384Key: AsRef<[u8]>,
+        RsaKey: AsRef<[u8]>,
+    >(
+        self,
+        rp_id: &RpId,
+        response: &'a NonDiscoverableAuthentication<USER_LEN>,
+        cred: &mut AuthenticatedCredential<
+            'cred_id,
+            'user,
+            USER_LEN,
+            CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
+        >,
+        options: &AuthenticationVerificationOptions<'_, '_, O, T>,
+    ) -> Result<bool, AuthCeremonyErr> {
+        response
+            .response
+            .user_handle()
+            .as_ref()
+            .map_or(Ok(()), |user| {
+                // Step 6 item 1.
+                if *user == cred.user_id() {
+                    Ok(())
+                } else {
+                    Err(AuthCeremonyErr::UserHandleMismatch)
+                }
+            })
+            .and_then(|()| {
+                self.allow_credentials
+                    .iter()
+                    // Step 6 item 1.
+                    .find(|c| c.id == response.raw_id)
+                    .ok_or(AuthCeremonyErr::NoMatchingAllowedCredential)
+                    .and_then(|c| {
+                        // Step 6 item 1.
+                        if c.id == cred.id {
+                            self.state
+                                .verify(rp_id, response, cred, options, Some(c.ext))
+                        } else {
+                            Err(AuthCeremonyErr::CredentialIdMismatch)
+                        }
+                    })
+            })
+    }
+    #[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
+    fn is_eq(&self, other: &Self) -> bool {
+        self.state.is_eq(&other.state) && self.allow_credentials == other.allow_credentials
+    }
+}
+// This is essentially the `PublicKeyCredentialRequestOptions` used to create it; however to reduce
+// memory usage, we remove all unnecessary data making an instance of this 48 bytes in size on
+// `x86_64-unknown-linux-gnu` platforms.
+/// Shared state used by [`DiscoverableAuthenticationServerState`] and [`NonDiscoverableAuthenticationServerState`].
+#[derive(Debug)]
+struct AuthenticationServerState {
     // This is a `SentChallenge` since we need `AuthenticationServerState` to be fetchable after receiving the
     // response from the client. This response must obviously be constructable; thus its challenge is a
     // `SentChallenge`.
@@ -919,8 +1174,6 @@ pub struct AuthenticationServerState {
     // `serializable_server_state` is not enabled.
     /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-challenge).
     challenge: SentChallenge,
-    /// [`allowCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-allowcredentials).
-    allow_credentials: Vec<CredInfo>,
     /// [`userVerification`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-userverification).
     user_verification: UserVerificationRequirement,
     /// [`extensions`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-extensions).
@@ -947,27 +1200,30 @@ impl AuthenticationServerState {
     /// Errors iff `response` is not valid according to the
     /// [authentication ceremony](https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion) or violates any
     /// of the settings in `options`.
-    #[inline]
-    pub fn verify<
+    fn verify<
         'a,
+        'cred_id,
         'user,
+        const USER_LEN: usize,
+        const DISCOVERABLE: bool,
         O: PartialEq<Origin<'a>>,
         T: PartialEq<Origin<'a>>,
         EdKey: AsRef<[u8]>,
         P256Key: AsRef<[u8]>,
         P384Key: AsRef<[u8]>,
         RsaKey: AsRef<[u8]>,
-        U: User,
     >(
         self,
         rp_id: &RpId,
-        response: &'a Authentication<U>,
+        response: &'a Authentication<USER_LEN, DISCOVERABLE>,
         cred: &mut AuthenticatedCredential<
-            'a,
+            'cred_id,
             'user,
+            USER_LEN,
             CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
         >,
         options: &AuthenticationVerificationOptions<'_, '_, O, T>,
+        cred_ext: Option<ServerCredSpecificExtensionInfo>,
     ) -> Result<bool, AuthCeremonyErr> {
         // [Authentication ceremony](https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion)
         // is handled by:
@@ -998,141 +1254,80 @@ impl AuthenticationServerState {
         // 24. Below.
         // 25. Below.
 
-        if self.allow_credentials.is_empty() {
-            // Step 6.
-            response
-                .response
-                .user_handle()
-                .is_same(cred.user_id)
-                .ok_or(AuthCeremonyErr::MissingUserHandle)
-                .and_then(|same| {
-                    if same {
-                        if cred.id == response.raw_id {
-                            Ok(None)
-                        } else {
-                            Err(AuthCeremonyErr::CredentialIdMismatch)
-                        }
-                    } else {
-                        Err(AuthCeremonyErr::UserHandleMismatch)
-                    }
-                })
-        } else {
-            // Steps 5–6.
-            self.verify_nondiscoverable(response, cred)
-        }
-        .and_then(|ext| {
-            // Steps 8–21.
-            self.partial_validate(
-                rp_id,
-                response,
-                (&cred.static_state.credential_public_key).into(),
-                &CeremonyOptions {
-                    allowed_origins: options.allowed_origins,
-                    allowed_top_origins: options.allowed_top_origins,
-                    backup_requirement: options
-                        .backup_requirement
-                        .unwrap_or_else(|| BackupReq::from(cred.dynamic_state.backup)),
-                    #[cfg(feature = "serde_relaxed")]
-                    client_data_json_relaxed: options.client_data_json_relaxed,
-                },
-            )
-            .map_err(AuthCeremonyErr::from)
-            .and_then(|auth_data| {
-                options
-                    .auth_attachment_enforcement
-                    .validate(
-                        cred.dynamic_state.authenticator_attachment,
-                        response.authenticator_attachment,
+        // Steps 8–21.
+        self.partial_validate(
+            rp_id,
+            response,
+            (&cred.static_state.credential_public_key).into(),
+            &CeremonyOptions {
+                allowed_origins: options.allowed_origins,
+                allowed_top_origins: options.allowed_top_origins,
+                backup_requirement: options
+                    .backup_requirement
+                    .unwrap_or_else(|| BackupReq::from(cred.dynamic_state.backup)),
+                #[cfg(feature = "serde_relaxed")]
+                client_data_json_relaxed: options.client_data_json_relaxed,
+            },
+        )
+        .map_err(AuthCeremonyErr::from)
+        .and_then(|auth_data| {
+            options
+                .auth_attachment_enforcement
+                .validate(
+                    cred.dynamic_state.authenticator_attachment,
+                    response.authenticator_attachment,
+                )
+                .and_then(|auth_attachment| {
+                    // Step 23.
+                    validate_extensions(
+                        self.extensions,
+                        cred_ext,
+                        auth_data.extensions(),
+                        options.error_on_unsolicited_extensions,
+                        cred.static_state.extensions.hmac_secret.unwrap_or_default(),
                     )
-                    .and_then(|auth_attachment| {
-                        // Step 23.
-                        validate_extensions(
-                            self.extensions,
-                            ext,
-                            auth_data.extensions(),
-                            options.error_on_unsolicited_extensions,
-                            cred.static_state.extensions.hmac_secret.unwrap_or_default(),
-                        )
-                        .map_err(AuthCeremonyErr::Extension)
-                        .and_then(|()| {
-                            // Step 22.
-                            options
-                                .sig_counter_enforcement
-                                .validate(cred.dynamic_state.sign_count, auth_data.sign_count())
-                                .and_then(|sig_counter| {
-                                    let flags = auth_data.flags();
-                                    let prev_dyn_state = cred.dynamic_state;
-                                    // Step 24 item 2.
-                                    cred.dynamic_state.backup = flags.backup;
-                                    if options.update_uv && flags.user_verified {
-                                        // Step 24 item 3.
-                                        cred.dynamic_state.user_verified = true;
-                                    }
-                                    // Step 24 item 1.
-                                    cred.dynamic_state.sign_count = sig_counter;
-                                    cred.dynamic_state.authenticator_attachment = auth_attachment;
-                                    // Step 25.
-                                    crate::verify_static_and_dynamic_state(
-                                        &cred.static_state,
-                                        cred.dynamic_state,
-                                    )
-                                    .map_err(|e| {
-                                        cred.dynamic_state = prev_dyn_state;
-                                        AuthCeremonyErr::Credential(e)
-                                    })
-                                    .map(|()| prev_dyn_state != cred.dynamic_state)
+                    .map_err(AuthCeremonyErr::Extension)
+                    .and_then(|()| {
+                        // Step 22.
+                        options
+                            .sig_counter_enforcement
+                            .validate(cred.dynamic_state.sign_count, auth_data.sign_count())
+                            .and_then(|sig_counter| {
+                                let flags = auth_data.flags();
+                                let prev_dyn_state = cred.dynamic_state;
+                                // Step 24 item 2.
+                                cred.dynamic_state.backup = flags.backup;
+                                if options.update_uv && flags.user_verified {
+                                    // Step 24 item 3.
+                                    cred.dynamic_state.user_verified = true;
+                                }
+                                // Step 24 item 1.
+                                cred.dynamic_state.sign_count = sig_counter;
+                                cred.dynamic_state.authenticator_attachment = auth_attachment;
+                                // Step 25.
+                                crate::verify_static_and_dynamic_state(
+                                    &cred.static_state,
+                                    cred.dynamic_state,
+                                )
+                                .map_err(|e| {
+                                    cred.dynamic_state = prev_dyn_state;
+                                    AuthCeremonyErr::Credential(e)
                                 })
-                        })
+                                .map(|()| prev_dyn_state != cred.dynamic_state)
+                            })
                     })
-            })
+                })
         })
-    }
-    /// Retrieves the corresponding [`CredInfo`] used for a non-discoverable request that corresponds to
-    /// `response`. Since this is a non-discoverable request, one must have an external way of identifying the
-    /// `UserHandle`.
-    ///
-    /// This MUST be called iff a non-discoverable request was sent to the client (e.g.,
-    /// [`PublicKeyCredentialRequestOptions::second_factor`]).
-    ///
-    /// # Errors
-    ///
-    /// Errors iff [`AuthenticatedCredential::user_handle`] does not match [`Authentication::user_handle`] or
-    /// [`PublicKeyCredentialRequestOptions::allow_credentials`] does not have a [`CredInfo`] such that
-    /// [`CredInfo::id`] matches [`Authentication::raw_id`].
-    fn verify_nondiscoverable<'a, PublicKey, U: User>(
-        &self,
-        response: &'a Authentication<U>,
-        cred: &AuthenticatedCredential<'a, '_, PublicKey>,
-    ) -> Result<Option<ServerCredSpecificExtensionInfo>, AuthCeremonyErr> {
-        response
-            .response
-            .user_handle()
-            .is_same(cred.user_id())
-            .map_or(Ok(()), |same| {
-                if same {
-                    Ok(())
-                } else {
-                    Err(AuthCeremonyErr::UserHandleMismatch)
-                }
-            })
-            .and_then(|()| {
-                self.allow_credentials
-                    .iter()
-                    .find(|c| c.id == response.raw_id)
-                    .ok_or(AuthCeremonyErr::NoMatchingAllowedCredential)
-                    .map(|c| Some(c.ext))
-            })
     }
     #[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
     fn is_eq(&self, other: &Self) -> bool {
         self.challenge == other.challenge
-            && self.allow_credentials == other.allow_credentials
             && self.user_verification == other.user_verification
             && self.extensions == other.extensions
             && self.expiration == other.expiration
     }
 }
-impl ServerState for AuthenticationServerState {
+impl TimedCeremony for AuthenticationServerState {
     #[cfg(any(doc, not(feature = "serializable_server_state")))]
     #[inline]
     fn expiration(&self) -> Instant {
@@ -1148,8 +1343,42 @@ impl ServerState for AuthenticationServerState {
         self.challenge
     }
 }
-impl<User> Ceremony<User> for AuthenticationServerState {
-    type R = Authentication<User>;
+impl TimedCeremony for DiscoverableAuthenticationServerState {
+    #[cfg(any(doc, not(feature = "serializable_server_state")))]
+    #[inline]
+    fn expiration(&self) -> Instant {
+        self.0.expiration()
+    }
+    #[cfg(all(not(doc), feature = "serializable_server_state"))]
+    #[inline]
+    fn expiration(&self) -> SystemTime {
+        self.0.expiration()
+    }
+    #[inline]
+    fn sent_challenge(&self) -> SentChallenge {
+        self.0.sent_challenge()
+    }
+}
+impl TimedCeremony for NonDiscoverableAuthenticationServerState {
+    #[cfg(any(doc, not(feature = "serializable_server_state")))]
+    #[inline]
+    fn expiration(&self) -> Instant {
+        self.state.expiration()
+    }
+    #[cfg(all(not(doc), feature = "serializable_server_state"))]
+    #[inline]
+    fn expiration(&self) -> SystemTime {
+        self.state.expiration()
+    }
+    #[inline]
+    fn sent_challenge(&self) -> SentChallenge {
+        self.state.sent_challenge()
+    }
+}
+impl<const USER_LEN: usize, const DISCOVERABLE: bool> Ceremony<USER_LEN, DISCOVERABLE>
+    for AuthenticationServerState
+{
+    type R = Authentication<USER_LEN, DISCOVERABLE>;
     fn rand_challenge(&self) -> SentChallenge {
         self.challenge
     }
@@ -1208,6 +1437,94 @@ impl Ord for AuthenticationServerState {
         self.challenge.cmp(&other.challenge)
     }
 }
+impl Borrow<SentChallenge> for DiscoverableAuthenticationServerState {
+    #[inline]
+    fn borrow(&self) -> &SentChallenge {
+        self.0.borrow()
+    }
+}
+impl PartialEq for DiscoverableAuthenticationServerState {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl PartialEq<&Self> for DiscoverableAuthenticationServerState {
+    #[inline]
+    fn eq(&self, other: &&Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl PartialEq<DiscoverableAuthenticationServerState> for &DiscoverableAuthenticationServerState {
+    #[inline]
+    fn eq(&self, other: &DiscoverableAuthenticationServerState) -> bool {
+        self.0 == other.0
+    }
+}
+impl Eq for DiscoverableAuthenticationServerState {}
+impl Hash for DiscoverableAuthenticationServerState {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+impl PartialOrd for DiscoverableAuthenticationServerState {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for DiscoverableAuthenticationServerState {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+impl Borrow<SentChallenge> for NonDiscoverableAuthenticationServerState {
+    #[inline]
+    fn borrow(&self) -> &SentChallenge {
+        self.state.borrow()
+    }
+}
+impl PartialEq for NonDiscoverableAuthenticationServerState {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.state == other.state
+    }
+}
+impl PartialEq<&Self> for NonDiscoverableAuthenticationServerState {
+    #[inline]
+    fn eq(&self, other: &&Self) -> bool {
+        self.state == other.state
+    }
+}
+impl PartialEq<NonDiscoverableAuthenticationServerState>
+    for &NonDiscoverableAuthenticationServerState
+{
+    #[inline]
+    fn eq(&self, other: &NonDiscoverableAuthenticationServerState) -> bool {
+        self.state == other.state
+    }
+}
+impl Eq for NonDiscoverableAuthenticationServerState {}
+impl Hash for NonDiscoverableAuthenticationServerState {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.state.hash(state);
+    }
+}
+impl PartialOrd for NonDiscoverableAuthenticationServerState {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for NonDiscoverableAuthenticationServerState {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.state.cmp(&other.state)
+    }
+}
 #[cfg(test)]
 mod tests {
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
@@ -1219,10 +1536,11 @@ mod tests {
             },
             AsciiDomain, AuthTransports,
         },
-        AllowedCredential, AllowedCredentials, AuthenticationServerState, Challenge, CredentialId,
-        CredentialSpecificExtension, Credentials as _, Extension, ExtensionReq, PrfInputOwned,
-        PublicKeyCredentialDescriptor, PublicKeyCredentialRequestOptions, RpId,
-        UserVerificationRequirement,
+        AllowedCredential, AllowedCredentials, Challenge, CredentialId,
+        CredentialSpecificExtension, Credentials as _, DiscoverableAuthenticationServerState,
+        DiscoverableCredentialRequestOptions, Extension, ExtensionReq,
+        NonDiscoverableAuthenticationServerState, NonDiscoverableCredentialRequestOptions,
+        PrfInputOwned, PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
     };
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
     use rsa::sha2::{Digest as _, Sha256};
@@ -1250,10 +1568,10 @@ mod tests {
                 }),
             },
         });
-        let mut opts = PublicKeyCredentialRequestOptions::second_factor(&rp_id, creds)?;
-        opts.user_verification = UserVerificationRequirement::Required;
-        opts.challenge = Challenge(0);
-        opts.extensions = Extension { prf: None };
+        let mut opts = NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?;
+        opts.options.user_verification = UserVerificationRequirement::Required;
+        opts.options.challenge = Challenge(0);
+        opts.options.extensions = Extension { prf: None };
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(164);
@@ -1408,9 +1726,23 @@ mod tests {
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
         authenticator_data.truncate(132);
         let server = opts.start_ceremony()?.0;
-        assert!(server.is_eq(&AuthenticationServerState::decode(
-            server.encode()?.as_slice()
-        )?));
+        assert!(
+            server.is_eq(&NonDiscoverableAuthenticationServerState::decode(
+                server.encode()?.as_slice()
+            )?)
+        );
+        let mut opts_2 = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+        opts_2.0.challenge = Challenge(0);
+        opts_2.0.extensions = Extension { prf: None };
+        let server_2 = opts_2.start_ceremony()?.0;
+        assert!(
+            server_2.is_eq(&DiscoverableAuthenticationServerState::decode(
+                server_2
+                    .encode()
+                    .map_err(AggErr::EncodeDiscoverableAuthenticationServerState)?
+                    .as_slice()
+            )?)
+        );
         Ok(())
     }
 }

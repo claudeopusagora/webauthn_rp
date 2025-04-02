@@ -14,6 +14,346 @@
 //! having said that, there are pre-defined serialization formats for "common" deployments which can be used when
 //! [`serde`](#serde) is enabled.
 //!
+//! ## `webauthn_rp` in action
+//!
+//! ```no_run
+//! use webauthn_rp::{
+//!     AuthenticatedCredential, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
+//!     DiscoverableCredentialRequestOptions, PublicKeyCredentialCreationOptions, RegisteredCredential,
+//!     Registration, RegistrationServerState,
+//!     request::{
+//!         AsciiDomain, PublicKeyCredentialDescriptor, RpId,
+//!         auth::AuthenticationVerificationOptions,
+//!         register::{
+//!             Nickname, PublicKeyCredentialUserEntity, RegistrationVerificationOptions,
+//!             USER_HANDLE_MAX_LEN, UserHandle64, Username,
+//!         },
+//!     },
+//!     response::{
+//!         CredentialId,
+//!         auth::error::AuthCeremonyErr,
+//!         register::{CompressedPubKey, DynamicState, error::RegCeremonyErr},
+//!     },
+//! };
+//! # #[cfg(not(feature = "serializable_server_state"))]
+//! // These are available iff `serializable_server_state` is _not_ enabled.
+//! use webauthn_rp::request::{FixedCapHashSet, InsertResult};
+//! # #[cfg(feature = "serde")]
+//! use serde::de::{Deserialize, Deserializer};
+//! # #[cfg(feature = "serde_relaxed")]
+//! use serde_json::Error as JsonErr;
+//! /// The RP ID our application uses.
+//! const RP_ID: &str = "example.com";
+//! /// Error we return in our application when a function fails.
+//! enum AppErr {
+//!     /// WebAuthn registration ceremony failed.
+//!     RegCeremony(RegCeremonyErr),
+//!     /// WebAuthn authentication ceremony failed.
+//!     AuthCeremony(AuthCeremonyErr),
+//!     /// Unable to insert a WebAuthn ceremony.
+//!     WebAuthnCeremonyCreation,
+//!     /// WebAuthn ceremony does not exist; thus the ceremony could not be completed.
+//!     MissingWebAuthnCeremony,
+//!     /// General error related to JSON deserialization.
+//!     # #[cfg(feature = "serde_relaxed")]
+//!     Json(JsonErr),
+//!     /// No account exists associated with a particular `UserHandle64`.
+//!     NoAccount,
+//!     /// No credential exists associated with a particular `CredentialId`.
+//!     NoCredential,
+//!     /// `CredentialId` exists but the associated `UserHandle64` does not match.
+//!     CredentialUserIdMismatch,
+//! }
+//! # #[cfg(feature = "serde_relaxed")]
+//! impl From<JsonErr> for AppErr {
+//!     fn from(value: JsonErr) -> Self {
+//!         Self::Json(value)
+//!     }
+//! }
+//! impl From<RegCeremonyErr> for AppErr {
+//!     fn from(value: RegCeremonyErr) -> Self {
+//!         Self::RegCeremony(value)
+//!     }
+//! }
+//! impl From<AuthCeremonyErr> for AppErr {
+//!     fn from(value: AuthCeremonyErr) -> Self {
+//!         Self::AuthCeremony(value)
+//!     }
+//! }
+//! /// First-time account creation.
+//! ///
+//! /// This gets sent from the user after an account is created on their side. The registration ceremony
+//! /// still has to be successfully completed for the account to be created server side. In the event of an error,
+//! /// the user should delete the created passkey since it won't be usable.
+//! struct AccountReg<'a, 'b> {
+//!     registration: Registration,
+//!     user_name: Username<'a>,
+//!     user_display_name: Nickname<'b>,
+//! }
+//! # #[cfg(feature = "serde")]
+//! impl<'de: 'a + 'b, 'a, 'b> Deserialize<'de> for AccountReg<'a, 'b> {
+//!     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+//!     where
+//!         D: Deserializer<'de>,
+//!     {
+//!         // ⋮
+//!         # panic!("");
+//!     }
+//! }
+//! /// Starts account creation.
+//! ///
+//! /// This only makes sense for greenfield deployments since account information (e.g., user name) would likely
+//! /// already exist otherwise. This is similar to credential creation except a random `UserHandle64` is generated and
+//! /// will be used for subsequent credential registrations.
+//! # #[cfg(all(feature = "serde_relaxed", not(feature = "serializable_server_state")))]
+//! fn start_account_creation(
+//!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+//! ) -> Result<Vec<u8>, AppErr> {
+//!     let rp_id = RpId::Domain(
+//!         AsciiDomain::try_from(RP_ID.to_owned())
+//!             .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+//!     );
+//!     let user_id = UserHandle64::new();
+//!     let (server, client) =
+//!         PublicKeyCredentialCreationOptions::first_passkey_with_blank_user_info(
+//!             &rp_id, &user_id,
+//!         )
+//!         .start_ceremony()
+//!         .unwrap_or_else(|_e| {
+//!             unreachable!("we don't manually mutate the options; thus this can't fail")
+//!         });
+//!     if matches!(
+//!         reg_ceremonies.insert_or_replace_all_expired(server),
+//!         InsertResult::Success
+//!     ) {
+//!         Ok(serde_json::to_vec(&client)
+//!             .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize")))
+//!     } else {
+//!         Err(AppErr::WebAuthnCeremonyCreation)
+//!     }
+//! }
+//! /// Finishes account creation.
+//! ///
+//! /// Pending a successful registration ceremony, a new account associated with the randomly generated
+//! /// `UserHandle64` will be created with a corresponding passkey entry. This passkey will be used to
+//! /// log into the application.
+//! ///
+//! /// Note if this errors, then the user should be notified to delete the passkey created on their
+//! /// authenticator.
+//! # #[cfg(all(feature = "serde_relaxed", not(feature = "serializable_server_state")))]
+//! fn finish_account_creation(
+//!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+//!     client_data: Vec<u8>,
+//! ) -> Result<(), AppErr> {
+//!     let account = serde_json::from_slice::<AccountReg<'_, '_>>(client_data.as_slice())?;
+//!     insert_account(
+//!         &account,
+//!         reg_ceremonies
+//!             .take(&account.registration.challenge_relaxed()?)
+//!             .ok_or(AppErr::MissingWebAuthnCeremony)?
+//!             .verify(
+//!                 &RpId::Domain(
+//!                     AsciiDomain::try_from(RP_ID.to_owned())
+//!                         .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+//!                 ),
+//!                 &account.registration,
+//!                 &RegistrationVerificationOptions::<&str, &str>::default(),
+//!             )?,
+//!     )
+//! }
+//! /// Starts passkey registration.
+//! ///
+//! /// This is used for _existing_ accounts where the user is already logged in and wants to register another
+//! /// passkey. This is similar to account creation except we already have the user entity info and we need to
+//! /// fetch the registered `PublicKeyCredentialDescriptor`s to avoid accidentally overwriting a passkey on
+//! /// the authenticator.
+//! # #[cfg(all(feature = "serde_relaxed", not(feature = "serializable_server_state")))]
+//! fn start_cred_registration(
+//!     user_id: &UserHandle64,
+//!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+//! ) -> Result<Vec<u8>, AppErr> {
+//!     let rp_id = RpId::Domain(
+//!         AsciiDomain::try_from(RP_ID.to_owned())
+//!             .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+//!     );
+//!     let (entity, creds) = select_user_info(user_id)?.ok_or_else(|| AppErr::NoAccount)?;
+//!     let (server, client) = PublicKeyCredentialCreationOptions::passkey(&rp_id, entity, creds)
+//!         .start_ceremony()
+//!         .unwrap_or_else(|_e| {
+//!             unreachable!("we don't manually mutate the options; thus this won't error")
+//!         });
+//!     if matches!(
+//!         reg_ceremonies.insert_or_replace_all_expired(server),
+//!         InsertResult::Success
+//!     ) {
+//!         Ok(serde_json::to_vec(&client)
+//!             .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize")))
+//!     } else {
+//!         Err(AppErr::WebAuthnCeremonyCreation)
+//!     }
+//! }
+//! /// Finishes passkey registration.
+//! ///
+//! /// Pending a successful registration ceremony, a new credential associated with the `UserHandle64`
+//! /// will be created. This passkey can then be used to log into the application just like any other registered
+//! /// passkey.
+//! ///
+//! /// Note if this errors, then the user should be notified to delete the passkey created on their
+//! /// authenticator.
+//! # #[cfg(all(feature = "serde_relaxed", not(feature = "serializable_server_state")))]
+//! fn finish_cred_registration(
+//!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+//!     client_data: Vec<u8>,
+//! ) -> Result<(), AppErr> {
+//!     let registration = Registration::from_json_custom(client_data.as_slice())?;
+//!     insert_credential(
+//!         reg_ceremonies
+//!             .take(&registration.challenge_relaxed()?)
+//!             .ok_or(AppErr::MissingWebAuthnCeremony)?
+//!             .verify(
+//!                 &RpId::Domain(
+//!                     AsciiDomain::try_from(RP_ID.to_owned())
+//!                         .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+//!                 ),
+//!                 &registration,
+//!                 &RegistrationVerificationOptions::<&str, &str>::default(),
+//!             )?,
+//!     )
+//! }
+//! /// Starts the passkey authentication ceremony.
+//! # #[cfg(all(feature = "serde_relaxed", not(feature = "serializable_server_state")))]
+//! fn start_auth(
+//!     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
+//! ) -> Result<Vec<u8>, AppErr> {
+//!     let rp_id = RpId::Domain(
+//!         AsciiDomain::try_from(RP_ID.to_owned())
+//!             .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+//!     );
+//!     let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id)
+//!         .start_ceremony()
+//!         .unwrap_or_else(|_e| {
+//!             unreachable!("we don't manually mutate the options; thus this won't error")
+//!         });
+//!     if matches!(
+//!         auth_ceremonies.insert_or_replace_all_expired(server),
+//!         InsertResult::Success
+//!     ) {
+//!         Ok(serde_json::to_vec(&client).unwrap_or_else(|_e| {
+//!             unreachable!("bug in DiscoverableAuthenticationClientState::serialize")
+//!         }))
+//!     } else {
+//!         Err(AppErr::WebAuthnCeremonyCreation)
+//!     }
+//! }
+//! /// Finishes the passkey authentication ceremony.
+//! # #[cfg(all(feature = "serde_relaxed", not(feature = "serializable_server_state")))]
+//! fn finish_auth(
+//!     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
+//!     client_data: Vec<u8>,
+//! ) -> Result<(), AppErr> {
+//!     let authentication =
+//!         DiscoverableAuthentication64::from_json_custom(client_data.as_slice())?;
+//!     let mut cred = select_credential(
+//!         authentication.raw_id(),
+//!         authentication.response().user_handle(),
+//!     )?
+//!     .ok_or_else(|| AppErr::NoCredential)?;
+//!     if auth_ceremonies
+//!         .take(&authentication.challenge_relaxed()?)
+//!         .ok_or(AppErr::MissingWebAuthnCeremony)?
+//!         .verify(
+//!             &RpId::Domain(
+//!                 AsciiDomain::try_from(RP_ID.to_owned())
+//!                     .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
+//!             ),
+//!             &authentication,
+//!             &mut cred,
+//!             &AuthenticationVerificationOptions::<&str, &str>::default(),
+//!         )?
+//!     {
+//!         update_credential(cred.id(), cred.dynamic_state())
+//!     } else {
+//!         Ok(())
+//!     }
+//! }
+//! /// Writes `account` and `cred` to storage.
+//! ///
+//! /// # Errors
+//! ///
+//! /// Errors iff writing `account` or `cred` errors,  there already exists a credential using the same
+//! /// `CredentialId`, or there already exists an account using the same `UserHandle64`.
+//! fn insert_account(
+//!     account: &AccountReg<'_, '_>,
+//!     cred: RegisteredCredential<'_, USER_HANDLE_MAX_LEN>,
+//! ) -> Result<(), AppErr> {
+//!     // ⋮
+//!     # Ok(())
+//! }
+//! /// Fetches the user info and registered credentials associated with `user_id`.
+//! ///
+//! /// # Errors
+//! ///
+//! /// Errors iff fetching the data errors.
+//! fn select_user_info<'a>(
+//!     user_id: &'a UserHandle64,
+//! ) -> Result<
+//!     Option<(
+//!         PublicKeyCredentialUserEntity<'static, 'static, 'a, USER_HANDLE_MAX_LEN>,
+//!         Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+//!     )>,
+//!     AppErr,
+//! > {
+//!     // ⋮
+//!     # Ok(None)
+//! }
+//! /// Writes `cred` to storage.
+//! ///
+//! /// # Errors
+//! ///
+//! /// Errors iff writing `cred` errors or there already exists a credential using the same `CredentialId`.
+//! fn insert_credential(
+//!     cred: RegisteredCredential<'_, USER_HANDLE_MAX_LEN>,
+//! ) -> Result<(), AppErr> {
+//!     // ⋮
+//!     # Ok(())
+//! }
+//! /// Fetches the `AuthenticatedCredential` associated with `cred_id` ensuring `user_id` matches the
+//! /// `UserHandle64` associated with the account.
+//! ///
+//! /// # Errors
+//! ///
+//! /// Errors iff fetching the data errors or the `user_id` does not match the stored `UserHandle64`.
+//! fn select_credential<'cred, 'user>(
+//!     cred_id: CredentialId<&'cred [u8]>,
+//!     user_id: &'user UserHandle64,
+//! ) -> Result<
+//!     Option<
+//!         AuthenticatedCredential<
+//!             'cred,
+//!             'user,
+//!             USER_HANDLE_MAX_LEN,
+//!             CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>,
+//!         >,
+//!     >,
+//!     AppErr,
+//! > {
+//!     // ⋮
+//!     # Ok(None)
+//! }
+//! /// Overwrites the current `DynamicState` associated with `cred_id` with `dynamic_state`.
+//! ///
+//! /// # Errors
+//! ///
+//! /// Errors iff writing errors or `cred_id` does not exist.
+//! fn update_credential(
+//!     cred_id: CredentialId<&[u8]>,
+//!     dynamic_state: DynamicState,
+//! ) -> Result<(), AppErr> {
+//!     // ⋮
+//!     # Ok(())
+//! }
+//! ```
+//!
 //! ## Cargo "features"
 //!
 //! [`custom`](#custom) or both [`bin`](#bin) and [`serde`](#serde) must be enabled; otherwise a [`compile_error`]
@@ -79,13 +419,14 @@
 //! ### `serializable_server_state`
 //!
 //! Automatically enables [`bin`](#bin) in addition to [`Encode`] and [`Decode`] implementations for
-//! [`RegistrationServerState`] and [`AuthenticationServerState`]. Less accurate [`SystemTime`] is used instead of
-//! [`Instant`] for timeout enforcement. This should be enabled if you don't desire to use in-memory collections to
-//! store the instances of those types.
+//! [`RegistrationServerState`], [`DiscoverableAuthenticationServerState`], and
+//! [`NonDiscoverableAuthenticationServerState`]. Less accurate [`SystemTime`] is used instead of [`Instant`] for
+//! timeout enforcement. This should be enabled if you don't desire to use in-memory collections to store the instances
+//! of those types.
 //!
 //! Note even when written to persistent storage, an application should still periodically remove expired ceremonies.
-//! If one is using a relational database (RDB); then one can achieve this by storing [`ServerState::sent_challenge`],
-//! the `Vec` returned from [`Encode::encode`], and [`ServerState::expiration`] and periodically remove all rows
+//! If one is using a relational database (RDB); then one can achieve this by storing [`TimedCeremony::sent_challenge`],
+//! the `Vec` returned from [`Encode::encode`], and [`TimedCeremony::expiration`] and periodically remove all rows
 //! whose expiration exceeds the current date and time.
 //!
 //! ## Registration and authentication
@@ -109,13 +450,14 @@
 //! use of in-memory collections (e.g., [`FixedCapHashSet`]). To better ensure OOM is not a concern, RPs should set
 //! reasonable timeouts. Since ceremonies can only be completed by moving data (e.g.,
 //! [`RegistrationServerState::verify`]), ceremony completion is guaranteed to free up the memory used—
-//! `RegistrationServerState` instances are only 48 bytes on `x86_64-unknown-linux-gnu` platforms. To avoid issues
-//! related to incomplete ceremonies, RPs can periodically iterate the collection for expired ceremonies and remove
-//! such data. Other techniques can be employed as well to mitigate OOM, but they are application specific and
-//! out-of-scope. If this is undesirable, one can enable [`serializable_server_state`](#serializable_server_state)
-//! so that `RegistrationServerState` and [`AuthenticationServerState`] implement [`Encode`] and [`Decode`]. Another
-//! reason one may need to store this information persistently is for load-balancing purposes where the server that
-//! started the ceremony is not guaranteed to be the server that finishes the ceremony.
+//! `RegistrationServerState` instances are as small as 48 bytes on `x86_64-unknown-linux-gnu` platforms. To avoid
+//! issues related to incomplete ceremonies, RPs can periodically iterate the collection for expired ceremonies and
+//! remove such data. Other techniques can be employed as well to mitigate OOM, but they are application specific
+//! and out-of-scope. If this is undesirable, one can enable [`serializable_server_state`](#serializable_server_state)
+//! so that `RegistrationServerState`, [`DiscoverableAuthenticationServerState`], and
+//! [`NonDiscoverableAuthenticationServerState`] implement [`Encode`] and [`Decode`]. Another reason one may need to
+//! store this information persistently is for load-balancing purposes where the server that started the ceremony is
+//! not guaranteed to be the server that finishes the ceremony.
 //!
 //! ## Supported signature algorithms
 //!
@@ -219,7 +561,9 @@ compile_error!("'custom' must be enabled or both 'bin' and 'serde' must be enabl
 #[cfg(feature = "serializable_server_state")]
 use crate::request::{
     auth::ser_server_state::{
-        DecodeAuthenticationServerStateErr, EncodeAuthenticationServerStateErr,
+        DecodeDiscoverableAuthenticationServerStateErr,
+        DecodeNonDiscoverableAuthenticationServerStateErr,
+        EncodeNonDiscoverableAuthenticationServerStateErr,
     },
     register::ser_server_state::DecodeRegistrationServerStateErr,
 };
@@ -239,13 +583,13 @@ use crate::{
 use crate::{
     request::{
         AsciiDomain, DomainOrigin, FixedCapHashSet, Port, PublicKeyCredentialDescriptor, RpId,
-        Scheme, ServerState, Url,
-        auth::{AllowedCredential, AllowedCredentials},
-        register::{CoseAlgorithmIdentifier, Nickname, Username},
+        Scheme, TimedCeremony, Url,
+        auth::{AllowedCredential, AllowedCredentials, PublicKeyCredentialRequestOptions},
+        register::{CoseAlgorithmIdentifier, Nickname, PublicKeyCredentialUserEntity, Username},
     },
     response::{
         CollectedClientData, Flag,
-        auth::{self, AuthenticatorAssertion},
+        auth::{self, Authentication, DiscoverableAuthenticatorAssertion},
         register::{
             self, Aaguid, Attestation, AttestationObject, AttestedCredentialData,
             AuthenticatorExtensionOutput, ClientExtensionsOutputs, CompressedPubKey,
@@ -259,7 +603,7 @@ use crate::{
         error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
         register::{
             ResidentKeyRequirement, UserHandle,
-            error::{CreationOptionsErr, NicknameErr, UserHandleErr, UsernameErr},
+            error::{CreationOptionsErr, NicknameErr, UsernameErr},
         },
     },
     response::{
@@ -346,8 +690,7 @@ pub mod bin;
 ///
 /// Two other reasons one may prefer to construct client-side credentials is richer support for extensions (e.g.,
 /// [`largeBlobKey`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-largeBlobKey-extension)
-/// for CTAP 2.2 authenticators) and the ability to use both discoverable and nondiscoverable requests (i.e.,
-/// [`PublicKeyCredentialRequestOptions::allow_credentials`] is empty and not empty respectively). The former is not
+/// for CTAP 2.2 authenticators) and the ability to use both discoverable and nondiscoverable requests. The former is not
 /// relevant for this library—at least currently—since the only extensions supported are applicable for both
 /// client-side and server-side credentials. The latter can be important especially if an RP wants the ability to
 /// seamlessly transition from a username and password scheme to a userless and passwordless one in the future.
@@ -365,7 +708,9 @@ pub mod response;
 pub use crate::{
     request::{
         auth::{
-            AuthenticationClientState, AuthenticationServerState, PublicKeyCredentialRequestOptions,
+            DiscoverableAuthenticationClientState, DiscoverableAuthenticationServerState,
+            DiscoverableCredentialRequestOptions, NonDiscoverableAuthenticationClientState,
+            NonDiscoverableAuthenticationServerState, NonDiscoverableCredentialRequestOptions,
         },
         register::{
             PublicKeyCredentialCreationOptions, RegistrationClientState, RegistrationServerState,
@@ -373,7 +718,9 @@ pub use crate::{
     },
     response::{
         auth::{
-            Authentication, PasskeyAuthentication, PasskeyAuthentication16, PasskeyAuthentication64,
+            DiscoverableAuthentication, DiscoverableAuthentication16, DiscoverableAuthentication64,
+            NonDiscoverableAuthentication, NonDiscoverableAuthentication16,
+            NonDiscoverableAuthentication64,
         },
         register::Registration,
     },
@@ -450,28 +797,29 @@ fn verify_static_and_dynamic_state<T>(
 /// * [`CredentialId`]
 ///     * MUST be globally unique, and it will likely be easier to enforce such uniqueness when it's separate.
 ///     * Fetching the [`AuthenticatedCredential`] by [`Authentication::raw_id`] when completing the
-///       authentication ceremony via [`AuthenticationServerState::verify`] will likely be easier than alternatives.
+///       authentication ceremony via [`DiscoverableAuthenticationServerState::verify`] or
+///       [`NonDiscoverableAuthenticationServerState::verify`] will likely be easier than alternatives.
 /// * [`AuthTransports`]
 ///     * Fetching [`CredentialId`]s and associated `AuthTransports` by [`UserHandle`] will likely make credential
 ///       registration easier since one should set [`PublicKeyCredentialCreationOptions::exclude_credentials`] to
 ///       the [`PublicKeyCredentialDescriptor`]s belonging to a `UserHandle` in order to avoid accidentally
 ///       overwriting an existing credential on the authenticator.
 ///     * Fetching `CredentialId`s and associated `AuthTransports` by `UserHandle` will likely make starting
-///       authentication ceremonies easier for non-discoverable requests (i.e., setting
-///       [`PublicKeyCredentialRequestOptions::allow_credentials`] to a non-empty [`AllowedCredentials`]).
+///       authentication ceremonies easier for [`NonDiscoverableCredentialRequestOptions`].
 /// * [`UserHandle`]
-///     * Fetching the [`AuthenticatedCredential`] by [`Authentication::raw_id`] must also coincide with
-///       verifying the associated `UserHandle` matches [`AuthenticatorAssertion::user_handle`] when `Some`.
+///     * Fetching the [`AuthenticatedCredential`] by [`DiscoverableAuthentication::raw_id`] must also coincide with
+///       verifying the associated `UserHandle` matches [`DiscoverableAuthenticatorAssertion::user_handle`].
 ///     * Fetching [`CredentialId`]s and associated [`AuthTransports`] by `UserHandle` will likely make credential
 ///       registration easier since one should set [`PublicKeyCredentialCreationOptions::exclude_credentials`] to
 ///       the [`PublicKeyCredentialDescriptor`]s belonging to a `UserHandle` in order to avoid accidentally
 ///       overwriting an existing credential on the authenticator.
 ///     * Fetching `CredentialId`s and associated `AuthTransports` by `UserHandle` will likely make starting
-///       authentication ceremonies easier for non-discoverable requests (i.e., setting
-///       [`PublicKeyCredentialRequestOptions::allow_credentials`] to a non-empty [`AllowedCredentials`]).
+///       authentication ceremonies easier for [`NonDiscoverableCredentialRequestOptions`].
 /// * [`DynamicState`]
 ///     * `DynamicState` is the only part that is ever updated after a successful authentication ceremony
-///       via [`AuthenticationServerState::verify`]. It being separate allows for smaller and quicker updates.
+///       via [`DiscoverableAuthenticationServerState::verify`] or
+///       [`NonDiscoverableAuthenticationServerState::verify`]. It being separate allows for smaller and quicker
+///       updates.
 /// * [`Metadata`]
 ///     * Informative data that is never used during authentication ceremonies; consequently, one may wish to
 ///       not even save this information.
@@ -488,13 +836,13 @@ fn verify_static_and_dynamic_state<T>(
 ///
 /// When registering a credential, [`AttestedCredentialData::aaguid`], [`AttestedCredentialData::credential_id`],
 /// and [`AttestedCredentialData::credential_public_key`] will be the sources for [`Metadata::aaguid`],
-/// [`Self::id`], and [`StaticState::credential_public_key`] respectively. Additionally, there must be some way for
-/// the RP to know what `UserHandle` the [`Registration`] is associated with (e.g., a session cookie); thus the
-/// source of [`Self::user_id`] is the `UserHandle` passed to [`RegistrationServerState::verify`].
+/// [`Self::id`], and [`StaticState::credential_public_key`] respectively. The [`PublicKeyCredentialUserEntity::id`]
+/// associated with the [`PublicKeyCredentialCreationOptions`] used to create the `RegisteredCredential` via
+/// [`RegistrationServerState::verify`] will be the source for [`Self::user_id`].
 ///
 /// The only way to create this is via `RegistrationServerState::verify`.
 #[derive(Debug)]
-pub struct RegisteredCredential<'reg, 'user> {
+pub struct RegisteredCredential<'reg, const USER_LEN: usize> {
     /// The credential ID.
     ///
     /// For client-side credentials, this is a unique identifier; but for server-side
@@ -506,7 +854,7 @@ pub struct RegisteredCredential<'reg, 'user> {
     ///
     /// Unlike [`Self::id`] which is globally unique for an RP, this is unique up to "user" (i.e.,
     /// multiple [`CredentialId`]s will often exist for the same `UserHandle`).
-    user_id: UserHandle<&'user [u8]>,
+    user_id: UserHandle<USER_LEN>,
     /// Immutable state returned during registration.
     static_state: StaticState<UncompressedPubKey<'reg>>,
     /// State that can change during authentication ceremonies.
@@ -514,7 +862,7 @@ pub struct RegisteredCredential<'reg, 'user> {
     /// Metadata.
     metadata: Metadata<'reg>,
 }
-impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
+impl<'reg, const USER_LEN: usize> RegisteredCredential<'reg, USER_LEN> {
     /// The credential ID.
     ///
     /// For client-side credentials, this is a unique identifier; but for server-side
@@ -536,8 +884,8 @@ impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
     /// multiple [`CredentialId`]s will often exist for the same `UserHandle`).
     #[inline]
     #[must_use]
-    pub const fn user_id(&self) -> UserHandle<&'user [u8]> {
-        self.user_id
+    pub const fn user_id(&self) -> &UserHandle<USER_LEN> {
+        &self.user_id
     }
     /// Immutable state returned during registration.
     #[inline]
@@ -564,10 +912,10 @@ impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
     /// Errors iff the passed arguments are invalid. Read [`CredentialErr`]
     /// for more information.
     #[inline]
-    fn new<'a: 'reg, 'b: 'user>(
+    fn new<'a: 'reg>(
         id: CredentialId<&'a [u8]>,
         transports: AuthTransports,
-        user_id: UserHandle<&'b [u8]>,
+        user_id: UserHandle<USER_LEN>,
         static_state: StaticState<UncompressedPubKey<'a>>,
         dynamic_state: DynamicState,
         metadata: Metadata<'a>,
@@ -618,10 +966,6 @@ impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
         })
     }
     /// Returns the contained data consuming `self`.
-    #[expect(
-        clippy::type_complexity,
-        reason = "type aliases with bounds are even more problematic at least until lazy_type_alias is stable"
-    )]
     #[inline]
     #[must_use]
     pub const fn into_parts(
@@ -629,7 +973,7 @@ impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
     ) -> (
         CredentialId<&'reg [u8]>,
         AuthTransports,
-        UserHandle<&'user [u8]>,
+        UserHandle<USER_LEN>,
         StaticState<UncompressedPubKey<'reg>>,
         DynamicState,
         Metadata<'reg>,
@@ -644,10 +988,6 @@ impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
         )
     }
     /// Returns the contained data.
-    #[expect(
-        clippy::type_complexity,
-        reason = "type aliases with bounds are even more problematic at least until lazy_type_alias is stable"
-    )]
     #[inline]
     #[must_use]
     pub const fn as_parts(
@@ -655,7 +995,7 @@ impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
     ) -> (
         CredentialId<&'reg [u8]>,
         AuthTransports,
-        UserHandle<&'user [u8]>,
+        &UserHandle<USER_LEN>,
         StaticState<UncompressedPubKey<'reg>>,
         DynamicState,
         Metadata<'reg>,
@@ -663,7 +1003,7 @@ impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
         (
             self.id,
             self.transports,
-            self.user_id,
+            &self.user_id,
             self.static_state,
             self.dynamic_state,
             self.metadata,
@@ -677,17 +1017,16 @@ impl<'reg, 'user> RegisteredCredential<'reg, 'user> {
 /// [`StaticState::credential_public_key`] is [`CompressedPubKey`] that can own or borrow its data, [`Self::id`] is
 /// based on the [`CredentialId`] passed to [`Self::new`] which itself must be from [`Authentication::raw_id`], and
 /// [`Self::user_id`] is based on the [`UserHandle`] passed to [`Self::new`] which itself must be the value in
-/// persistent storage associated with the `CredentialId`. When [`AuthenticatorAssertion::user_handle`] is `Some`,
-/// this can be used for `Self::user_id` so long as it matches the value in persistent storage. Note it MUST be
-/// `Some` when using discoverable requests (i.e., [`PublicKeyCredentialRequestOptions::allow_credentials`] is
-/// empty); and when using non-discoverable requests (i.e., `PublicKeyCredentialRequestOptions::allow_credentials`
-/// is non-empty), one should already have the user handle (e.g., in a session cookie) which can also be used.
+/// persistent storage associated with the `CredentialId`.
+///
+/// When [`DiscoverableAuthentication`] is used, one can use [`DiscoverableAuthenticatorAssertion::user_handle`]
+/// for `Self::user_id` so long as it matches the value in persistent storage.
 ///
 /// Note `PublicKey` should be `CompressedPubKey` for this to be useful.
 ///
 /// The only way to create this is via `Self::new`.
 #[derive(Debug)]
-pub struct AuthenticatedCredential<'cred, 'user, PublicKey> {
+pub struct AuthenticatedCredential<'cred, 'user, const USER_LEN: usize, PublicKey> {
     /// The credential ID.
     ///
     /// For client-side credentials, this is a unique identifier; but for server-side
@@ -697,13 +1036,15 @@ pub struct AuthenticatedCredential<'cred, 'user, PublicKey> {
     ///
     /// Unlike [`Self::id`] which is globally unique for an RP, this is unique up to "user" (i.e.,
     /// multiple [`CredentialId`]s will often exist for the same `UserHandle`).
-    user_id: UserHandle<&'user [u8]>,
+    user_id: &'user UserHandle<USER_LEN>,
     /// Immutable state returned during registration.
     static_state: StaticState<PublicKey>,
     /// State that can change during authentication ceremonies.
     dynamic_state: DynamicState,
 }
-impl<'cred, 'user, PublicKey> AuthenticatedCredential<'cred, 'user, PublicKey> {
+impl<'cred, 'user, const USER_LEN: usize, PublicKey>
+    AuthenticatedCredential<'cred, 'user, USER_LEN, PublicKey>
+{
     /// The credential ID.
     ///
     /// For client-side credentials, this is a unique identifier; but for server-side
@@ -719,7 +1060,7 @@ impl<'cred, 'user, PublicKey> AuthenticatedCredential<'cred, 'user, PublicKey> {
     /// multiple [`CredentialId`]s will often exist for the same `UserHandle`).
     #[inline]
     #[must_use]
-    pub const fn user_id(&self) -> UserHandle<&'user [u8]> {
+    pub const fn user_id(&self) -> &'user UserHandle<USER_LEN> {
         self.user_id
     }
     /// Immutable state returned during registration.
@@ -745,7 +1086,7 @@ impl<'cred, 'user, PublicKey> AuthenticatedCredential<'cred, 'user, PublicKey> {
     #[inline]
     pub fn new<'a: 'cred, 'b: 'user>(
         id: CredentialId<&'a [u8]>,
-        user_id: UserHandle<&'b [u8]>,
+        user_id: &'user UserHandle<USER_LEN>,
         static_state: StaticState<PublicKey>,
         dynamic_state: DynamicState,
     ) -> Result<Self, CredentialErr> {
@@ -757,34 +1098,26 @@ impl<'cred, 'user, PublicKey> AuthenticatedCredential<'cred, 'user, PublicKey> {
         })
     }
     /// Returns the contained data consuming `self`.
-    #[expect(
-        clippy::type_complexity,
-        reason = "type aliases with bounds are even more problematic at least until lazy_type_alias is stable"
-    )]
     #[inline]
     #[must_use]
     pub fn into_parts(
         self,
     ) -> (
         CredentialId<&'cred [u8]>,
-        UserHandle<&'user [u8]>,
+        &'user UserHandle<USER_LEN>,
         StaticState<PublicKey>,
         DynamicState,
     ) {
         (self.id, self.user_id, self.static_state, self.dynamic_state)
     }
     /// Returns the contained data.
-    #[expect(
-        clippy::type_complexity,
-        reason = "type aliases with bounds are even more problematic at least until lazy_type_alias is stable"
-    )]
     #[inline]
     #[must_use]
     pub const fn as_parts(
         &self,
     ) -> (
         CredentialId<&'cred [u8]>,
-        UserHandle<&'user [u8]>,
+        &'user UserHandle<USER_LEN>,
         &StaticState<PublicKey>,
         DynamicState,
     ) {
@@ -809,21 +1142,22 @@ pub enum AggErr {
     DomainOrigin(DomainOriginParseErr),
     /// Variant when [`Port::from_str`] errors.
     Port(PortParseErr),
-    /// Variant when [`PublicKeyCredentialRequestOptions::start_ceremony`] errors.
+    /// Variant when [`DiscoverableCredentialRequestOptions::start_ceremony`] or
+    /// [`NonDiscoverableCredentialRequestOptions::start_ceremony`]
+    /// error.
     RequestOptions(RequestOptionsErr),
-    /// Variant when [`PublicKeyCredentialRequestOptions::second_factor`] errors.
+    /// Variant when [`NonDiscoverableCredentialRequestOptions::second_factor`] errors.
     SecondFactor(SecondFactorErr),
     /// Variant when [`PublicKeyCredentialCreationOptions::start_ceremony`] errors.
     CreationOptions(CreationOptionsErr),
     /// Variant when [`Nickname::try_from`] errors.
     Nickname(NicknameErr),
-    /// Variant when [`UserHandle::rand`] or [`UserHandle::decode`] error.
-    UserHandle(UserHandleErr),
     /// Variant when [`Username::try_from`] errors.
     Username(UsernameErr),
     /// Variant when [`RegistrationServerState::verify`] errors.
     RegCeremony(RegCeremonyErr),
-    /// Variant when [`AuthenticationServerState::verify`] errors.
+    /// Variant when [`DiscoverableAuthenticationServerState::verify`] or.
+    /// [`NonDiscoverableAuthenticationServerState::verify`] error.
     AuthCeremony(AuthCeremonyErr),
     /// Variant when [`AttestationObject::try_from`] errors.
     AttestationObject(AttestationObjectErr),
@@ -864,18 +1198,30 @@ pub enum AggErr {
     #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
     DecodeRegistrationServerState(DecodeRegistrationServerStateErr),
-    /// Variant when [`AuthenticationServerState::decode`] errors.
+    /// Variant when [`DiscoverableAuthenticationServerState::decode`] errors.
     #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
-    DecodeAuthenticationServerState(DecodeAuthenticationServerStateErr),
+    DecodeDiscoverableAuthenticationServerState(DecodeDiscoverableAuthenticationServerStateErr),
+    /// Variant when [`NonDiscoverableAuthenticationServerState::decode`] errors.
+    #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
+    #[cfg(feature = "serializable_server_state")]
+    DecodeNonDiscoverableAuthenticationServerState(
+        DecodeNonDiscoverableAuthenticationServerStateErr,
+    ),
     /// Variant when [`RegistrationServerState::encode`] errors.
     #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
     EncodeRegistrationServerState(SystemTimeError),
-    /// Variant when [`AuthenticationServerState::encode`] errors.
+    /// Variant when [`DiscoverableAuthenticationServerState::encode`] errors.
     #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
-    EncodeAuthenticationServerState(EncodeAuthenticationServerStateErr),
+    EncodeDiscoverableAuthenticationServerState(SystemTimeError),
+    /// Variant when [`NonDiscoverableAuthenticationServerState::encode`] errors.
+    #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
+    #[cfg(feature = "serializable_server_state")]
+    EncodeNonDiscoverableAuthenticationServerState(
+        EncodeNonDiscoverableAuthenticationServerStateErr,
+    ),
     /// Variant when [`AuthenticatedCredential::new`] errors.
     #[cfg_attr(docsrs, doc(cfg(any(feature = "bin", feature = "custom"))))]
     #[cfg(any(feature = "bin", feature = "custom"))]
@@ -937,12 +1283,6 @@ impl From<NicknameErr> for AggErr {
     #[inline]
     fn from(value: NicknameErr) -> Self {
         Self::Nickname(value)
-    }
-}
-impl From<UserHandleErr> for AggErr {
-    #[inline]
-    fn from(value: UserHandleErr) -> Self {
-        Self::UserHandle(value)
     }
 }
 impl From<UsernameErr> for AggErr {
@@ -1051,26 +1391,26 @@ impl From<DecodeRegistrationServerStateErr> for AggErr {
 }
 #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
-impl From<DecodeAuthenticationServerStateErr> for AggErr {
+impl From<DecodeDiscoverableAuthenticationServerStateErr> for AggErr {
     #[inline]
-    fn from(value: DecodeAuthenticationServerStateErr) -> Self {
-        Self::DecodeAuthenticationServerState(value)
+    fn from(value: DecodeDiscoverableAuthenticationServerStateErr) -> Self {
+        Self::DecodeDiscoverableAuthenticationServerState(value)
     }
 }
 #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
-impl From<SystemTimeError> for AggErr {
+impl From<DecodeNonDiscoverableAuthenticationServerStateErr> for AggErr {
     #[inline]
-    fn from(value: SystemTimeError) -> Self {
-        Self::EncodeRegistrationServerState(value)
+    fn from(value: DecodeNonDiscoverableAuthenticationServerStateErr) -> Self {
+        Self::DecodeNonDiscoverableAuthenticationServerState(value)
     }
 }
 #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
-impl From<EncodeAuthenticationServerStateErr> for AggErr {
+impl From<EncodeNonDiscoverableAuthenticationServerStateErr> for AggErr {
     #[inline]
-    fn from(value: EncodeAuthenticationServerStateErr) -> Self {
-        Self::EncodeAuthenticationServerState(value)
+    fn from(value: EncodeNonDiscoverableAuthenticationServerStateErr) -> Self {
+        Self::EncodeNonDiscoverableAuthenticationServerState(value)
     }
 }
 #[cfg_attr(docsrs, doc(cfg(any(feature = "bin", feature = "custom"))))]
@@ -1102,7 +1442,6 @@ impl Display for AggErr {
             Self::SecondFactor(err) => err.fmt(f),
             Self::CreationOptions(err) => err.fmt(f),
             Self::Nickname(err) => err.fmt(f),
-            Self::UserHandle(err) => err.fmt(f),
             Self::Username(err) => err.fmt(f),
             Self::RegCeremony(ref err) => err.fmt(f),
             Self::AuthCeremony(ref err) => err.fmt(f),
@@ -1126,11 +1465,15 @@ impl Display for AggErr {
             #[cfg(feature = "serializable_server_state")]
             Self::DecodeRegistrationServerState(err) => err.fmt(f),
             #[cfg(feature = "serializable_server_state")]
-            Self::DecodeAuthenticationServerState(err) => err.fmt(f),
+            Self::DecodeDiscoverableAuthenticationServerState(err) => err.fmt(f),
+            #[cfg(feature = "serializable_server_state")]
+            Self::DecodeNonDiscoverableAuthenticationServerState(err) => err.fmt(f),
             #[cfg(feature = "serializable_server_state")]
             Self::EncodeRegistrationServerState(ref err) => err.fmt(f),
             #[cfg(feature = "serializable_server_state")]
-            Self::EncodeAuthenticationServerState(ref err) => err.fmt(f),
+            Self::EncodeDiscoverableAuthenticationServerState(ref err) => err.fmt(f),
+            #[cfg(feature = "serializable_server_state")]
+            Self::EncodeNonDiscoverableAuthenticationServerState(ref err) => err.fmt(f),
             #[cfg(any(feature = "bin", feature = "custom"))]
             Self::Credential(err) => err.fmt(f),
             #[cfg(any(feature = "bin", feature = "custom"))]

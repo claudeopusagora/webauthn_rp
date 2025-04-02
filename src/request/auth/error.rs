@@ -1,6 +1,7 @@
 #[cfg(doc)]
 use super::{
-    AllowedCredentials, CredentialSpecificExtension, Extension, PublicKeyCredentialRequestOptions,
+    AllowedCredentials, CredentialSpecificExtension, DiscoverableCredentialRequestOptions,
+    Extension, NonDiscoverableCredentialRequestOptions, PublicKeyCredentialRequestOptions,
     UserVerificationRequirement,
 };
 use core::{
@@ -9,7 +10,7 @@ use core::{
 };
 #[cfg(doc)]
 use std::time::{Instant, SystemTime};
-/// Error returned from [`PublicKeyCredentialRequestOptions::second_factor`] when
+/// Error returned from [`NonDiscoverableCredentialRequestOptions::second_factor`] when
 /// [`AllowedCredentials`] is empty.
 #[derive(Clone, Copy, Debug)]
 pub struct SecondFactorErr;
@@ -20,7 +21,8 @@ impl Display for SecondFactorErr {
     }
 }
 impl Error for SecondFactorErr {}
-/// Error returned by [`PublicKeyCredentialRequestOptions::start_ceremony`].
+/// Error returned by [`DiscoverableCredentialRequestOptions::start_ceremony`]
+/// and [`NonDiscoverableCredentialRequestOptions::start_ceremony`]
 #[derive(Clone, Copy, Debug)]
 pub enum RequestOptionsErr {
     /// Error when [`Extension::prf`] or [`CredentialSpecificExtension::prf`] is [`Some`] but
