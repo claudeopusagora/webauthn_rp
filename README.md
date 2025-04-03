@@ -140,6 +140,7 @@ fn finish_account_creation(
     insert_account(
         &account,
         reg_ceremonies
+            // `Registration::challenge_relaxed` is available iff `serde_relaxed` is enabled.
             .take(&account.registration.challenge_relaxed()?)
             .ok_or(AppErr::MissingWebAuthnCeremony)?
             .verify(
@@ -194,9 +195,11 @@ fn finish_cred_registration(
     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
     client_data: Vec<u8>,
 ) -> Result<(), AppErr> {
+    // `Registration::from_json_custom` is available iff `serde_relaxed` is enabled.
     let registration = Registration::from_json_custom(client_data.as_slice())?;
     insert_credential(
         reg_ceremonies
+            // `Registration::challenge_relaxed` is available iff `serde_relaxed` is enabled.
             .take(&registration.challenge_relaxed()?)
             .ok_or(AppErr::MissingWebAuthnCeremony)?
             .verify(
@@ -238,6 +241,7 @@ fn finish_auth(
     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
     client_data: Vec<u8>,
 ) -> Result<(), AppErr> {
+    // `Authentication::from_json_custom` is available iff `serde_relaxed` is enabled.
     let authentication =
         DiscoverableAuthentication64::from_json_custom(client_data.as_slice())?;
     let mut cred = select_credential(
@@ -246,6 +250,7 @@ fn finish_auth(
     )?
     .ok_or_else(|| AppErr::NoCredential)?;
     if auth_ceremonies
+        // `Authentication::challenge_relaxed` is available iff `serde_relaxed` is enabled.
         .take(&authentication.challenge_relaxed()?)
         .ok_or(AppErr::MissingWebAuthnCeremony)?
         .verify(

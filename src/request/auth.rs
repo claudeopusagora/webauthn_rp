@@ -1140,7 +1140,7 @@ impl NonDiscoverableAuthenticationServerState {
             .and_then(|()| {
                 self.allow_credentials
                     .iter()
-                    // Step 6 item 1.
+                    // Step 5.
                     .find(|c| c.id == response.raw_id)
                     .ok_or(AuthCeremonyErr::NoMatchingAllowedCredential)
                     .and_then(|c| {
@@ -1232,8 +1232,8 @@ impl AuthenticationServerState {
         // 2. Client code and the construction of `resp` (hopefully via [`Authentication::deserialize`]).
         // 3. Client code and the construction of `resp` (hopefully via [`AuthenticatorAssertion::deserialize`]).
         // 4. Client code and the construction of `resp` (hopefully via [`ClientExtensionsOutputs::deserialize`]).
-        // 5. Below.
-        // 6. Below.
+        // 5. [`NonDiscoverableAuthenticationServerState::verify`].
+        // 6. [`DiscoverableAuthenticationServerState::verify`] and [`NonDiscoverableAuthenticationServerState::verify`].
         // 7. Informative only in that it defines variables.
         // 8. [`Self::partial_validate`].
         // 9. [`Self::partial_validate`].

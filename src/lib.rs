@@ -149,6 +149,7 @@
 //!     insert_account(
 //!         &account,
 //!         reg_ceremonies
+//!             // `Registration::challenge_relaxed` is available iff `serde_relaxed` is enabled.
 //!             .take(&account.registration.challenge_relaxed()?)
 //!             .ok_or(AppErr::MissingWebAuthnCeremony)?
 //!             .verify(
@@ -205,9 +206,11 @@
 //!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
 //!     client_data: Vec<u8>,
 //! ) -> Result<(), AppErr> {
+//!     // `Registration::from_json_custom` is available iff `serde_relaxed` is enabled.
 //!     let registration = Registration::from_json_custom(client_data.as_slice())?;
 //!     insert_credential(
 //!         reg_ceremonies
+//!             // `Registration::challenge_relaxed` is available iff `serde_relaxed` is enabled.
 //!             .take(&registration.challenge_relaxed()?)
 //!             .ok_or(AppErr::MissingWebAuthnCeremony)?
 //!             .verify(
@@ -251,6 +254,7 @@
 //!     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
 //!     client_data: Vec<u8>,
 //! ) -> Result<(), AppErr> {
+//!     // `Authentication::from_json_custom` is available iff `serde_relaxed` is enabled.
 //!     let authentication =
 //!         DiscoverableAuthentication64::from_json_custom(client_data.as_slice())?;
 //!     let mut cred = select_credential(
@@ -259,6 +263,7 @@
 //!     )?
 //!     .ok_or_else(|| AppErr::NoCredential)?;
 //!     if auth_ceremonies
+//!         // `Authentication::challenge_relaxed` is available iff `serde_relaxed` is enabled.
 //!         .take(&authentication.challenge_relaxed()?)
 //!         .ok_or(AppErr::MissingWebAuthnCeremony)?
 //!         .verify(
@@ -550,6 +555,7 @@
     clippy::pub_with_shorthand,
     clippy::pub_use,
     clippy::ref_patterns,
+    clippy::return_and_then,
     clippy::self_named_module_files,
     clippy::single_call_fn,
     clippy::single_char_lifetime_names,
