@@ -1,18 +1,13 @@
-#![expect(
-    clippy::pub_use,
-    clippy::question_mark_used,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 extern crate alloc;
+#[cfg(doc)]
+use super::{Challenge, LimitedVerificationParser};
 use super::{
+    ClientDataJsonParser, CollectedClientData, Origin, SentChallenge,
     ser::{
         AuthenticationExtensionsPrfValues, AuthenticationExtensionsPrfValuesVisitor,
         PRF_VALUES_FIELDS,
     },
-    ClientDataJsonParser, CollectedClientData, Origin, SentChallenge,
 };
-#[cfg(doc)]
-use super::{Challenge, LimitedVerificationParser};
 use alloc::borrow::Cow;
 use core::{
     fmt::{self, Formatter},
@@ -70,11 +65,7 @@ impl<const R: bool> ClientDataJsonParser for RelaxedClientDataJsonParser<R> {
         serde_json::from_slice::<CDataJsonHelper<'_, R>>(json.split_at_checked(BOM.len()).map_or(
             json,
             |(bom, rem)| {
-                if bom == BOM {
-                    rem
-                } else {
-                    json
-                }
+                if bom == BOM { rem } else { json }
             },
         ))
         .map(|val| val.0)
@@ -87,11 +78,7 @@ impl<const R: bool> ClientDataJsonParser for RelaxedClientDataJsonParser<R> {
         serde_json::from_slice::<Chall>(json.split_at_checked(BOM.len()).map_or(
             json,
             |(bom, rem)| {
-                if bom == BOM {
-                    rem
-                } else {
-                    json
-                }
+                if bom == BOM { rem } else { json }
             },
         ))
         .map(|c| c.0)
@@ -226,7 +213,10 @@ impl<'de: 'a, 'a, const R: bool> Visitor<'de> for RelaxedHelper<'a, R> {
                 impl Visitor<'_> for FieldVisitor {
                     type Value = Field;
                     fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                        write!(formatter, "'{TYPE}', '{CHALLENGE}', '{ORIGIN}', '{CROSS_ORIGIN}', or '{TOP_ORIGIN}'")
+                        write!(
+                            formatter,
+                            "'{TYPE}', '{CHALLENGE}', '{ORIGIN}', '{CROSS_ORIGIN}', or '{TOP_ORIGIN}'"
+                        )
                     }
                     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
                     where
@@ -524,8 +514,10 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
-            .map_or(false, |c| !c.cross_origin));
+        assert!(
+            RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
+                .map_or(false, |c| !c.cross_origin)
+        );
         // Missing `crossOrigin`.
         let input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
@@ -534,8 +526,10 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
-            .map_or(false, |c| !c.cross_origin));
+        assert!(
+            RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
+                .map_or(false, |c| !c.cross_origin)
+        );
         // `null` `topOrigin`.
         let input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
@@ -545,8 +539,10 @@ mod tests {
             "topOrigin": null
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
-            .map_or(false, |c| c.top_origin.is_none()));
+        assert!(
+            RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
+                .map_or(false, |c| c.top_origin.is_none())
+        );
         // Missing `topOrigin`.
         let input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
@@ -555,8 +551,10 @@ mod tests {
             "crossOrigin": true,
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
-            .map_or(false, |c| c.top_origin.is_none()));
+        assert!(
+            RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
+                .map_or(false, |c| c.top_origin.is_none())
+        );
         // `null` `challenge`.
         err = Error::invalid_type(
             Unexpected::Other("null"),

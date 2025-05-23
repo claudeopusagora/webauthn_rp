@@ -3,15 +3,12 @@ use self::{
     super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr},
     ser_relaxed::{CustomRegistration, RegistrationRelaxed},
 };
-#[cfg(all(doc, feature = "serde_relaxed"))]
-use super::super::request::FixedCapHashSet;
 #[cfg(all(doc, feature = "bin"))]
+use super::super::bin::{Decode, Encode};
+#[cfg(feature = "bin")]
+use super::register::bin::{AaguidOwned, MetadataOwned};
 use super::{
-    super::bin::{Decode, Encode},
-    register::bin::MetadataOwned,
-};
-use super::{
-    super::request::register::ResidentKeyRequirement,
+    super::request::register::{FourToSixtyThree, ResidentKeyRequirement},
     AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthTransports,
     AuthenticatorAttachment, Backup, CborSuccess, ClientDataJsonParser as _, CollectedClientData,
     CredentialId, Flag, FromCbor, LimitedVerificationParser, ParsedAuthData, Response,
@@ -28,8 +25,9 @@ use super::{
 use super::{
     super::{
         AuthenticatedCredential, RegisteredCredential,
+        hash::hash_set::FixedCapHashSet,
         request::{
-            BackupReq, Challenge,
+            BackupReq, Challenge, UserVerificationRequirement,
             auth::{AuthenticationVerificationOptions, PublicKeyCredentialRequestOptions},
             register::{Extension, RegistrationServerState},
         },
@@ -105,7 +103,7 @@ pub struct AuthenticatorExtensionOutput {
     /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension).
     pub hmac_secret: Option<bool>,
     /// [`minPinLength`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-minpinlength-extension).
-    pub min_pin_length: Option<u8>,
+    pub min_pin_length: Option<FourToSixtyThree>,
 }
 impl AuthExtOutput for AuthenticatorExtensionOutput {
     fn missing(self) -> bool {
@@ -128,7 +126,7 @@ pub struct AuthenticatorExtensionOutputStaticState {
 #[derive(Clone, Copy, Debug)]
 pub struct AuthenticatorExtensionOutputMetadata {
     /// [`AuthenticatorExtensionOutput::min_pin_length`].
-    pub min_pin_length: Option<u8>,
+    pub min_pin_length: Option<FourToSixtyThree>,
 }
 impl From<AuthenticatorExtensionOutput> for AuthenticatorExtensionOutputMetadata {
     #[inline]
@@ -244,8 +242,8 @@ impl FromCbor<'_> for HmacSecret {
 enum MinPinLength {
     /// No `minPinLength` extension.
     None,
-    /// `minPinLength` with the value of the contained `u8`.
-    Val(u8),
+    /// `minPinLength` with the value of the contained `FourToSixtyThree`.
+    Val(FourToSixtyThree),
 }
 impl FromCbor<'_> for MinPinLength {
     type Err = AuthenticatorExtensionOutputErr;
@@ -277,19 +275,25 @@ impl FromCbor<'_> for MinPinLength {
                         .split_first()
                         .ok_or(AuthenticatorExtensionOutputErr::Len)
                         .and_then(|(&key_len, remaining)| match key_len.cmp(&24) {
-                            Ordering::Less => Ok(CborSuccess {
-                                value: Self::Val(key_len),
-                                remaining,
-                            }),
+                            Ordering::Less => FourToSixtyThree::new(key_len)
+                                .ok_or(AuthenticatorExtensionOutputErr::MinPinLengthValue)
+                                .map(|val| CborSuccess {
+                                    value: Self::Val(val),
+                                    remaining,
+                                }),
                             Ordering::Equal => remaining
                                 .split_first()
                                 .ok_or(AuthenticatorExtensionOutputErr::Len)
                                 .and_then(|(&key_24, rem)| {
                                     if key_24 > 23 {
-                                        Ok(CborSuccess {
-                                            value: Self::Val(key_24),
-                                            remaining: rem,
-                                        })
+                                        FourToSixtyThree::new(key_24)
+                                            .ok_or(
+                                                AuthenticatorExtensionOutputErr::MinPinLengthValue,
+                                            )
+                                            .map(|val| CborSuccess {
+                                                value: Self::Val(val),
+                                                remaining: rem,
+                                            })
                                     } else {
                                         Err(AuthenticatorExtensionOutputErr::MinPinLengthValue)
                                     }
@@ -512,6 +516,12 @@ impl Ed25519PubKey<&[u8]> {
         )
         .map_err(|_e| PubKeyErr::Ed25519)
     }
+    /// Transforms `self` into an "owned" version.
+    #[inline]
+    #[must_use]
+    pub fn into_owned(self) -> Ed25519PubKey<[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]> {
+        Ed25519PubKey(*Ed25519PubKey::<&[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]>::from(self).0)
+    }
 }
 impl Ed25519PubKey<[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]> {
     /// Validates `self` is in fact a valid Ed25519 public key.
@@ -646,6 +656,18 @@ impl<'a> UncompressedP256PubKey<'a> {
     pub const fn y_is_odd(self) -> bool {
         // `self.1.len() == 32`, so this won't `panic`.
         self.1[31] & 1 == 1
+    }
+    /// Transforms `self` into the compressed version that owns the data.
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    #[inline]
+    #[must_use]
+    pub fn into_compressed(
+        self,
+    ) -> CompressedP256PubKey<[u8; <NistP256 as Curve>::FieldBytesSize::INT]> {
+        CompressedP256PubKey {
+            x: self.0.try_into().unwrap_or_else(|_e| unreachable!("there is a bug in UncompressedP256PubKey that allows for the x-coordinate to not be 32 bytes in length")),
+            y_is_odd: self.y_is_odd(),
+        }
     }
 }
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], &'a [u8])> for UncompressedP256PubKey<'b> {
@@ -893,6 +915,18 @@ impl<'a> UncompressedP384PubKey<'a> {
     pub const fn y_is_odd(self) -> bool {
         // `self.1.len() == 48`, so this won't `panic`.
         self.1[47] & 1 == 1
+    }
+    /// Transforms `self` into the compressed version that owns the data.
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    #[inline]
+    #[must_use]
+    pub fn into_compressed(
+        self,
+    ) -> CompressedP384PubKey<[u8; <NistP384 as Curve>::FieldBytesSize::INT]> {
+        CompressedP384PubKey {
+            x: self.0.try_into().unwrap_or_else(|_e| unreachable!("there is a bug in UncompressedP384PubKey that allows for the x-coordinate to not be 48 bytes in length")),
+            y_is_odd: self.y_is_odd(),
+        }
     }
 }
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], &'a [u8])> for UncompressedP384PubKey<'b> {
@@ -1163,6 +1197,14 @@ impl<T: AsRef<[u8]>> RsaPubKey<T> {
         )
         .map_err(|_e| PubKeyErr::Rsa)
         .map(RsaVerKey::new)
+    }
+}
+impl RsaPubKey<&[u8]> {
+    /// Transforms `self` into an "owned" version.
+    #[inline]
+    #[must_use]
+    pub fn into_owned(self) -> RsaPubKey<Vec<u8>> {
+        RsaPubKey(self.0.to_owned(), self.1)
     }
 }
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
@@ -1636,6 +1678,24 @@ impl UncompressedPubKey<'_> {
             Self::Rsa(k) => k.validate(),
         }
     }
+    /// Transforms `self` into the compressed version that owns the data.
+    #[inline]
+    #[must_use]
+    pub fn into_compressed(
+        self,
+    ) -> CompressedPubKey<
+        [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
+        [u8; <NistP256 as Curve>::FieldBytesSize::INT],
+        [u8; <NistP384 as Curve>::FieldBytesSize::INT],
+        Vec<u8>,
+    > {
+        match self {
+            Self::Ed25519(key) => CompressedPubKey::Ed25519(key.into_owned()),
+            Self::P256(key) => CompressedPubKey::P256(key.into_compressed()),
+            Self::P384(key) => CompressedPubKey::P384(key.into_compressed()),
+            Self::Rsa(key) => CompressedPubKey::Rsa(key.into_owned()),
+        }
+    }
 }
 impl PartialEq<UncompressedPubKey<'_>> for UncompressedPubKey<'_> {
     #[inline]
@@ -1839,7 +1899,6 @@ pub struct AttestedCredentialData<'a> {
     /// [`credentialPublicKey`](https://www.w3.org/TR/webauthn-3/#authdata-attestedcredentialdata-credentialpublickey).
     pub credential_public_key: UncompressedPubKey<'a>,
 }
-
 impl<'a> FromCbor<'a> for AttestedCredentialData<'a> {
     type Err = AttestedCredentialDataErr;
     #[expect(clippy::big_endian_bytes, reason = "CBOR integers are big-endian")]
@@ -1925,6 +1984,27 @@ impl<'a> AuthenticatorData<'a> {
         self.extensions
     }
 }
+impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AuthenticatorData<'b> {
+    type Error = AuthenticatorDataErr;
+    /// Deserializes `value` based on the
+    /// [authenticator data structure](https://www.w3.org/TR/webauthn-3/#table-authData).
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "we want to crash when there is a bug"
+    )]
+    #[inline]
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::from_cbor(value)
+            .map_err(AuthenticatorDataErr::from)
+            .map(|success| {
+                assert!(
+                    success.remaining.is_empty(),
+                    "there is a bug in AuthenticatorData::from_cbor"
+                );
+                success.value
+            })
+    }
+}
 impl<'a> AuthData<'a> for AuthenticatorData<'a> {
     type UpBitErr = Infallible;
     type CredData = AttestedCredentialData<'a>;
@@ -1955,27 +2035,6 @@ impl<'a> AuthData<'a> for AuthenticatorData<'a> {
     }
     fn flag(&self) -> Flag {
         self.flags
-    }
-}
-impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AuthenticatorData<'b> {
-    type Error = AuthenticatorDataErr;
-    /// Deserializes `value` based on the
-    /// [authenticator data structure](https://www.w3.org/TR/webauthn-3/#table-authData).
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "we want to crash when there is a bug"
-    )]
-    #[inline]
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::from_cbor(value)
-            .map_err(AuthenticatorDataErr::from)
-            .map(|success| {
-                assert!(
-                    success.remaining.is_empty(),
-                    "there is a bug in AuthenticatorData::from_cbor"
-                );
-                success.value
-            })
     }
 }
 /// [None](https://www.w3.org/TR/webauthn-3/#sctn-none-attestation).
@@ -2226,7 +2285,7 @@ impl<'a> FromCbor<'a> for PackedAttestation<'a> {
     fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
         /// Parses `data` as packed attestation up until `x5c` _without_ the `cbor::MAP_2` or `cbor::MAP_3` header.
         fn parse_to_cert_chain(data: &[u8]) -> Result<CborSuccess<'_, Sig<'_>>, AttestationErr> {
-            // {"alg":CoseAlgId,"sig":sig_bytes...}
+            // {"alg":CoseAlgorithmIdentifier,"sig":sig_bytes...}
             /// "alg" key.
             const ALG: [u8; 4] = [cbor::TEXT_3, b'a', b'l', b'g'];
             /// "sig" key.
@@ -2348,7 +2407,7 @@ impl<'a> FromCbor<'a> for AttestationFormat<'a> {
     type Err = AttestationErr;
     fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
         // Note we assume that cbor starts _after_ `cbor::MAP_3`.
-        // {"fmt":"none"|"packed", "attStmt": NoneAttestation|PackedAttestation, ...}.
+        // {"fmt":"none"|"packed", "attStmt": NoneAttestation|CborPacked, ...}.
         /// "fmt" key.
         const FMT: [u8; 4] = [cbor::TEXT_3, b'f', b'm', b't'];
         /// "none" value.
@@ -2415,34 +2474,11 @@ impl<'a> FromCbor<'a> for AttestationFormat<'a> {
             })
     }
 }
-/// [Attestation object](https://www.w3.org/TR/webauthn-3/#attestation-object).
-#[derive(Debug)]
-pub struct AttestationObject<'a> {
-    /// [Attestation statement format identifiers](https://www.w3.org/TR/webauthn-3/#sctn-attstn-fmt-ids).
-    attestation: AttestationFormat<'a>,
-    /// [Authenticator data](https://www.w3.org/TR/webauthn-3/#authenticator-data).
-    auth_data: AuthenticatorData<'a>,
-}
 impl<'a> AttestationObject<'a> {
-    /// [Attestation statement format identifiers](https://www.w3.org/TR/webauthn-3/#sctn-attstn-fmt-ids).
-    #[inline]
-    #[must_use]
-    pub const fn attestation(&self) -> AttestationFormat<'a> {
-        self.attestation
-    }
-    /// [Authenticator data](https://www.w3.org/TR/webauthn-3/#authenticator-data).
-    #[inline]
-    #[must_use]
-    pub const fn auth_data(&self) -> &AuthenticatorData<'a> {
-        &self.auth_data
-    }
     /// Deserializes `data` based on the
     /// [attestation object layout](https://www.w3.org/TR/webauthn-3/#attestation-object)
     /// returning [`Self`] and the index within `data` that the authenticator data portion
     /// begins.
-    ///
-    /// This mainly exists to unify [`Self::from_data`], [`Self::try_from`], and
-    /// [`ser::AuthenticatorAttestationVisitor::visit_map`].
     #[expect(
         clippy::panic_in_result_fn,
         reason = "we want to crash when there is a bug"
@@ -2456,7 +2492,7 @@ impl<'a> AttestationObject<'a> {
         /// `authData` key.
         const AUTH_DATA_KEY: [u8; 9] =
             [cbor::TEXT_8, b'a', b'u', b't', b'h', b'D', b'a', b't', b'a'];
-        // {"fmt":<AttestationFormat>, "attStmt":<AttestationStatement>, "authData":<AuthenticatorData>}.
+        // {"fmt":<AttestationFormat>, "attStmt":<AttestationObject>, "authData":<AuthentcatorData>}.
         data.split_first().ok_or(AttestationObjectErr::Len).and_then(|(map, map_rem)| {
             if *map == cbor::MAP_3 {
                 AttestationFormat::from_cbor(map_rem).map_err(AttestationObjectErr::Attestation).and_then(|att| {
@@ -2534,6 +2570,37 @@ impl<'a> AttestationObject<'a> {
         })
     }
 }
+/// [Attestation object](https://www.w3.org/TR/webauthn-3/#attestation-object).
+#[derive(Debug)]
+pub struct AttestationObject<'a> {
+    /// [Attestation statement format identifiers](https://www.w3.org/TR/webauthn-3/#sctn-attstn-fmt-ids).
+    attestation: AttestationFormat<'a>,
+    /// [Authenticator data](https://www.w3.org/TR/webauthn-3/#authenticator-data).
+    auth_data: AuthenticatorData<'a>,
+}
+impl<'a> AttestationObject<'a> {
+    /// [Attestation statement format identifiers](https://www.w3.org/TR/webauthn-3/#sctn-attstn-fmt-ids).
+    #[inline]
+    #[must_use]
+    pub const fn attestation(&self) -> AttestationFormat<'a> {
+        self.attestation
+    }
+    /// [Authenticator data](https://www.w3.org/TR/webauthn-3/#authenticator-data).
+    #[inline]
+    #[must_use]
+    pub const fn auth_data(&self) -> &AuthenticatorData<'a> {
+        &self.auth_data
+    }
+}
+impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AttestationObject<'b> {
+    type Error = AttestationObjectErr;
+    /// Deserializes `value` based on the
+    /// [attestation object layout](https://www.w3.org/TR/webauthn-3/#attestation-object).
+    #[inline]
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::parse_data(value).map(|(val, _)| val)
+    }
+}
 impl<'a> AuthDataContainer<'a> for AttestationObject<'a> {
     type Auth = AuthenticatorData<'a>;
     type Err = AttestationObjectErr;
@@ -2546,15 +2613,6 @@ impl<'a> AuthDataContainer<'a> for AttestationObject<'a> {
     }
     fn authenticator_data(&self) -> &Self::Auth {
         &self.auth_data
-    }
-}
-impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AttestationObject<'b> {
-    type Error = AttestationObjectErr;
-    /// Deserializes `value` based on the
-    /// [attestation object layout](https://www.w3.org/TR/webauthn-3/#attestation-object).
-    #[inline]
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::parse_data(value).map(|(val, _)| val)
     }
 }
 /// [`AuthenticatorAttestationResponse`](https://www.w3.org/TR/webauthn-3/#authenticatorattestationresponse).
@@ -2572,7 +2630,7 @@ impl AuthenticatorAttestation {
     /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     #[inline]
     #[must_use]
-    pub fn client_data_json(&self) -> &[u8] {
+    pub const fn client_data_json(&self) -> &[u8] {
         self.client_data_json.as_slice()
     }
     /// [attestation object](https://www.w3.org/TR/webauthn-3/#attestation-object).
@@ -2715,6 +2773,34 @@ pub struct ClientExtensionsOutputs {
     pub cred_props: Option<CredentialPropertiesOutput>,
     /// [`prf`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsclientoutputs-prf).
     pub prf: Option<AuthenticationExtensionsPrfOutputs>,
+}
+/// [`ClientExtensionsOutputs`] extensions that are saved in [`Metadata`] because they are purely informative
+/// and not used during authentication ceremonies.
+#[derive(Clone, Copy, Debug)]
+pub struct ClientExtensionsOutputsMetadata {
+    /// [`ClientExtensionsOutputs::cred_props`].
+    pub cred_props: Option<CredentialPropertiesOutput>,
+}
+/// [`ClientExtensionsOutputs`] extensions that are saved in [`StaticState`] because they are used during
+/// authentication ceremonies.
+#[derive(Clone, Copy, Debug)]
+pub struct ClientExtensionsOutputsStaticState {
+    /// [`ClientExtensionsOutputs::prf`].
+    pub prf: Option<AuthenticationExtensionsPrfOutputs>,
+}
+impl From<ClientExtensionsOutputs> for ClientExtensionsOutputsMetadata {
+    #[inline]
+    fn from(value: ClientExtensionsOutputs) -> Self {
+        Self {
+            cred_props: value.cred_props,
+        }
+    }
+}
+impl From<ClientExtensionsOutputs> for ClientExtensionsOutputsStaticState {
+    #[inline]
+    fn from(value: ClientExtensionsOutputs) -> Self {
+        Self { prf: value.prf }
+    }
 }
 /// [`PublicKeyCredential`](https://www.w3.org/TR/webauthn-3/#iface-pkcredential) for registration ceremonies.
 #[expect(
@@ -2859,7 +2945,7 @@ pub struct Metadata<'a> {
     pub extensions: AuthenticatorExtensionOutputMetadata,
     /// [`getClientExtensionResults`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-getclientextensionresults)
     /// output during registration that is never used during authentication ceremonies.
-    pub client_extension_results: ClientExtensionsOutputs,
+    pub client_extension_results: ClientExtensionsOutputsMetadata,
     /// `ResidentKeyRequirement` sent during registration.
     pub resident_key: ResidentKeyRequirement,
 }
@@ -2875,8 +2961,7 @@ impl Metadata<'_> {
     ///     "min_pin_length": null | <8-bit unsigned integer without leading 0s>
     ///   },
     ///   "client_extension_results": {
-    ///     "cred_props": null | CredPropsJSON,
-    ///     "prf": null | PrfJSON
+    ///     "cred_props": null | CredPropsJSON
     ///   },
     ///   "resident_key": "required" | "discouraged" | "preferred"
     /// }
@@ -2901,10 +2986,10 @@ impl Metadata<'_> {
     /// ```
     /// # use core::str::FromStr;
     /// # use webauthn_rp::{
-    /// #     request::register::ResidentKeyRequirement,
+    /// #     request::register::{FourToSixtyThree, ResidentKeyRequirement},
     /// #     response::register::{
     /// #         Aaguid, Attestation,
-    /// #         AuthenticatorExtensionOutputMetadata, ClientExtensionsOutputs, CredentialPropertiesOutput,
+    /// #         AuthenticatorExtensionOutputMetadata, ClientExtensionsOutputsMetadata, CredentialPropertiesOutput,
     /// #         Metadata,
     /// #     },
     /// # };
@@ -2912,13 +2997,12 @@ impl Metadata<'_> {
     ///     attestation: Attestation::None,
     ///     aaguid: Aaguid::try_from([15; 16].as_slice())?,
     ///     extensions: AuthenticatorExtensionOutputMetadata {
-    ///         min_pin_length: Some(16),
+    ///         min_pin_length: Some(FourToSixtyThree::new(16).unwrap_or_else(|| unreachable!("bug in FourToSixtyThree::new"))),
     ///     },
-    ///     client_extension_results: ClientExtensionsOutputs {
+    ///     client_extension_results: ClientExtensionsOutputsMetadata {
     ///         cred_props: Some(CredentialPropertiesOutput {
     ///             rk: Some(true),
     ///         }),
-    ///         prf: None,
     ///     },
     ///     resident_key: ResidentKeyRequirement::Required
     /// };
@@ -2931,8 +3015,7 @@ impl Metadata<'_> {
     ///     "client_extension_results": {
     ///         "cred_props": {
     ///             "rk": true
-    ///         },
-    ///         "prf": null
+    ///         }
     ///     },
     ///     "resident_key": "required"
     /// });
@@ -2946,19 +3029,15 @@ impl Metadata<'_> {
         clippy::integer_division_remainder_used,
         reason = "comments justify their correctness"
     )]
-    #[expect(
-        clippy::else_if_without_else,
-        reason = "don't want an empty else branch"
-    )]
     #[inline]
     #[must_use]
     pub fn into_json(self) -> String {
-        // Maximum capacity needed is not _that_ much larger than the minimum, 184. An example is the
+        // Maximum capacity needed is not _that_ much larger than the minimum, 173. An example is the
         // following:
         // `{"attestation":"none","aaguid":"00000000000000000000000000000000","extensions":{"min_pin_length":null},"client_extension_results":{"cred_props":{"rk":false},"prf":{"enabled":false}},"resident_key":"discouraged"}`.
         // We use a raw `Vec` instead of a `String` since we need to transform some binary values into ASCII which
         // is easier to do as bytes.
-        let mut buffer = Vec::with_capacity(211);
+        let mut buffer = Vec::with_capacity(187);
         buffer.extend_from_slice(br#"{"attestation":"#);
         buffer.extend_from_slice(match self.attestation {
             Attestation::None => br#""none","aaguid":""#,
@@ -2983,26 +3062,17 @@ impl Metadata<'_> {
             None => buffer.extend_from_slice(b"null"),
             Some(pin) => {
                 // Clearly correct.
-                let dig_1 = pin / 100;
+                let dig_1 = pin.value() / 10;
                 // Clearly correct.
-                let dig_2 = (pin % 100) / 10;
-                // Clearly correct.
-                let dig_3 = pin % 10;
+                let dig_2 = pin.value() % 10;
                 if dig_1 > 0 {
                     // We simply add the appropriate offset which is `b'0` for decimal digits.
                     // Overflow cannot occur since this maxes at `b'9'`.
                     buffer.push(dig_1 + b'0');
-                    // We simply add the appropriate offset which is `b'0` for decimal digits.
-                    // Overflow cannot occur since this maxes at `b'9'`.
-                    buffer.push(dig_2 + b'0');
-                } else if dig_2 > 0 {
-                    // We simply add the appropriate offset which is `b'0` for decimal digits.
-                    // Overflow cannot occur since this maxes at `b'9'`.
-                    buffer.push(dig_2 + b'0');
                 }
                 // We simply add the appropriate offset which is `b'0` for decimal digits.
                 // Overflow cannot occur since this maxes at `b'9'`.
-                buffer.push(dig_3 + b'0');
+                buffer.push(dig_2 + b'0');
             }
         }
         buffer.extend_from_slice(br#"},"client_extension_results":{"cred_props":"#);
@@ -3016,17 +3086,6 @@ impl Metadata<'_> {
                 }
             }
         }
-        buffer.extend_from_slice(br#","prf":"#);
-        match self.client_extension_results.prf {
-            None => buffer.extend_from_slice(b"null"),
-            Some(prf) => {
-                buffer.extend_from_slice(if prf.enabled {
-                    br#"{"enabled":true}"#
-                } else {
-                    br#"{"enabled":false}"#
-                });
-            }
-        }
         buffer.extend_from_slice(br#"},"resident_key":"#);
         buffer.extend_from_slice(match self.resident_key {
             ResidentKeyRequirement::Required => br#""required"}"#,
@@ -3037,6 +3096,25 @@ impl Metadata<'_> {
         // Clearly above only appends ASCII, a subset of UTF-8, to `buffer`; thus `buffer`
         // is valid UTF-8.
         unsafe { String::from_utf8_unchecked(buffer) }
+    }
+    /// Transforms `self` into an "owned" version.
+    #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
+    #[cfg(feature = "bin")]
+    #[inline]
+    #[must_use]
+    pub fn into_owned(self) -> MetadataOwned {
+        MetadataOwned {
+            attestation: self.attestation,
+            aaguid: AaguidOwned(self.aaguid.0.try_into().unwrap_or_else(|_e| {
+                unreachable!(
+                    "there is a bug in Metadata that allows AAGUID to not have length of 16"
+                )
+            })),
+            extensions: self.extensions,
+            client_extension_results: self.client_extension_results,
+            resident_key: self.resident_key,
+        }
     }
 }
 /// [`RegisteredCredential`] and [`AuthenticatedCredential`] static state.
@@ -3049,6 +3127,45 @@ pub struct StaticState<PublicKey> {
     /// [`extensions`](https://www.w3.org/TR/webauthn-3/#authdata-extensions) output during registration that are
     /// used during authentication ceremonies.
     pub extensions: AuthenticatorExtensionOutputStaticState,
+    /// [`getClientExtensionResults`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-getclientextensionresults)
+    /// output during registration that are used during authentication ceremonies.
+    pub client_extension_results: ClientExtensionsOutputsStaticState,
+}
+impl<'a: 'b, 'b, T: AsRef<[u8]>, T2: AsRef<[u8]>, T3: AsRef<[u8]>, T4: AsRef<[u8]>>
+    From<&'a StaticState<CompressedPubKey<T, T2, T3, T4>>>
+    for StaticState<CompressedPubKey<&'b [u8], &'b [u8], &'b [u8], &'b [u8]>>
+{
+    #[inline]
+    fn from(value: &'a StaticState<CompressedPubKey<T, T2, T3, T4>>) -> Self {
+        Self {
+            credential_public_key: (&value.credential_public_key).into(),
+            extensions: value.extensions,
+            client_extension_results: value.client_extension_results,
+        }
+    }
+}
+/// `StaticState` with an uncompressed [`Self::credential_public_key`].
+pub type StaticStateUncompressed<'a> = StaticState<UncompressedPubKey<'a>>;
+/// `StaticState` with a compressed [`Self::credential_public_key`].
+pub type StaticStateCompressed = StaticState<
+    CompressedPubKey<
+        [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
+        [u8; <NistP256 as Curve>::FieldBytesSize::INT],
+        [u8; <NistP384 as Curve>::FieldBytesSize::INT],
+        Vec<u8>,
+    >,
+>;
+impl StaticStateUncompressed<'_> {
+    /// Transforms `self` into `StaticState` that contains the compressed version of the public key.
+    #[inline]
+    #[must_use]
+    pub fn into_compressed(self) -> StaticStateCompressed {
+        StaticStateCompressed {
+            credential_public_key: self.credential_public_key.into_compressed(),
+            extensions: self.extensions,
+            client_extension_results: self.client_extension_results,
+        }
+    }
 }
 /// [`RegisteredCredential`] and [`AuthenticatedCredential`] dynamic state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3056,7 +3173,11 @@ pub struct DynamicState {
     /// [`UV`](https://www.w3.org/TR/webauthn-3/#authdata-flags-uv).
     ///
     /// Once this is `true`, it will remain `true`. It will be set to `true` when `false` iff
-    /// [`Flag::user_verified`] and [`AuthenticationVerificationOptions::update_uv`].
+    /// [`Flag::user_verified`] and [`AuthenticationVerificationOptions::update_uv`]. In other words, this only
+    /// means that the user has been verified _at some point in the past_; but it does _not_ mean the user has
+    /// most-recently been verified this is because user verification is a _ceremony-specific_ property. To
+    /// enforce user verification for all ceremonies, [`UserVerificationRequirement::Required`] must always be
+    /// sent.
     pub user_verified: bool,
     /// This can only be updated if [`BackupReq`] allows for it.
     pub backup: Backup,

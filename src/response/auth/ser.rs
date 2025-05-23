@@ -1,7 +1,3 @@
-#![expect(
-    clippy::question_mark_used,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 use super::{
     super::{
         super::response::ser::{Base64DecodedVal, PublicKeyCredential},

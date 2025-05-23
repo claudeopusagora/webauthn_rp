@@ -3,30 +3,30 @@ use super::super::SerdeJsonErr;
 #[cfg(doc)]
 use super::{
     super::super::{
+        RegisteredCredential,
         request::{
+            BackupReq, CredentialMediationRequirement, UserVerificationRequirement,
             register::{
                 AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, Extension,
                 PublicKeyCredentialCreationOptions, RegistrationServerState,
                 RegistrationVerificationOptions,
             },
-            BackupReq, CredentialMediationRequirement, UserVerificationRequirement,
         },
-        RegisteredCredential,
     },
     Aaguid, Attestation, AttestationObject, AttestedCredentialData, AuthenticatorAttachment,
     AuthenticatorAttestation, AuthenticatorData, AuthenticatorExtensionOutput, Backup,
     ClientExtensionsOutputs, CollectedClientData, CompressedP256PubKey, CompressedP384PubKey,
-    Ed25519PubKey, Ed25519Signature, Flag, Metadata, PackedAttestation, RsaPubKey,
-    UncompressedP256PubKey, UncompressedP384PubKey, UncompressedPubKey, MAX_RSA_N_BYTES, MIN_RSA_E,
-    MIN_RSA_N_BYTES,
+    Ed25519PubKey, Ed25519Signature, Flag, MAX_RSA_N_BYTES, MIN_RSA_E, MIN_RSA_N_BYTES, Metadata,
+    PackedAttestation, RsaPubKey, UncompressedP256PubKey, UncompressedP384PubKey,
+    UncompressedPubKey,
 };
 use super::{
     super::{
-        super::{request::register::CredProtect, CredentialErr},
-        error::{CollectedClientDataErr, CredentialIdErr},
+        super::{CredentialErr, request::register::CredProtect},
         AuthRespErr, AuthenticatorDataErr as AuthDataErr, CeremonyErr,
+        error::{CollectedClientDataErr, CredentialIdErr},
     },
-    CredentialProtectionPolicy,
+    CredentialProtectionPolicy, FourToSixtyThree,
 };
 use core::{
     convert::Infallible,
@@ -476,8 +476,6 @@ pub enum ExtensionErr {
     MissingPrf,
     /// [`Extension::cred_protect`] was requested, but the required response was not sent back.
     MissingCredProtect,
-    /// [`Extension::prf`] was requested, but the required response was not sent back.
-    MissingHmacSecret,
     /// [`Extension::min_pin_length`] was requested, but the required response was not sent back.
     MissingMinPinLength,
     /// [`Extension::cred_protect`] was requested with the first policy, but the second policy was sent back.
@@ -492,7 +490,7 @@ pub enum ExtensionErr {
     /// [`Extension::min_pin_length`] was requested, but
     /// [`minPinLength`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-minpinlength-extension)
     /// was sent set to the second value which is strictly less than the required first value.
-    InvalidMinPinLength(u8, u8),
+    InvalidMinPinLength(FourToSixtyThree, FourToSixtyThree),
 }
 impl Display for ExtensionErr {
     #[inline]
@@ -516,7 +514,6 @@ impl Display for ExtensionErr {
             Self::MissingCredProps => f.write_str("credProps was not sent from the client"),
             Self::MissingPrf => f.write_str("prf was not sent from the client"),
             Self::MissingCredProtect => f.write_str("credProtect was not sent from the client"),
-            Self::MissingHmacSecret => f.write_str("hmac-secret was not sent from the client"),
             Self::MissingMinPinLength => f.write_str("minPinLength was not sent from the client"),
             Self::InvalidCredProtectValue(sent, rec) => write!(
                 f,

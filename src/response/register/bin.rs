@@ -1,17 +1,13 @@
-#![expect(
-    clippy::unseparated_literal_suffix,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 use super::{
     super::super::bin::{
         Decode, DecodeBuffer, EncDecErr, Encode, EncodeBuffer, EncodeBufferFallible as _,
     },
     Aaguid, Attestation, AuthenticationExtensionsPrfOutputs, AuthenticatorAttachment,
     AuthenticatorExtensionOutputMetadata, AuthenticatorExtensionOutputStaticState, Backup,
-    ClientExtensionsOutputs, CompressedP256PubKey, CompressedP384PubKey, CompressedPubKey,
-    CredentialPropertiesOutput, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, Metadata,
-    ResidentKeyRequirement, RsaPubKey, StaticState, UncompressedP256PubKey, UncompressedP384PubKey,
-    UncompressedPubKey,
+    ClientExtensionsOutputsMetadata, ClientExtensionsOutputsStaticState, CompressedP256PubKey,
+    CompressedP384PubKey, CompressedPubKey, CredentialPropertiesOutput, CredentialProtectionPolicy,
+    DynamicState, Ed25519PubKey, FourToSixtyThree, Metadata, ResidentKeyRequirement, RsaPubKey,
+    StaticState, UncompressedP256PubKey, UncompressedP384PubKey, UncompressedPubKey,
 };
 use core::{
     convert::Infallible,
@@ -19,8 +15,8 @@ use core::{
     fmt::{self, Display, Formatter},
 };
 use p256::{
-    elliptic_curve::{generic_array::typenum::ToInt as _, Curve},
     NistP256,
+    elliptic_curve::{Curve, generic_array::typenum::ToInt as _},
 };
 use p384::NistP384;
 impl EncodeBuffer for CredentialProtectionPolicy {
@@ -289,9 +285,20 @@ impl<'a> DecodeBuffer<'a> for AaguidOwned {
         <[u8; super::AAGUID_LEN]>::decode_from_buffer(data).map(Self)
     }
 }
+impl EncodeBuffer for FourToSixtyThree {
+    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
+        self.value().encode_into_buffer(buffer);
+    }
+}
 impl EncodeBuffer for AuthenticatorExtensionOutputMetadata {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         self.min_pin_length.encode_into_buffer(buffer);
+    }
+}
+impl<'a> DecodeBuffer<'a> for FourToSixtyThree {
+    type Err = EncDecErr;
+    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        u8::decode_from_buffer(data).and_then(|val| Self::new(val).ok_or(EncDecErr))
     }
 }
 impl<'a> DecodeBuffer<'a> for AuthenticatorExtensionOutputMetadata {
@@ -322,18 +329,26 @@ impl<'a> DecodeBuffer<'a> for AuthenticationExtensionsPrfOutputs {
         bool::decode_from_buffer(data).map(|enabled| Self { enabled })
     }
 }
-impl EncodeBuffer for ClientExtensionsOutputs {
+impl EncodeBuffer for ClientExtensionsOutputsMetadata {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         self.cred_props.encode_into_buffer(buffer);
+    }
+}
+impl EncodeBuffer for ClientExtensionsOutputsStaticState {
+    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         self.prf.encode_into_buffer(buffer);
     }
 }
-impl<'a> DecodeBuffer<'a> for ClientExtensionsOutputs {
+impl<'a> DecodeBuffer<'a> for ClientExtensionsOutputsMetadata {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        Option::decode_from_buffer(data).and_then(|cred_props| {
-            Option::decode_from_buffer(data).map(|prf| Self { cred_props, prf })
-        })
+        Option::decode_from_buffer(data).map(|cred_props| Self { cred_props })
+    }
+}
+impl<'a> DecodeBuffer<'a> for ClientExtensionsOutputsStaticState {
+    type Err = EncDecErr;
+    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        Option::decode_from_buffer(data).map(|prf| Self { prf })
     }
 }
 impl Encode for Metadata<'_> {
@@ -348,9 +363,9 @@ impl Encode for Metadata<'_> {
         // * 1 for `Attestation`
         // * 16 for `Aaguid`.
         // * 1 or 2 for `AuthenticatorExtensionOutputMetadata` where we assume 1 is the most common
-        // * 2–5 for `ClientExtensionsOutputs` where we assume 2 is the most common
+        // * 1–3 for `ClientExtensionsOutputsMetadata` where we assume 1 is the most common
         // * 1 for `ResidentKeyRequirement`
-        let mut buffer = Vec::with_capacity(1 + 16 + 1 + 2 + 1);
+        let mut buffer = Vec::with_capacity(1 + 16 + 1 + 1 + 1);
         self.attestation.encode_into_buffer(&mut buffer);
         self.aaguid.encode_into_buffer(&mut buffer);
         self.extensions.encode_into_buffer(&mut buffer);
@@ -370,7 +385,7 @@ pub struct MetadataOwned {
     /// [`Metadata::extensions`].
     pub extensions: AuthenticatorExtensionOutputMetadata,
     /// [`Metadata::client_extension_results`].
-    pub client_extension_results: ClientExtensionsOutputs,
+    pub client_extension_results: ClientExtensionsOutputsMetadata,
     /// [`Metadata::resident_key`].
     pub resident_key: ResidentKeyRequirement,
 }
@@ -430,7 +445,7 @@ impl Decode for MetadataOwned {
                         AuthenticatorExtensionOutputMetadata::decode_from_buffer(&mut input)
                             .map_err(|_e| DecodeMetadataOwnedErr::Extensions)
                             .and_then(|extensions| {
-                                ClientExtensionsOutputs::decode_from_buffer(&mut input)
+                                ClientExtensionsOutputsMetadata::decode_from_buffer(&mut input)
                                     .map_err(|_e| DecodeMetadataOwnedErr::ClientExtensionResults)
                                     .and_then(|client_extension_results| {
                                         ResidentKeyRequirement::decode_from_buffer(&mut input)
@@ -469,7 +484,7 @@ impl Encode for StaticState<UncompressedPubKey<'_>> {
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
         let mut buffer = Vec::with_capacity(
-            // The maximum value is 1 + 2 + 2048 + 4 + 1 + 1 + 1 = 2058 so overflow cannot happen.
+            // The maximum value is 1 + 2 + 2048 + 4 + 1 + 1 + 1 + 1 + 1 = 2060 so overflow cannot happen.
             // `key.0.len() <= MAX_RSA_N_BYTES` which is 2048.
             match self.credential_public_key {
                 UncompressedPubKey::Ed25519(_) => 33,
@@ -478,10 +493,14 @@ impl Encode for StaticState<UncompressedPubKey<'_>> {
                 UncompressedPubKey::Rsa(key) => 1 + 2 + key.0.len() + 4,
             } + 1
                 + 1
-                + usize::from(self.extensions.hmac_secret.is_some()),
+                + usize::from(self.extensions.hmac_secret.is_some())
+                + 1
+                + usize::from(self.client_extension_results.prf.is_some()),
         );
         self.credential_public_key.encode_into_buffer(&mut buffer);
         self.extensions.encode_into_buffer(&mut buffer);
+        self.client_extension_results
+            .encode_into_buffer(&mut buffer);
         Ok(buffer)
     }
 }
@@ -492,6 +511,8 @@ pub enum DecodeStaticStateErr {
     CredentialPublicKey,
     /// Variant returned when [`StaticState::extensions`] could not be decoded.
     Extensions,
+    /// Variant returned when [`StaticState::client_extension_results`] could not be decoded.
+    ClientExtensionResults,
     /// Variant returned when there was trailing data after decoding a [`StaticState`].
     TrailingData,
 }
@@ -501,6 +522,7 @@ impl Display for DecodeStaticStateErr {
         f.write_str(match *self {
             Self::CredentialPublicKey => "credential_public_key could not be decoded",
             Self::Extensions => "extensions could not be decoded",
+            Self::ClientExtensionResults => "client_extension_results could not be decoded",
             Self::TrailingData => "there was trailing data after decoding a StaticState",
         })
     }
@@ -527,14 +549,19 @@ impl Decode
                 AuthenticatorExtensionOutputStaticState::decode_from_buffer(&mut input)
                     .map_err(|_e| DecodeStaticStateErr::Extensions)
                     .and_then(|extensions| {
-                        if input.is_empty() {
-                            Ok(Self {
-                                credential_public_key,
-                                extensions,
+                        ClientExtensionsOutputsStaticState::decode_from_buffer(&mut input)
+                            .map_err(|_e| DecodeStaticStateErr::ClientExtensionResults)
+                            .and_then(|client_extension_results| {
+                                if input.is_empty() {
+                                    Ok(Self {
+                                        credential_public_key,
+                                        extensions,
+                                        client_extension_results,
+                                    })
+                                } else {
+                                    Err(DecodeStaticStateErr::TrailingData)
+                                }
                             })
-                        } else {
-                            Err(DecodeStaticStateErr::TrailingData)
-                        }
                     })
             })
     }

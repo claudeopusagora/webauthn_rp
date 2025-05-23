@@ -1,7 +1,3 @@
-#![expect(
-    clippy::question_mark_used,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 use super::{
     super::{
         super::request::register::CoseAlgorithmIdentifier,
@@ -926,22 +922,24 @@ impl<'d, const R: bool> Visitor<'d> for AuthenticatorAttestationVisitor<R> {
                                 // used.
                                 attested_info.as_ref().map_or_else(
                                     || AttestationObject::parse_data(attestation_object.as_slice()).map_err(Error::custom).and_then(|(att_obj, auth_idx)| {
-                                        if matches!(att_obj.auth_data.attested_credential_data.credential_public_key, UncompressedPubKey::P384(_)) {
-                                            // This won't overflow since `AttestationObject::parse_data` succeeded and `auth_idx`
-                                            // is the start of the raw authenticator data which itself contains the raw Credential ID.
-                                            Ok(Some((CoseAlgorithmIdentifier::Es384, auth_idx,  auth_idx + att_obj.auth_data.attested_credential_data.credential_id.0.len())))
-                                        } else {
-                                            Err(Error::missing_field(PUBLIC_KEY))
+                                        match att_obj.auth_data.attested_credential_data.credential_public_key {
+                                            UncompressedPubKey::P384(_) => {
+                                                // This won't overflow since `AttestationObject::parse_data` succeeded and `auth_idx`
+                                                // is the start of the raw authenticator data which itself contains the raw Credential ID.
+                                                Ok(Some((CoseAlgorithmIdentifier::Es384, auth_idx,  auth_idx + att_obj.auth_data.attested_credential_data.credential_id.0.len())))
+                                            }
+                                            UncompressedPubKey::Ed25519(_) | UncompressedPubKey::P256(_) | UncompressedPubKey::Rsa(_) => Err(Error::missing_field(PUBLIC_KEY)),
                                         }
                                     }),
-                                    |&(ref attested_data, cred_id_start)| if matches!(attested_data.credential_public_key, UncompressedPubKey::P384(_)) {
-                                        // Overflow won't occur since this is correct. This is correct since we successfully parsed
-                                        // `AttestedCredentialData` and calculated `cred_id_start` from it.
-                                        Ok(Some((CoseAlgorithmIdentifier::Es384, cred_id_start, cred_id_start + attested_data.credential_id.0.len())))
-                                    } else if flag {
-                                        Err(Error::invalid_type(Unexpected::Other("null"), &format!("{PUBLIC_KEY} to be a base64url-encoded DER-encoded SubjectPublicKeyInfo").as_str()))
-                                    } else {
-                                        Err(Error::missing_field(PUBLIC_KEY))
+                                    |&(ref attested_data, cred_id_start)| {
+                                        match attested_data.credential_public_key {
+                                            UncompressedPubKey::P384(_) => {
+                                                // Overflow won't occur since this is correct. This is correct since we successfully parsed
+                                                // `AttestedCredentialData` and calculated `cred_id_start` from it.
+                                                Ok(Some((CoseAlgorithmIdentifier::Es384, cred_id_start, cred_id_start + attested_data.credential_id.0.len())))
+                                            }
+                                            UncompressedPubKey::Ed25519(_) | UncompressedPubKey::P256(_) | UncompressedPubKey::Rsa(_) => if flag { Err(Error::invalid_type(Unexpected::Other("null"), &format!("{PUBLIC_KEY} to be a base64url-encoded DER-encoded SubjectPublicKeyInfo").as_str())) } else { Err(Error::missing_field(PUBLIC_KEY)) },
+                                        }
                                     }
                                 )
                             }
@@ -951,28 +949,35 @@ impl<'d, const R: bool> Visitor<'d> for AuthenticatorAttestationVisitor<R> {
                                 attested_info.as_ref().map_or_else(
                                     || AttestationObject::parse_data(attestation_object.as_slice()).map_err(Error::custom).and_then(|(att_obj, auth_idx)| {
                                         if key == att_obj.auth_data.attested_credential_data.credential_public_key {
+                                            let alg = match att_obj.auth_data.attested_credential_data.credential_public_key {
+                                                UncompressedPubKey::Ed25519(_) => CoseAlgorithmIdentifier::Eddsa,
+                                                UncompressedPubKey::P256(_) => CoseAlgorithmIdentifier::Es256,
+                                                UncompressedPubKey::P384(_) => CoseAlgorithmIdentifier::Es384,
+                                                UncompressedPubKey::Rsa(_) => CoseAlgorithmIdentifier::Rs256,
+                                            };
                                             // This won't overflow since `AttestationObject::parse_data` succeeded and `auth_idx`
                                             // is the start of the raw authenticator data which itself contains the raw Credential ID.
-                                            Ok((auth_idx, auth_idx+ att_obj.auth_data.attested_credential_data.credential_id.0.len()))
+                                            Ok(Some((alg, auth_idx, auth_idx+ att_obj.auth_data.attested_credential_data.credential_id.0.len())))
                                         } else {
                                             Err(Error::invalid_value(Unexpected::Bytes(der.0.as_slice()), &format!("DER-encoded public key to match the public key within the attestation object: {:?}", att_obj.auth_data.attested_credential_data.credential_public_key).as_str()))
                                         }
                                     }),
                                     |&(ref attested_data, cred_id_start)| {
                                         if key == attested_data.credential_public_key {
+                                            let alg = match attested_data.credential_public_key {
+                                                UncompressedPubKey::Ed25519(_) => CoseAlgorithmIdentifier::Eddsa,
+                                                UncompressedPubKey::P256(_) => CoseAlgorithmIdentifier::Es256,
+                                                UncompressedPubKey::P384(_) => CoseAlgorithmIdentifier::Es384,
+                                                UncompressedPubKey::Rsa(_) => CoseAlgorithmIdentifier::Rs256,
+                                            };
                                             // Overflow won't occur since this is correct. This is correct since we successfully parsed
                                             // `AttestedCredentialData` and calculated `cred_id_start` from it.
-                                            Ok((cred_id_start, cred_id_start + attested_data.credential_id.0.len()))
+                                            Ok(Some((alg, cred_id_start, cred_id_start + attested_data.credential_id.0.len())))
                                         } else {
                                             Err(Error::invalid_value(Unexpected::Bytes(der.0.as_slice()), &format!("DER-encoded public key to match the public key within the attestation object: {:?}", attested_data.credential_public_key).as_str()))
                                         }
                                     }
-                                ).map(|(start, last)| Some((match key {
-                                    UncompressedPubKey::Ed25519(_) => CoseAlgorithmIdentifier::Eddsa,
-                                    UncompressedPubKey::P256(_) => CoseAlgorithmIdentifier::Es256,
-                                    UncompressedPubKey::P384(_) => CoseAlgorithmIdentifier::Es384,
-                                    UncompressedPubKey::Rsa(_) => CoseAlgorithmIdentifier::Rs256,
-                                }, start, last)))
+                                )
                             })
                         }
                     ).and_then(|cred_key_alg_cred_info| {
@@ -1065,9 +1070,10 @@ impl<'de> Deserialize<'de> for AuthenticatorAttestation {
     /// is deserialized via [`AuthTransports::deserialize`]; the decoded `publicKey` is parsed according to the
     /// applicable DER-encoded ASN.1 `SubjectPublicKeyInfo` schema;
     /// [`publicKeyAlgorithm`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorattestationresponsejson-publickeyalgorithm)
-    /// is deserialized via [`CoseAlgorithmIdentifier::deserialize`]; all `required` fields in the
-    /// `AuthenticatorAttestationResponseJSON` Web IDL `dictionary` exist (and must not be `null`); `publicKey` exists when
-    /// Ed25519, P-256 with SHA-256, or RSASSA-PKCS1-v1_5 with SHA-256 is used (and must not be `null`)
+    /// is deserialized according to
+    /// [`CoseAlgorithmIdentifier`](https://www.w3.org/TR/webauthn-3/#typedefdef-cosealgorithmidentifier); all `required`
+    /// fields in the `AuthenticatorAttestationResponseJSON` Web IDL `dictionary` exist (and must not be `null`); `publicKey`
+    /// exists when Ed25519, P-256 with SHA-256, or RSASSA-PKCS1-v1_5 with SHA-256 is used (and must not be `null`)
     /// [per WebAuthn](https://www.w3.org/TR/webauthn-3/#sctn-public-key-easy); the `publicKeyAlgorithm` aligns
     /// with
     /// [`credentialPublicKey`](https://www.w3.org/TR/webauthn-3/#authdata-attestedcredentialdata-credentialpublickey)
@@ -1176,7 +1182,7 @@ impl<'de> Deserialize<'de> for CredentialPropertiesOutput {
 }
 impl<'de> Deserialize<'de> for AuthenticationExtensionsPrfOutputs {
     /// Deserializes a `struct` based on
-    /// [`AuthenticationExtensionsPRFOutputs`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfoutputs).
+    /// [`AuthenticationExtensionsPRFOutputsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfoutputsjson).
     ///
     /// Note unknown and duplicate keys are forbidden;
     /// [`enabled`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfoutputs-enabled)
@@ -1561,7 +1567,7 @@ mod tests {
             b't',
             b'a',
             cbor::BYTES_INFO_24,
-            113,
+            115,
             // `rpIdHash`.
             0,
             0,
@@ -2242,7 +2248,7 @@ mod tests {
         // Unknown `transports`.
         err = Error::invalid_value(
             Unexpected::Str("Usb"),
-            &"'ble', 'hybrid', 'internal', 'nfc', 'smart-card', or 'usb'",
+            &"'ble', 'cable', 'hybrid', 'internal', 'nfc', 'smart-card', or 'usb'",
         )
         .to_string()
         .into_bytes();
@@ -4583,7 +4589,7 @@ mod tests {
         );
         // `publicKeyAlgorithm` mismatch.
         let mut err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
+            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Es384).as_str()
         )
         .to_string().into_bytes();
@@ -4597,7 +4603,7 @@ mod tests {
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -7,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4737,7 +4743,7 @@ mod tests {
         );
         // `publicKeyAlgorithm` mismatch when `publicKey` does not exist.
         err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
+            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Es384).as_str()
         )
         .to_string().into_bytes();
@@ -4750,7 +4756,7 @@ mod tests {
                         "clientDataJSON": b64_cdata,
                         "authenticatorData": b64_adata,
                         "transports": [],
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -7,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4788,7 +4794,7 @@ mod tests {
         );
         // `publicKeyAlgorithm` mismatch when `publicKey` is null.
         err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
+            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Es384).as_str()
         )
         .to_string().into_bytes();
@@ -4802,7 +4808,7 @@ mod tests {
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": null,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -7,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},

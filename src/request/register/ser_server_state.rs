@@ -1,7 +1,3 @@
-#![expect(
-    clippy::unseparated_literal_suffix,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 use super::{
     super::super::bin::{
         Decode, DecodeBuffer, EncDecErr, Encode, EncodeBuffer, EncodeBufferFallible as _,
@@ -133,16 +129,19 @@ impl EncodeBuffer for CredProtect {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         match *self {
             Self::None => 0u8.encode_into_buffer(buffer),
-            Self::UserVerificationOptional(info) => {
+            Self::UserVerificationOptional(enforce, info) => {
                 1u8.encode_into_buffer(buffer);
+                enforce.encode_into_buffer(buffer);
                 info.encode_into_buffer(buffer);
             }
-            Self::UserVerificationOptionalWithCredentialIdList(info) => {
+            Self::UserVerificationOptionalWithCredentialIdList(enforce, info) => {
                 2u8.encode_into_buffer(buffer);
+                enforce.encode_into_buffer(buffer);
                 info.encode_into_buffer(buffer);
             }
-            Self::UserVerificationRequired(info) => {
+            Self::UserVerificationRequired(enforce, info) => {
                 3u8.encode_into_buffer(buffer);
+                enforce.encode_into_buffer(buffer);
                 info.encode_into_buffer(buffer);
             }
         }
@@ -153,10 +152,18 @@ impl<'a> DecodeBuffer<'a> for CredProtect {
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         u8::decode_from_buffer(data).and_then(|val| match val {
             0 => Ok(Self::None),
-            1 => ExtensionInfo::decode_from_buffer(data).map(Self::UserVerificationOptional),
-            2 => ExtensionInfo::decode_from_buffer(data)
-                .map(Self::UserVerificationOptionalWithCredentialIdList),
-            3 => ExtensionInfo::decode_from_buffer(data).map(Self::UserVerificationRequired),
+            1 => bool::decode_from_buffer(data).and_then(|enforce| {
+                ExtensionInfo::decode_from_buffer(data)
+                    .map(|info| Self::UserVerificationOptional(enforce, info))
+            }),
+            2 => bool::decode_from_buffer(data).and_then(|enforce| {
+                ExtensionInfo::decode_from_buffer(data)
+                    .map(|info| Self::UserVerificationOptionalWithCredentialIdList(enforce, info))
+            }),
+            3 => bool::decode_from_buffer(data).and_then(|enforce| {
+                ExtensionInfo::decode_from_buffer(data)
+                    .map(|info| Self::UserVerificationRequired(enforce, info))
+            }),
             _ => Err(EncDecErr),
         })
     }

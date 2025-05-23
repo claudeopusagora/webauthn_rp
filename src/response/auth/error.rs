@@ -1,9 +1,8 @@
 #[cfg(feature = "serde_relaxed")]
 use super::super::SerdeJsonErr;
 use super::super::{
-    super::{CredentialErr, CredentialId},
-    AuthRespErr, AuthenticatorDataErr as AuthDataErr, CeremonyErr, CollectedClientDataErr,
-    PubKeyErr, RpId,
+    super::CredentialId, AuthRespErr, AuthenticatorDataErr as AuthDataErr, CeremonyErr,
+    CollectedClientDataErr, PubKeyErr, RpId,
 };
 #[cfg(doc)]
 use super::{
@@ -14,16 +13,18 @@ use super::{
                 BackupReq, UserVerificationRequirement,
                 auth::{
                     AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
-                    DiscoverableAuthenticationServerState, Extension,
+                    CredentialSpecificExtension, DiscoverableAuthenticationServerState,
+                    DiscoverableCredentialRequestOptions, Extension,
                     NonDiscoverableAuthenticationServerState, PublicKeyCredentialRequestOptions,
                 },
             },
         },
         Backup,
+        register::CredentialProtectionPolicy,
     },
     Authentication, AuthenticatorAssertion, AuthenticatorAttachment, AuthenticatorData,
     AuthenticatorExtensionOutput, CollectedClientData, CompressedPubKey, Flag, HmacSecret,
-    Signature,
+    Signature, UserHandle,
 };
 use core::{
     convert::Infallible,
@@ -150,28 +151,40 @@ impl Display for OneOrTwo {
 /// Error in [`AuthCeremonyErr::Extension`].
 #[derive(Clone, Copy, Debug)]
 pub enum ExtensionErr {
+    /// [`AuthenticatorExtensionOutput::hmac_secret`] was sent from the client, but [`Flag::user_verified`]
+    /// was `false`.
+    ///
+    /// Note this is only possible iff [`PublicKeyCredentialRequestOptions::user_verification`] is not
+    /// [`UserVerificationRequirement::Required`], [`Extension::prf`] is `None`,
+    /// [`CredentialSpecificExtension::prf`] is `None`, and
+    /// [`AuthenticationVerificationOptions::error_on_unsolicited_extensions`] is `false`.
+    UserNotVerifiedHmacSecret,
     /// [`AuthenticatorExtensionOutput::hmac_secret`] was sent from the client but was not supposed to be.
     ForbiddenHmacSecret,
-    /// [`AuthenticatorExtensionOutput::hmac_secret`] was sent from the client for a credential that is not PRF
-    /// capable.
-    HmacSecretForPrfIncapableCred,
-    /// [`Extension::prf`] was requested, but the required response was not sent back.
+    /// [`Extension::prf`] was requested for a credential that does not support it.
+    PrfRequestedForPrfIncapableCred,
+    /// [`Extension::prf`] was requested for a PRF-capable credential that is based on the
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
+    /// extension, but the required response was not sent back.
     MissingHmacSecret,
     /// [`Extension::prf`] was requested with the first number of PRF inputs, but the second number of
     /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
-    /// outputs were sent.
+    /// outputs were sent for a PRF-capable credential that is based on the `hmac-secret` extension.
     InvalidHmacSecretValue(OneOrTwo, OneOrTwo),
 }
 impl Display for ExtensionErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::UserNotVerifiedHmacSecret => {
+                f.write_str("user was not verified but hmac-secret info was sent from the client")
+            }
             Self::ForbiddenHmacSecret => {
                 f.write_str("hmac-secret info was sent from the client, but it is not allowed")
             }
-            Self::HmacSecretForPrfIncapableCred => f.write_str(
-                "hmac-secret info was sent from the client for a PRF-incapable credential",
-            ),
+            Self::PrfRequestedForPrfIncapableCred => {
+                f.write_str("prf extension was requested for a credential that is not PRF-capable")
+            }
             Self::MissingHmacSecret => f.write_str("hmac-secret was not sent from the client"),
             Self::InvalidHmacSecretValue(sent, recv) => write!(
                 f,
@@ -242,8 +255,12 @@ pub enum AuthCeremonyErr {
     /// [`AllowedCredentials`] is empty (i.e., a discoverable request was issued), but
     /// [`AuthenticatorAssertion::user_handle`] was [`None`].
     MissingUserHandle,
-    /// Variant returned when [`AuthenticatedCredential`] cannot be updated due to invalid state.
-    Credential(CredentialErr),
+    /// [`Flag::user_verified`] was `false`, but the credential has
+    /// [`CredentialProtectionPolicy::UserVerificationRequired`].
+    UserNotVerifiedCredProtectRequired,
+    /// [`DiscoverableCredentialRequestOptions`] was sent but the credential has
+    /// [`CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList`].
+    DiscoverableCredProtectCredentialIdList,
 }
 impl Display for AuthCeremonyErr {
     #[inline]
@@ -279,7 +296,8 @@ impl Display for AuthCeremonyErr {
             Self::CredentialIdMismatch => f.write_str("the credential ID does not match"),
             Self::NoMatchingAllowedCredential => f.write_str("none of the credentials used to start the non-discoverable request have the same Credential ID as the credential used to finish the ceremony"),
             Self::MissingUserHandle => f.write_str("the credential used to finish the ceremony did not have a user handle despite a discoverable request being issued"),
-            Self::Credential(err) => err.fmt(f),
+            Self::UserNotVerifiedCredProtectRequired => f.write_str("the credential requires user verification, but the user was not verified"),
+            Self::DiscoverableCredProtectCredentialIdList => f.write_str("the credential requires user verification or to be used for non-discoverable requests, but a discoverable request was used and the user was not verified"),
         }
     }
 }
@@ -296,3 +314,13 @@ pub struct UnknownCredentialOptions<'rp, 'cred> {
     /// [`credentialId`](https://www.w3.org/TR/webauthn-3/#dictdef-unknowncredentialoptions-credentialid).
     pub credential_id: CredentialId<&'cred [u8]>,
 }
+/// Error when a [`UserHandle`] does not exist that is required to.
+#[derive(Debug)]
+pub struct MissingUserHandleErr;
+impl Display for MissingUserHandleErr {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("user handle does not exist")
+    }
+}
+impl Error for MissingUserHandleErr {}

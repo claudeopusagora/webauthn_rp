@@ -2,7 +2,7 @@ extern crate alloc;
 use super::{
     AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
     CoseAlgorithmIdentifier, CoseAlgorithmIdentifiers, CredProtect, CrossPlatformHint, Extension,
-    ExtensionInfo, Hint, Nickname, PlatformHint, PublicKeyCredentialUserEntity,
+    Hint, Nickname, PlatformHint, PublicKeyCredentialUserEntity,
     RegistrationClientState, ResidentKeyRequirement, RpId, UserHandle, Username,
 };
 use alloc::borrow::Cow;
@@ -80,15 +80,12 @@ impl Serialize for CoseAlgorithmIdentifier {
             .serialize_struct("PublicKeyCredentialParameters", 2)
             .and_then(|mut ser| {
                 ser.serialize_field("type", "public-key").and_then(|()| {
-                    ser.serialize_field(
-                        "alg",
-                        &match *self {
-                            Self::Eddsa => EDDSA,
-                            Self::Es256 => ES256,
-                            Self::Es384 => ES384,
-                            Self::Rs256 => RS256,
-                        },
-                    )
+                    ser.serialize_field("alg", &match *self {
+                        Self::Eddsa => EDDSA,
+                        Self::Es256 => ES256,
+                        Self::Es384 => ES384,
+                        Self::Rs256 => RS256,
+                    })
                     .and_then(|()| ser.end())
                 })
             })
@@ -113,17 +110,17 @@ impl Serialize for CoseAlgorithmIdentifiers {
     /// # Ok::<_, serde_json::Error>(())
     /// ```
     #[expect(
-        clippy::as_conversions,
-        reason = "u8::count_ones returns a u32, and it's always going to fit in a usize"
+        clippy::arithmetic_side_effects,
+        reason = "comment justifies correctness"
     )]
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // `self.0.count_ones()` is at most 4 which is guaranteed to be a valid `usize`.
+        // At most we add `1` four times which clearly cannot overflow or `usize`.
         serializer
-            .serialize_seq(Some(self.0.count_ones() as usize))
+            .serialize_seq(Some(usize::from(self.contains(CoseAlgorithmIdentifier::Eddsa)) + usize::from(self.contains(CoseAlgorithmIdentifier::Es256)) + usize::from(self.contains(CoseAlgorithmIdentifier::Es384)) + usize::from(self.contains(CoseAlgorithmIdentifier::Es384))))
             .and_then(|mut ser| {
                 if self.contains(CoseAlgorithmIdentifier::Eddsa) {
                     ser.serialize_element(&CoseAlgorithmIdentifier::Eddsa)
@@ -176,7 +173,8 @@ impl Serialize for PublicKeyCredentialRpEntity<'_> {
             })
     }
 }
-impl<const LEN: usize> Serialize for UserHandle<LEN> {
+// We implement this separately from `user_serialize` for proper documentation and example purposes.
+impl Serialize for UserHandle<1> {
     /// Serializes `self` to conform with
     /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-id).
     ///
@@ -197,10 +195,39 @@ impl<const LEN: usize> Serialize for UserHandle<LEN> {
     where
         S: Serializer,
     {
-        serializer.serialize_str(BASE64URL_NOPAD.encode(self.0.as_ref()).as_str())
+        serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(self.0.as_slice(), [0; crate::base64url_nopad_len(1).unwrap()].as_mut_slice()))
     }
 }
-impl<const LEN: usize> Serialize for PublicKeyCredentialUserEntity<'_, '_, '_, LEN> {
+/// Implements [`Serialize`] for [`UserHandle`] of array of length of the passed `usize` literal.
+///
+/// Only [`USER_HANDLE_MIN_LEN`]–[`USER_HANDLE_MAX_LEN`] inclusively are allowed to be passed.
+macro_rules! user_serialize {
+    ( $( $x:literal),* ) => {
+        $(
+impl Serialize for UserHandle<$x> {
+    /// See [`UserHandle::serialize`].
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        
+        serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(self.0.as_slice(), [0; crate::base64url_nopad_len($x).unwrap()].as_mut_slice()))
+    }
+}
+        )*
+    };
+}
+// MUST only pass `2`–[`USER_HANDLE_MAX_LEN`] inclusively.
+user_serialize!(
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+    27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+    51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64
+);
+impl<const LEN: usize> Serialize for PublicKeyCredentialUserEntity<'_, '_, '_, LEN>
+where
+    UserHandle<LEN>: Serialize,
+{
     /// Serializes `self` to conform with
     /// [`PublicKeyCredentialUserEntityJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialuserentityjson).
     ///
@@ -448,18 +475,18 @@ impl Serialize for Extension {
     ///
     /// ```
     /// # use webauthn_rp::request::{
-    /// #     register::{CredProtect, Extension},
+    /// #     register::{CredProtect, Extension, FourToSixtyThree},
     /// #     ExtensionInfo, ExtensionReq,
     /// # };
     /// assert_eq!(serde_json::to_string(&Extension::default())?, r#"{}"#);
     /// assert_eq!(
     ///     serde_json::to_string(&Extension {
     ///         cred_props: Some(ExtensionReq::Allow),
-    ///         cred_protect: CredProtect::UserVerificationRequired(ExtensionInfo::RequireEnforceValue),
-    ///         min_pin_length: Some((16, ExtensionInfo::AllowDontEnforceValue)),
+    ///         cred_protect: CredProtect::UserVerificationRequired(false, ExtensionInfo::RequireEnforceValue),
+    ///         min_pin_length: Some((FourToSixtyThree::new(16).unwrap_or_else(|| unreachable!("bug in FourToSixtyThree::new")), ExtensionInfo::AllowDontEnforceValue)),
     ///         prf: Some(ExtensionInfo::AllowEnforceValue)
     ///     })?,
-    ///     r#"{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":true,"minPinLength":true,"prf":{}}"#
+    ///     r#"{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{}}"#
     /// );
     /// # Ok::<_, serde_json::Error>(())
     /// ```
@@ -497,7 +524,7 @@ impl Serialize for Extension {
                         if matches!(self.cred_protect, CredProtect::None) {
                             Ok(())
                         } else {
-                            let ext_info;
+                            let enforce_policy;
                             // [`credProtect`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-credProtect-extension)
                             // is serialized by serializing its fields directly and not as a map of fields.
                             ser.serialize_field(
@@ -506,18 +533,18 @@ impl Serialize for Extension {
                                     CredProtect::None => unreachable!(
                                         "Extensions is incorrectly serializing credProtect"
                                     ),
-                                    CredProtect::UserVerificationOptional(info) => {
-                                        ext_info = info;
+                                    CredProtect::UserVerificationOptional(enforce, _) => {
+                                        enforce_policy = enforce;
                                         "userVerificationOptional"
                                     }
                                     CredProtect::UserVerificationOptionalWithCredentialIdList(
-                                        info,
+                                        enforce, _,
                                     ) => {
-                                        ext_info = info;
+                                        enforce_policy = enforce;
                                         "userVerificationOptionalWithCredentialIDList"
                                     }
-                                    CredProtect::UserVerificationRequired(info) => {
-                                        ext_info = info;
+                                    CredProtect::UserVerificationRequired(enforce, _) => {
+                                        enforce_policy = enforce;
                                         "userVerificationRequired"
                                     }
                                 },
@@ -525,11 +552,7 @@ impl Serialize for Extension {
                             .and_then(|()| {
                                 ser.serialize_field(
                                     "enforceCredentialProtectionPolicy",
-                                    &matches!(
-                                        ext_info,
-                                        ExtensionInfo::RequireEnforceValue
-                                            | ExtensionInfo::AllowEnforceValue
-                                    ),
+                                    &enforce_policy,
                                 )
                             })
                         }
@@ -546,7 +569,10 @@ impl Serialize for Extension {
             })
     }
 }
-impl<const USER_LEN: usize> Serialize for RegistrationClientState<'_, '_, '_, '_, USER_LEN> {
+impl<'user_name, 'user_display_name, 'user_id, const USER_LEN: usize> Serialize for RegistrationClientState<'_, 'user_name, 'user_display_name, 'user_id, USER_LEN>
+where
+    PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>: Serialize,
+{
     /// Serializes `self` to conform with
     /// [`PublicKeyCredentialCreationOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialcreationoptionsjson).
     ///
@@ -558,7 +584,7 @@ impl<const USER_LEN: usize> Serialize for RegistrationClientState<'_, '_, '_, '_
     /// # use webauthn_rp::{
     /// #     request::{
     /// #         register::{
-    /// #             UserHandle64, AuthenticatorAttachmentReq, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
+    /// #             FourToSixtyThree, UserHandle64, AuthenticatorAttachmentReq, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
     /// #         },
     /// #         AsciiDomain, ExtensionInfo, Hint, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
     /// #     },
@@ -585,7 +611,7 @@ impl<const USER_LEN: usize> Serialize for RegistrationClientState<'_, '_, '_, '_
     /// let user_handle = UserHandle64::new();
     /// let mut options = PublicKeyCredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: &user_handle, display_name: Some("Pierre de Fermat".try_into()?) }, creds);
     /// options.authenticator_selection.authenticator_attachment = AuthenticatorAttachmentReq::None(Hint::SecurityKey);
-    /// options.extensions.min_pin_length = Some((16, ExtensionInfo::RequireEnforceValue));
+    /// options.extensions.min_pin_length = Some((FourToSixtyThree::new(16).unwrap_or_else(|| unreachable!("bug in FourToSixtyThree::new")), ExtensionInfo::RequireEnforceValue));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap();
     /// let json = serde_json::json!({
@@ -639,7 +665,7 @@ impl<const USER_LEN: usize> Serialize for RegistrationClientState<'_, '_, '_, '_
     ///     ],
     ///     "extensions":{
     ///         "credentialProtectionPolicy":"userVerificationRequired",
-    ///         "enforceCredentialProtectionPolicy":true,
+    ///         "enforceCredentialProtectionPolicy":false,
     ///         "minPinLength":true
     ///     }
     /// }).to_string();
@@ -877,7 +903,7 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifier {
                 match v {
                     EDDSA => Ok(CoseAlgorithmIdentifier::Eddsa),
                     ES256 => Ok(CoseAlgorithmIdentifier::Es256),
-                    ES384 => Ok(CoseAlgorithmIdentifier::Es384),
+                    ES384=> Ok(CoseAlgorithmIdentifier::Es384),
                     RS256 => Ok(CoseAlgorithmIdentifier::Rs256),
                     _ => Err(E::invalid_value(
                         Unexpected::Signed(i64::from(v)),

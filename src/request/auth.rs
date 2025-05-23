@@ -3,7 +3,10 @@ use super::{
     super::response::{
         Backup, CollectedClientData, Flag,
         auth::AuthenticatorData,
-        register::{DynamicState, StaticState},
+        register::{
+            AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputsStaticState,
+            DynamicState, StaticState,
+        },
     },
     AsciiDomain, DomainOrigin, Url,
     register::{self, PublicKeyCredentialCreationOptions},
@@ -18,7 +21,7 @@ use super::{
                 HmacSecret, NonDiscoverableAuthentication,
                 error::{AuthCeremonyErr, ExtensionErr, OneOrTwo},
             },
-            register::CompressedPubKey,
+            register::{CompressedPubKey, CredentialProtectionPolicy},
         },
     },
     BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, Credentials, ExtensionReq, Hint,
@@ -85,9 +88,10 @@ impl SignatureCounterEnforcement {
 /// [`AuthenticationExtensionsPRFValues`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfvalues).
 ///
 /// This is only applicable if
-/// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
-/// is `true` when registering a new credential with [`register::Extension::prf`] and
 /// [`PublicKeyCredentialRequestOptions::user_verification`] is [`UserVerificationRequirement::Required`].
+/// Additionally [`AuthenticatorExtensionOutputStaticState::hmac_secret`] must either be `None` or `Some(true)`
+/// and [`ClientExtensionsOutputsStaticState::prf`] must be `None` or
+/// `Some(AuthenticationExtensionsPrfOutputs { enabled: true })`.
 ///
 /// Unlike the spec, it is forbidden for
 /// [the decrypted outputs](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfoutputs) to be
@@ -103,7 +107,7 @@ impl SignatureCounterEnforcement {
 ///
 /// For the owned analog, see [`PrfInputOwned`].
 ///
-/// When relying on [`DiscoverableCredentialRequestOptions`]), one will likely use a static PRF input for _all_
+/// When relying on [`DiscoverableCredentialRequestOptions`], one will likely use a static PRF input for _all_
 /// credentials since rolling over PRF inputs is not feasible. One uses this type for such a thing. In other words,
 /// `'a` will likely be `'static` and [`Self::second`] will likely be `None`.
 #[derive(Clone, Copy, Debug)]
@@ -113,19 +117,28 @@ pub struct PrfInput<'a> {
     /// [`second`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-second).
     pub second: Option<&'a [u8]>,
     /// Response requirements.
+    ///
+    /// Note this is only applicable for authenticators that implement the
+    /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension) extension on top of the
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-extension)
+    /// extension since the data is encrypted and is part of the [`AuthenticatorData`].
     pub ext_info: ExtensionReq,
 }
 /// Owned version of [`PrfInput`].
 ///
 /// When relying on [`NonDiscoverableCredentialRequestOptions`], it's recommended to use credential-specific PRF
 /// inputs that are continuously rolled over. One uses this type for such a thing.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PrfInputOwned {
     /// [`first`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-first).
     pub first: Vec<u8>,
     /// [`second`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-second).
     pub second: Option<Vec<u8>>,
-    /// Response requirements.
+    ///
+    /// Note this is only applicable for authenticators that implement the
+    /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension) extension on top of the
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-extension)
+    /// extension since the data is encrypted and is part of the [`AuthenticatorData`].
     pub ext_info: ExtensionReq,
 }
 /// The [defined extensions](https://www.w3.org/TR/webauthn-3/#sctn-defined-extensions) to send to the client.
@@ -139,7 +152,7 @@ pub struct Extension<'prf> {
 }
 /// The [defined extensions](https://www.w3.org/TR/webauthn-3/#sctn-defined-extensions) to send to the client that
 /// are credential-specific which among other things implies a non-discoverable request.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CredentialSpecificExtension {
     /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension).
     ///
@@ -148,7 +161,7 @@ pub struct CredentialSpecificExtension {
 }
 /// Registered credential used in
 /// [`allowCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-allowcredentials).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AllowedCredential {
     /// The registered credential.
     pub credential: PublicKeyCredentialDescriptor<Vec<u8>>,
@@ -164,8 +177,14 @@ impl From<PublicKeyCredentialDescriptor<Vec<u8>>> for AllowedCredential {
         }
     }
 }
+impl From<AllowedCredential> for PublicKeyCredentialDescriptor<Vec<u8>> {
+    #[inline]
+    fn from(credential: AllowedCredential) -> Self {
+        credential.credential
+    }
+}
 /// Queue of unique [`AllowedCredential`]s.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct AllowedCredentials {
     /// Allowed credentials.
     creds: Vec<AllowedCredential>,
@@ -279,6 +298,29 @@ impl From<&AllowedCredentials> for Vec<CredInfo> {
                 });
                 creds
             })
+    }
+}
+impl From<AllowedCredentials> for Vec<PublicKeyCredentialDescriptor<Vec<u8>>> {
+    #[inline]
+    fn from(value: AllowedCredentials) -> Self {
+        let mut creds = Self::with_capacity(value.creds.len());
+        value.creds.into_iter().fold((), |(), cred| {
+            creds.push(cred.credential);
+        });
+        creds
+    }
+}
+impl From<Vec<PublicKeyCredentialDescriptor<Vec<u8>>>> for AllowedCredentials {
+    #[inline]
+    fn from(value: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>) -> Self {
+        let mut creds = Self::with_capacity(value.len());
+        value.into_iter().fold((), |(), credential| {
+            creds.push(AllowedCredential {
+                credential,
+                extension: CredentialSpecificExtension { prf: None },
+            });
+        });
+        creds
     }
 }
 /// Helper that verifies the overlap of [`DiscoverableCredentialRequestOptions::start_ceremony`] and
@@ -403,11 +445,11 @@ impl<'rp_id, 'prf> NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
     pub const fn options(&mut self) -> &mut PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
         &mut self.options
     }
-    /// Returns the `slice` of [`AllowedCredential`]s.
+    /// Returns a reference to the [`AllowedCredential`]s.
     #[inline]
     #[must_use]
-    pub fn allow_credentials(&self) -> &[AllowedCredential] {
-        self.allow_credentials.as_ref()
+    pub const fn allow_credentials(&self) -> &AllowedCredentials {
+        &self.allow_credentials
     }
     /// Creates a `NonDiscoverableCredentialRequestOptions` containing
     /// [`PublicKeyCredentialRequestOptions::second_factor`] and the passed [`AllowedCredentials`].
@@ -630,8 +672,37 @@ impl<'rp_id, 'prf> NonDiscoverableAuthenticationClientState<'rp_id, 'prf> {
         &self.0
     }
 }
-/// `PrfInput` and `PrfInputOwned` without the actual data sent to reduce memory usage when storing [`AuthenticationServerState`]
-/// in an in-memory collection.
+/// The possible combinations of an [`AuthenticatedCredential`]'s [`StaticState`]'s
+/// `extensions.hmac_secret` and `client_extension_results.prf`.
+///
+/// Note we ensure in `crate::verify_static_and_dynamic_state` that `hmac_secret` does not exist when
+/// `prf` does not exist, `hmac_secret` does not exist or is `false` when `prf` is `false`, or
+/// `hmac_secret` does not exist or is `true` when `prf` is `true`.
+#[derive(Clone, Copy)]
+enum CredPrf {
+    /// No `prf` or `hmac_secret`.
+    None,
+    /// `prf.enabled` is `false` but there is no `hmac_secret`.
+    FalseNoHmac,
+    /// `prf.enabled` and `hmac_secret` are `false`.
+    FalseFalseHmac,
+    /// `prf.enabled` is `true` but there is no `hmac_secret`.
+    TrueNoHmac,
+    /// `prf.enabled` and `hmac_secret` are `true`.
+    TrueTrueHmac,
+}
+impl CredPrf {
+    /// Returns `true` iff `self` is allowed to have an `HmacSecret` response.
+    ///
+    /// Note many authenticators allow PRF to be used during authentication even when not requested during
+    /// registration even for authenticators (e.g., CTAP-based ones) that implement PRF on top of the `hmac-secret`
+    /// extension; thus we allow `Self::None` and `Self::TrueNoHmac`.
+    const fn is_prf_capable(self) -> bool {
+        matches!(self, Self::None | Self::TrueNoHmac | Self::TrueTrueHmac)
+    }
+}
+/// `PrfInput` and `PrfInputOwned` without the actual data sent to reduce memory usage when storing
+/// [`DiscoverableAuthenticationServerState`] in an in-memory collection.
 #[derive(Clone, Copy, Debug)]
 enum ServerPrfInfo {
     /// `PrfInput::second` was `None`.
@@ -647,72 +718,95 @@ impl ServerPrfInfo {
         }
     }
     /// Validates `val` based on the passed arguments.
+    ///
+    /// It's not possible to request the PRF extension without sending `UserVerificationRequirement::Required`;
+    /// thus `user_verified` will always be `true` when sending PRF; otherwise ceremony validation will error.
+    /// However when we _don't_ send the PRF extension _and_ we don't error on an unsolicited response, it's
+    /// possible to receive an `HmacSecret` without the user having been verified; thus we only ensure
+    /// `user_verified` is true when we don't error on unsolicted responses _and_ we didn't send the PRF extension.
     fn validate(
         val: Option<Self>,
-        prf_capable: bool,
+        user_verified: bool,
+        cred_prf: CredPrf,
         hmac: HmacSecret,
         err_unsolicited: bool,
     ) -> Result<(), ExtensionErr> {
         match hmac {
-            HmacSecret::None => {
-                if prf_capable {
-                    val.map_or(Ok(()), |input| {
-                        if matches!(input.ext_info(), ExtensionReq::Allow) {
+            HmacSecret::None => val.map_or(Ok(()), |input| {
+                if matches!(input.ext_info(), ExtensionReq::Allow) {
+                    if cred_prf.is_prf_capable() {
+                        Ok(())
+                    } else {
+                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                    }
+                } else {
+                    match cred_prf {
+                        CredPrf::None | CredPrf::TrueNoHmac => Ok(()),
+                        CredPrf::FalseNoHmac | CredPrf::FalseFalseHmac => {
+                            Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                        }
+                        CredPrf::TrueTrueHmac => Err(ExtensionErr::MissingHmacSecret),
+                    }
+                }
+            }),
+            HmacSecret::One => val.map_or_else(
+                || {
+                    if err_unsolicited {
+                        Err(ExtensionErr::ForbiddenHmacSecret)
+                    } else if cred_prf.is_prf_capable() {
+                        if user_verified {
                             Ok(())
                         } else {
-                            Err(ExtensionErr::MissingHmacSecret)
+                            Err(ExtensionErr::UserNotVerifiedHmacSecret)
                         }
-                    })
-                } else {
-                    // We check if the PRF extension was requested on an incapable credential;
-                    // if so, we error.
-                    val.map_or(Ok(()), |_| Err(ExtensionErr::HmacSecretForPrfIncapableCred))
-                }
-            }
-            HmacSecret::One => {
-                if prf_capable {
-                    val.map_or_else(
-                        || {
-                            if err_unsolicited {
-                                Err(ExtensionErr::ForbiddenHmacSecret)
-                            } else {
-                                Ok(())
-                            }
-                        },
-                        |input| match input {
-                            Self::One(_) => Ok(()),
-                            Self::Two(_) => Err(ExtensionErr::InvalidHmacSecretValue(
-                                OneOrTwo::Two,
-                                OneOrTwo::One,
-                            )),
-                        },
-                    )
-                } else {
-                    Err(ExtensionErr::HmacSecretForPrfIncapableCred)
-                }
-            }
-            HmacSecret::Two => {
-                if prf_capable {
-                    val.map_or_else(
-                        || {
-                            if err_unsolicited {
-                                Err(ExtensionErr::ForbiddenHmacSecret)
-                            } else {
-                                Ok(())
-                            }
-                        },
-                        |input| match input {
-                            Self::One(_) => Err(ExtensionErr::InvalidHmacSecretValue(
-                                OneOrTwo::One,
-                                OneOrTwo::Two,
-                            )),
-                            Self::Two(_) => Ok(()),
-                        },
-                    )
-                } else {
-                    Err(ExtensionErr::HmacSecretForPrfIncapableCred)
-                }
-            }
+                    } else {
+                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                    }
+                },
+                |info| {
+                    if matches!(info, Self::One(_)) {
+                        if cred_prf.is_prf_capable() {
+                            Ok(())
+                        } else {
+                            Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                        }
+                    } else {
+                        Err(ExtensionErr::InvalidHmacSecretValue(
+                            OneOrTwo::Two,
+                            OneOrTwo::One,
+                        ))
+                    }
+                },
+            ),
+            HmacSecret::Two => val.map_or_else(
+                || {
+                    if err_unsolicited {
+                        Err(ExtensionErr::ForbiddenHmacSecret)
+                    } else if cred_prf.is_prf_capable() {
+                        if user_verified {
+                            Ok(())
+                        } else {
+                            Err(ExtensionErr::UserNotVerifiedHmacSecret)
+                        }
+                    } else {
+                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                    }
+                },
+                |info| {
+                    if matches!(info, Self::Two(_)) {
+                        if cred_prf.is_prf_capable() {
+                            Ok(())
+                        } else {
+                            Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                        }
+                    } else {
+                        Err(ExtensionErr::InvalidHmacSecretValue(
+                            OneOrTwo::One,
+                            OneOrTwo::Two,
+                        ))
+                    }
+                },
+            ),
         }
     }
 }
@@ -786,13 +880,15 @@ impl ServerExtensionInfo {
     /// Note that this MUST only be called internally by `auth::validate_extensions`.
     fn validate_extensions(
         self,
+        user_verified: bool,
         auth_ext: AuthenticatorExtensionOutput,
         error_unsolicited: bool,
-        prf_capable: bool,
+        cred_prf: CredPrf,
     ) -> Result<(), ExtensionErr> {
         ServerPrfInfo::validate(
             self.prf,
-            prf_capable,
+            user_verified,
+            cred_prf,
             auth_ext.hmac_secret,
             error_unsolicited,
         )
@@ -801,15 +897,16 @@ impl ServerExtensionInfo {
 /// Validates the extensions.
 fn validate_extensions(
     ext: ServerExtensionInfo,
+    user_verified: bool,
     cred_ext: Option<ServerCredSpecificExtensionInfo>,
     auth_ext: AuthenticatorExtensionOutput,
     error_unsolicited: bool,
-    prf_capable: bool,
+    cred_prf: CredPrf,
 ) -> Result<(), ExtensionErr> {
     cred_ext.map_or_else(
         || {
             // No client-specific extensions, so we can simply focus on `ext`.
-            ext.validate_extensions(auth_ext, error_unsolicited, prf_capable)
+            ext.validate_extensions(user_verified, auth_ext, error_unsolicited, cred_prf)
         },
         |c_ext| {
             // Must carefully process each extension based on overlap and which gets priority over the other.
@@ -817,7 +914,8 @@ fn validate_extensions(
                 || {
                     ServerPrfInfo::validate(
                         ext.prf,
-                        prf_capable,
+                        user_verified,
+                        cred_prf,
                         auth_ext.hmac_secret,
                         error_unsolicited,
                     )
@@ -825,7 +923,8 @@ fn validate_extensions(
                 |_| {
                     ServerPrfInfo::validate(
                         c_ext.prf,
-                        prf_capable,
+                        user_verified,
+                        cred_prf,
                         auth_ext.hmac_secret,
                         error_unsolicited,
                     )
@@ -1053,7 +1152,7 @@ impl DiscoverableAuthenticationServerState {
         if cred.user_id == response.response.user_handle() {
             // Step 6 item 2.
             if cred.id == response.raw_id {
-                self.0.verify(rp_id, response, cred, options, None)
+                self.0.verify(true, rp_id, response, cred, options, None)
             } else {
                 Err(AuthCeremonyErr::CredentialIdMismatch)
             }
@@ -1147,7 +1246,7 @@ impl NonDiscoverableAuthenticationServerState {
                         // Step 6 item 1.
                         if c.id == cred.id {
                             self.state
-                                .verify(rp_id, response, cred, options, Some(c.ext))
+                                .verify(false, rp_id, response, cred, options, Some(c.ext))
                         } else {
                             Err(AuthCeremonyErr::CredentialIdMismatch)
                         }
@@ -1214,6 +1313,7 @@ impl AuthenticationServerState {
         RsaKey: AsRef<[u8]>,
     >(
         self,
+        discoverable: bool,
         rp_id: &RpId,
         response: &'a Authentication<USER_LEN, DISCOVERABLE>,
         cred: &mut AuthenticatedCredential<
@@ -1278,13 +1378,30 @@ impl AuthenticationServerState {
                     response.authenticator_attachment,
                 )
                 .and_then(|auth_attachment| {
+                    let flags = auth_data.flags();
                     // Step 23.
                     validate_extensions(
                         self.extensions,
+                        flags.user_verified,
                         cred_ext,
                         auth_data.extensions(),
                         options.error_on_unsolicited_extensions,
-                        cred.static_state.extensions.hmac_secret.unwrap_or_default(),
+                        cred.static_state.client_extension_results.prf.map_or(
+                            CredPrf::None,
+                            |prf| {
+                                if prf.enabled {
+                                    cred.static_state
+                                        .extensions
+                                        .hmac_secret
+                                        .map_or(CredPrf::TrueNoHmac, |_| CredPrf::TrueTrueHmac)
+                                } else {
+                                    cred.static_state
+                                        .extensions
+                                        .hmac_secret
+                                        .map_or(CredPrf::FalseNoHmac, |_| CredPrf::FalseFalseHmac)
+                                }
+                            },
+                        ),
                     )
                     .map_err(AuthCeremonyErr::Extension)
                     .and_then(|()| {
@@ -1293,7 +1410,6 @@ impl AuthenticationServerState {
                             .sig_counter_enforcement
                             .validate(cred.dynamic_state.sign_count, auth_data.sign_count())
                             .and_then(|sig_counter| {
-                                let flags = auth_data.flags();
                                 let prev_dyn_state = cred.dynamic_state;
                                 // Step 24 item 2.
                                 cred.dynamic_state.backup = flags.backup;
@@ -1305,15 +1421,27 @@ impl AuthenticationServerState {
                                 cred.dynamic_state.sign_count = sig_counter;
                                 cred.dynamic_state.authenticator_attachment = auth_attachment;
                                 // Step 25.
-                                crate::verify_static_and_dynamic_state(
-                                    &cred.static_state,
-                                    cred.dynamic_state,
-                                )
-                                .map_err(|e| {
+                                if flags.user_verified {
+                                    Ok(())
+                                } else {
+                                    match cred.static_state.extensions.cred_protect {
+                                        CredentialProtectionPolicy::None | CredentialProtectionPolicy::UserVerificationOptional => Ok(()),
+                                        CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList => {
+                                            if discoverable {
+                                                Err(AuthCeremonyErr::DiscoverableCredProtectCredentialIdList)
+                                            } else {
+                                                Ok(())
+                                            }
+                                        }
+                                        CredentialProtectionPolicy::UserVerificationRequired => {
+                                            Err(AuthCeremonyErr::UserNotVerifiedCredProtectRequired)
+                                        }
+                                    }
+                                }.inspect_err(|_| {
                                     cred.dynamic_state = prev_dyn_state;
-                                    AuthCeremonyErr::Credential(e)
+                                }).map(|()| {
+                                    prev_dyn_state != cred.dynamic_state
                                 })
-                                .map(|()| prev_dyn_state != cred.dynamic_state)
                             })
                     })
                 })
@@ -1338,10 +1466,6 @@ impl TimedCeremony for AuthenticationServerState {
     fn expiration(&self) -> SystemTime {
         self.expiration
     }
-    #[inline]
-    fn sent_challenge(&self) -> SentChallenge {
-        self.challenge
-    }
 }
 impl TimedCeremony for DiscoverableAuthenticationServerState {
     #[cfg(any(doc, not(feature = "serializable_server_state")))]
@@ -1354,10 +1478,6 @@ impl TimedCeremony for DiscoverableAuthenticationServerState {
     fn expiration(&self) -> SystemTime {
         self.0.expiration()
     }
-    #[inline]
-    fn sent_challenge(&self) -> SentChallenge {
-        self.0.sent_challenge()
-    }
 }
 impl TimedCeremony for NonDiscoverableAuthenticationServerState {
     #[cfg(any(doc, not(feature = "serializable_server_state")))]
@@ -1369,10 +1489,6 @@ impl TimedCeremony for NonDiscoverableAuthenticationServerState {
     #[inline]
     fn expiration(&self) -> SystemTime {
         self.state.expiration()
-    }
-    #[inline]
-    fn sent_challenge(&self) -> SentChallenge {
-        self.state.sent_challenge()
     }
 }
 impl<const USER_LEN: usize, const DISCOVERABLE: bool> Ceremony<USER_LEN, DISCOVERABLE>
@@ -1527,28 +1643,77 @@ impl Ord for NonDiscoverableAuthenticationServerState {
 }
 #[cfg(test)]
 mod tests {
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    use super::{
+        super::super::{
+            AuthenticatedCredential, DynamicState, StaticState, UserHandle,
+            response::{
+                Backup,
+                auth::{DiscoverableAuthenticatorAssertion, HmacSecret},
+                register::{
+                    AuthenticationExtensionsPrfOutputs, AuthenticatorExtensionOutputStaticState,
+                    ClientExtensionsOutputsStaticState, CredentialProtectionPolicy, Ed25519PubKey,
+                },
+            },
+        },
+        AuthCeremonyErr, AuthenticationVerificationOptions, AuthenticatorAttachment,
+        AuthenticatorAttachmentEnforcement, CompressedPubKey, DiscoverableAuthentication,
+        ExtensionErr, OneOrTwo, PrfInput, SignatureCounterEnforcement,
+    };
+    #[cfg(all(
+        feature = "custom",
+        any(
+            feature = "serializable_server_state",
+            not(any(feature = "bin", feature = "serde"))
+        )
+    ))]
+    use super::{
+        super::{super::AggErr, Challenge, CredentialId, RpId, UserVerificationRequirement},
+        DiscoverableCredentialRequestOptions, ExtensionReq,
+    };
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
     use super::{
         super::{
-            super::{
-                AggErr,
-                bin::{Decode as _, Encode as _},
-            },
+            super::bin::{Decode as _, Encode as _},
             AsciiDomain, AuthTransports,
         },
-        AllowedCredential, AllowedCredentials, Challenge, CredentialId,
-        CredentialSpecificExtension, Credentials as _, DiscoverableAuthenticationServerState,
-        DiscoverableCredentialRequestOptions, Extension, ExtensionReq,
-        NonDiscoverableAuthenticationServerState, NonDiscoverableCredentialRequestOptions,
-        PrfInputOwned, PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
+        AllowedCredential, AllowedCredentials, CredentialSpecificExtension, Credentials as _,
+        DiscoverableAuthenticationServerState, Extension, NonDiscoverableAuthenticationServerState,
+        NonDiscoverableCredentialRequestOptions, PrfInputOwned, PublicKeyCredentialDescriptor,
     };
-    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    use ed25519_dalek::{Signer as _, SigningKey};
+    #[cfg(all(
+        feature = "custom",
+        any(
+            feature = "serializable_server_state",
+            not(any(feature = "bin", feature = "serde"))
+        )
+    ))]
     use rsa::sha2::{Digest as _, Sha256};
-    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    #[cfg(all(
+        feature = "custom",
+        any(
+            feature = "serializable_server_state",
+            not(any(feature = "bin", feature = "serde"))
+        )
+    ))]
     const CBOR_BYTES: u8 = 0b010_00000;
-    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    #[cfg(all(
+        feature = "custom",
+        any(
+            feature = "serializable_server_state",
+            not(any(feature = "bin", feature = "serde"))
+        )
+    ))]
     const CBOR_TEXT: u8 = 0b011_00000;
-    #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
+    #[cfg(all(
+        feature = "custom",
+        any(
+            feature = "serializable_server_state",
+            not(any(feature = "bin", feature = "serde"))
+        )
+    ))]
     const CBOR_MAP: u8 = 0b101_00000;
     #[test]
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
@@ -1743,6 +1908,424 @@ mod tests {
                     .as_slice()
             )?)
         );
+        Ok(())
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[derive(Clone, Copy)]
+    struct TestResponseOptions {
+        user_verified: bool,
+        hmac: HmacSecret,
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[derive(Clone, Copy)]
+    enum PrfCredOptions {
+        None,
+        FalseNoHmac,
+        FalseHmacFalse,
+        TrueNoHmac,
+        TrueHmacTrue,
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[derive(Clone, Copy)]
+    struct TestCredOptions {
+        cred_protect: CredentialProtectionPolicy,
+        prf: PrfCredOptions,
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[derive(Clone, Copy)]
+    enum PrfUvOptions {
+        /// `true` iff `UserVerificationRequirement::Required` should be used; otherwise
+        /// `UserVerificationRequirement::Preferred` is used.
+        None(bool),
+        Prf(PrfInput<'static>),
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[derive(Clone, Copy)]
+    struct TestRequestOptions {
+        error_unsolicited: bool,
+        prf_uv: PrfUvOptions,
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[derive(Clone, Copy)]
+    struct TestOptions {
+        request: TestRequestOptions,
+        response: TestResponseOptions,
+        cred: TestCredOptions,
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    fn generate_client_data_json() -> Vec<u8> {
+        let mut json = Vec::with_capacity(256);
+        json.extend_from_slice(br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.as_slice());
+        json
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    fn generate_authenticator_data_public_key_sig(
+        opts: TestResponseOptions,
+    ) -> (
+        Vec<u8>,
+        CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>,
+        Vec<u8>,
+    ) {
+        let mut authenticator_data = Vec::with_capacity(256);
+        authenticator_data.extend_from_slice(
+            [
+                // RP ID HASH.
+                // This will be overwritten later.
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // FLAGS.
+                // UP, UV, AT, and ED (right-to-left).
+                0b0000_0001
+                    | if opts.user_verified {
+                        0b0000_0100
+                    } else {
+                        0b0000_0000
+                    }
+                    | if matches!(opts.hmac, HmacSecret::None) {
+                        0
+                    } else {
+                        0b1000_0000
+                    },
+                // COUNTER.
+                // 0 as 32-bit big endian.
+                0,
+                0,
+                0,
+                0,
+            ]
+            .as_slice(),
+        );
+        authenticator_data[..32]
+            .copy_from_slice(Sha256::digest("example.com".as_bytes()).as_slice());
+        match opts.hmac {
+            HmacSecret::None => {}
+            HmacSecret::One => {
+                authenticator_data.extend_from_slice(
+                    [
+                        CBOR_MAP | 1,
+                        // CBOR text of length 11.
+                        CBOR_TEXT | 11,
+                        b'h',
+                        b'm',
+                        b'a',
+                        b'c',
+                        b'-',
+                        b's',
+                        b'e',
+                        b'c',
+                        b'r',
+                        b'e',
+                        b't',
+                        CBOR_BYTES | 24,
+                        48,
+                    ]
+                    .as_slice(),
+                );
+                authenticator_data.extend_from_slice([0; 48].as_slice());
+            }
+            HmacSecret::Two => {
+                authenticator_data.extend_from_slice(
+                    [
+                        CBOR_MAP | 1,
+                        // CBOR text of length 11.
+                        CBOR_TEXT | 11,
+                        b'h',
+                        b'm',
+                        b'a',
+                        b'c',
+                        b'-',
+                        b's',
+                        b'e',
+                        b'c',
+                        b'r',
+                        b'e',
+                        b't',
+                        CBOR_BYTES | 24,
+                        80,
+                    ]
+                    .as_slice(),
+                );
+                authenticator_data.extend_from_slice([0; 80].as_slice());
+            }
+        }
+        let len = authenticator_data.len();
+        authenticator_data
+            .extend_from_slice(Sha256::digest(generate_client_data_json().as_slice()).as_slice());
+        let sig_key = SigningKey::from_bytes(&[0; 32]);
+        let sig = sig_key.sign(authenticator_data.as_slice()).to_vec();
+        authenticator_data.truncate(len);
+        (
+            authenticator_data,
+            CompressedPubKey::Ed25519(Ed25519PubKey::from(sig_key.verifying_key().to_bytes())),
+            sig,
+        )
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    fn validate(options: TestOptions) -> Result<(), AggErr> {
+        let rp_id = RpId::Domain("example.com".to_owned().try_into()?);
+        let user = UserHandle::from([0; 1]);
+        let (authenticator_data, credential_public_key, signature) =
+            generate_authenticator_data_public_key_sig(options.response);
+        let credential_id = CredentialId::try_from(vec![0; 16])?;
+        let authentication = DiscoverableAuthentication::new(
+            credential_id.clone(),
+            DiscoverableAuthenticatorAssertion::new(
+                generate_client_data_json(),
+                authenticator_data,
+                signature,
+                user,
+            ),
+            AuthenticatorAttachment::None,
+        );
+        let auth_opts = AuthenticationVerificationOptions::<'static, 'static, &str, &str> {
+            allowed_origins: [].as_slice(),
+            allowed_top_origins: None,
+            auth_attachment_enforcement: AuthenticatorAttachmentEnforcement::Update(false),
+            backup_requirement: None,
+            error_on_unsolicited_extensions: options.request.error_unsolicited,
+            sig_counter_enforcement: SignatureCounterEnforcement::Fail,
+            update_uv: false,
+            #[cfg(feature = "serde_relaxed")]
+            client_data_json_relaxed: false,
+        };
+        let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+        opts.0.challenge = Challenge(0);
+        opts.0.user_verification = UserVerificationRequirement::Preferred;
+        match options.request.prf_uv {
+            PrfUvOptions::None(required) => {
+                if required {
+                    opts.0.user_verification = UserVerificationRequirement::Required;
+                };
+            }
+            PrfUvOptions::Prf(input) => {
+                opts.0.user_verification = UserVerificationRequirement::Required;
+                opts.0.extensions.prf = Some(input);
+            }
+        }
+        let mut cred = AuthenticatedCredential::new(
+            (&credential_id).into(),
+            &user,
+            StaticState {
+                credential_public_key,
+                extensions: AuthenticatorExtensionOutputStaticState {
+                    cred_protect: options.cred.cred_protect,
+                    hmac_secret: match options.cred.prf {
+                        PrfCredOptions::None
+                        | PrfCredOptions::FalseNoHmac
+                        | PrfCredOptions::TrueNoHmac => None,
+                        PrfCredOptions::FalseHmacFalse => Some(false),
+                        PrfCredOptions::TrueHmacTrue => Some(true),
+                    },
+                },
+                client_extension_results: ClientExtensionsOutputsStaticState {
+                    prf: match options.cred.prf {
+                        PrfCredOptions::None => None,
+                        PrfCredOptions::FalseNoHmac | PrfCredOptions::FalseHmacFalse => {
+                            Some(AuthenticationExtensionsPrfOutputs { enabled: false })
+                        }
+                        PrfCredOptions::TrueNoHmac | PrfCredOptions::TrueHmacTrue => {
+                            Some(AuthenticationExtensionsPrfOutputs { enabled: true })
+                        }
+                    },
+                },
+            },
+            DynamicState {
+                user_verified: true,
+                backup: Backup::NotEligible,
+                sign_count: 0,
+                authenticator_attachment: AuthenticatorAttachment::None,
+            },
+        )?;
+        opts.start_ceremony()?
+            .0
+            .verify(&rp_id, &authentication, &mut cred, &auth_opts)
+            .map_err(AggErr::AuthCeremony)
+            .map(|_| ())
+    }
+    /// Test all, and only, possible `UserNotVerified` errors.
+    /// 4 * 5 * 3 * 2 * 5 = 600 tests.
+    /// We ignore this due to how long it takes (around 4 seconds or so).
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[ignore]
+    #[test]
+    fn test_uv_required_err() {
+        const ALL_CRED_PROTECT_OPTIONS: [CredentialProtectionPolicy; 4] = [
+            CredentialProtectionPolicy::None,
+            CredentialProtectionPolicy::UserVerificationOptional,
+            CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList,
+            CredentialProtectionPolicy::UserVerificationRequired,
+        ];
+        const ALL_PRF_CRED_OPTIONS: [PrfCredOptions; 5] = [
+            PrfCredOptions::None,
+            PrfCredOptions::FalseNoHmac,
+            PrfCredOptions::FalseHmacFalse,
+            PrfCredOptions::TrueNoHmac,
+            PrfCredOptions::TrueHmacTrue,
+        ];
+        const ALL_HMAC_OPTIONS: [HmacSecret; 3] =
+            [HmacSecret::None, HmacSecret::One, HmacSecret::Two];
+        const ALL_UNSOLICIT_OPTIONS: [bool; 2] = [false, true];
+        const ALL_NOT_FALSE_PRF_UV_OPTIONS: [PrfUvOptions; 5] = [
+            PrfUvOptions::None(true),
+            PrfUvOptions::Prf(PrfInput {
+                first: [].as_slice(),
+                second: None,
+                ext_info: ExtensionReq::Require,
+            }),
+            PrfUvOptions::Prf(PrfInput {
+                first: [].as_slice(),
+                second: None,
+                ext_info: ExtensionReq::Allow,
+            }),
+            PrfUvOptions::Prf(PrfInput {
+                first: [].as_slice(),
+                second: Some([].as_slice()),
+                ext_info: ExtensionReq::Require,
+            }),
+            PrfUvOptions::Prf(PrfInput {
+                first: [].as_slice(),
+                second: Some([].as_slice()),
+                ext_info: ExtensionReq::Allow,
+            }),
+        ];
+        for cred_protect in ALL_CRED_PROTECT_OPTIONS {
+            for prf in ALL_PRF_CRED_OPTIONS {
+                for hmac in ALL_HMAC_OPTIONS {
+                    for error_unsolicited in ALL_UNSOLICIT_OPTIONS {
+                        for prf_uv in ALL_NOT_FALSE_PRF_UV_OPTIONS {
+                            assert!(validate(TestOptions {
+                                request: TestRequestOptions {
+                                    error_unsolicited,
+                                    prf_uv,
+                                },
+                                response: TestResponseOptions {
+                                    user_verified: false,
+                                    hmac,
+                                },
+                                cred: TestCredOptions { cred_protect, prf, },
+                            }).map_or_else(|err| matches!(err, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::UserNotVerified)), |_| false));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /// Test all, and only, possible `UserNotVerified` errors.
+    /// 4 * 5 * 2 * 2 = 80 tests.
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[test]
+    fn test_forbidden_hmac() {
+        const ALL_CRED_PROTECT_OPTIONS: [CredentialProtectionPolicy; 4] = [
+            CredentialProtectionPolicy::None,
+            CredentialProtectionPolicy::UserVerificationOptional,
+            CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList,
+            CredentialProtectionPolicy::UserVerificationRequired,
+        ];
+        const ALL_PRF_CRED_OPTIONS: [PrfCredOptions; 5] = [
+            PrfCredOptions::None,
+            PrfCredOptions::FalseNoHmac,
+            PrfCredOptions::FalseHmacFalse,
+            PrfCredOptions::TrueNoHmac,
+            PrfCredOptions::TrueHmacTrue,
+        ];
+        const ALL_HMAC_OPTIONS: [HmacSecret; 2] = [HmacSecret::One, HmacSecret::Two];
+        const ALL_UV_OPTIONS: [bool; 2] = [false, true];
+        for cred_protect in ALL_CRED_PROTECT_OPTIONS {
+            for prf in ALL_PRF_CRED_OPTIONS {
+                for hmac in ALL_HMAC_OPTIONS {
+                    for user_verified in ALL_UV_OPTIONS {
+                        assert!(validate(TestOptions {
+                            request: TestRequestOptions {
+                                error_unsolicited: true,
+                                prf_uv: PrfUvOptions::None(false),
+                            },
+                            response: TestResponseOptions {
+                                user_verified,
+                                hmac,
+                            },
+                            cred: TestCredOptions { cred_protect, prf, },
+                        }).map_or_else(|err| matches!(err, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::ForbiddenHmacSecret))), |_| false));
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
+    #[test]
+    fn test_prf() -> Result<(), AggErr> {
+        let mut opts = TestOptions {
+            request: TestRequestOptions {
+                error_unsolicited: false,
+                prf_uv: PrfUvOptions::Prf(PrfInput {
+                    first: [].as_slice(),
+                    second: None,
+                    ext_info: ExtensionReq::Allow,
+                }),
+            },
+            response: TestResponseOptions {
+                user_verified: true,
+                hmac: HmacSecret::None,
+            },
+            cred: TestCredOptions {
+                cred_protect: CredentialProtectionPolicy::None,
+                prf: PrfCredOptions::None,
+            },
+        };
+        validate(opts)?;
+        opts.request.prf_uv = PrfUvOptions::Prf(PrfInput {
+            first: [].as_slice(),
+            second: None,
+            ext_info: ExtensionReq::Require,
+        });
+        opts.cred.prf = PrfCredOptions::TrueHmacTrue;
+        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::MissingHmacSecret))), |_| false));
+        opts.response.hmac = HmacSecret::One;
+        opts.request.prf_uv = PrfUvOptions::Prf(PrfInput {
+            first: [].as_slice(),
+            second: None,
+            ext_info: ExtensionReq::Allow,
+        });
+        opts.cred.prf = PrfCredOptions::TrueNoHmac;
+        validate(opts)?;
+        opts.response.hmac = HmacSecret::Two;
+        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidHmacSecretValue(OneOrTwo::One, OneOrTwo::Two)))), |_| false));
+        opts.response.hmac = HmacSecret::One;
+        opts.cred.prf = PrfCredOptions::FalseNoHmac;
+        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::PrfRequestedForPrfIncapableCred))), |_| false));
+        opts.response.user_verified = false;
+        opts.request.prf_uv = PrfUvOptions::None(false);
+        opts.cred.prf = PrfCredOptions::TrueHmacTrue;
+        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::UserNotVerifiedHmacSecret))), |_| false));
         Ok(())
     }
 }

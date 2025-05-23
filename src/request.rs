@@ -1,5 +1,6 @@
 #[cfg(doc)]
 use super::{
+    hash::hash_set::FixedCapHashSet,
     request::{
         auth::{
             AllowedCredential, AllowedCredentials, CredentialSpecificExtension,
@@ -21,8 +22,6 @@ use crate::{
         CredentialId, Origin, Response, SentChallenge,
     },
 };
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-use core::hash::{BuildHasher, Hash, Hasher};
 use core::{
     borrow::Borrow,
     fmt::{self, Display, Formatter},
@@ -30,10 +29,10 @@ use core::{
     str::FromStr,
 };
 use rsa::sha2::{Digest as _, Sha256};
+#[cfg(any(doc, not(feature = "serializable_server_state")))]
+use std::time::Instant;
 #[cfg(feature = "serializable_server_state")]
 use std::time::SystemTime;
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-use std::{collections::HashSet, time::Instant};
 use url::Url as Uri;
 /// Contains functionality for beginning the
 /// [authentication ceremony](https://www.w3.org/TR/webauthn-3/#authentication-ceremony).
@@ -41,9 +40,9 @@ use url::Url as Uri;
 /// # Examples
 ///
 /// ```
-/// # #[cfg(not(feature = "serializable_server_state"))]
-/// # use webauthn_rp::request::{FixedCapHashSet, InsertResult};
+/// # use core::convert;
 /// # use webauthn_rp::{
+/// #     hash::hash_set::FixedCapHashSet,
 /// #     request::{
 /// #         auth::{AllowedCredentials, DiscoverableCredentialRequestOptions, NonDiscoverableCredentialRequestOptions},
 /// #         register::UserHandle64,
@@ -52,16 +51,13 @@ use url::Url as Uri;
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
 /// #     AggErr,
 /// # };
-/// # #[cfg(not(feature = "serializable_server_state"))]
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
 /// let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id).start_ceremony()?;
-/// # #[cfg(not(feature = "serializable_server_state"))]
-/// assert!(matches!(
-///     ceremonies.insert_or_replace_all_expired(server),
-///     InsertResult::Success
-/// ));
-/// # #[cfg(all(feature = "custom", not(feature = "serializable_server_state")))]
+/// assert!(
+///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
+/// );
+/// # #[cfg(feature = "custom")]
 /// let mut ceremonies_2 = FixedCapHashSet::new(128);
 /// # #[cfg(feature = "serde")]
 /// assert!(serde_json::to_string(&client).is_ok());
@@ -71,11 +67,10 @@ use url::Url as Uri;
 /// # #[cfg(feature = "custom")]
 /// let (server_2, client_2) =
 ///     NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?.start_ceremony()?;
-/// # #[cfg(all(feature = "custom", not(feature = "serializable_server_state")))]
-/// assert!(matches!(
-///     ceremonies_2.insert_or_replace_all_expired(server_2),
-///     InsertResult::Success
-/// ));
+/// # #[cfg(feature = "custom")]
+/// assert!(
+///     ceremonies_2.insert_remove_all_expired(server_2).map_or(false, convert::identity)
+/// );
 /// # #[cfg(all(feature = "custom", feature = "serde"))]
 /// assert!(serde_json::to_string(&client_2).is_ok());
 /// /// Extract `UserHandle` from session cookie.
@@ -108,9 +103,9 @@ pub mod error;
 /// # Examples
 ///
 /// ```
-/// # #[cfg(not(feature = "serializable_server_state"))]
-/// # use webauthn_rp::request::{FixedCapHashSet, InsertResult};
+/// # use core::convert;
 /// # use webauthn_rp::{
+/// #     hash::hash_set::FixedCapHashSet,
 /// #     request::{
 /// #         register::{
 /// #             PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
@@ -120,7 +115,7 @@ pub mod error;
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
 /// #     AggErr,
 /// # };
-/// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom"))]
+/// # #[cfg(feature = "custom")]
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
 /// # #[cfg(feature = "custom")]
@@ -132,11 +127,10 @@ pub mod error;
 /// # #[cfg(feature = "custom")]
 /// let (server, client) = PublicKeyCredentialCreationOptions::passkey(&rp_id, user.clone(), creds)
 ///     .start_ceremony()?;
-/// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom"))]
-/// assert!(matches!(
-///     ceremonies.insert_or_replace_all_expired(server),
-///     InsertResult::Success
-/// ));
+/// # #[cfg(feature = "custom")]
+/// assert!(
+///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
+/// );
 /// # #[cfg(all(feature = "serde", feature = "custom"))]
 /// assert!(serde_json::to_string(&client).is_ok());
 /// # #[cfg(feature = "custom")]
@@ -144,11 +138,10 @@ pub mod error;
 /// # #[cfg(feature = "custom")]
 /// let (server_2, client_2) =
 ///     PublicKeyCredentialCreationOptions::second_factor(&rp_id, user, creds_2).start_ceremony()?;
-/// # #[cfg(all(not(feature = "serializable_server_state"), feature = "custom"))]
-/// assert!(matches!(
-///     ceremonies.insert_or_replace_all_expired(server_2),
-///     InsertResult::Success
-/// ));
+/// # #[cfg(feature = "custom")]
+/// assert!(
+///     ceremonies.insert_remove_all_expired(server_2).map_or(false, convert::identity)
+/// );
 /// # #[cfg(all(feature = "serde", feature = "custom"))]
 /// assert!(serde_json::to_string(&client_2).is_ok());
 /// /// Extract `UserHandle` from session cookie or storage if this is not the first credential registered.
@@ -205,7 +198,6 @@ pub struct Challenge(u128);
 impl Challenge {
     // This won't `panic` since 4/3 of 16 is less than `usize::MAX`.
     /// The number of bytes a `Challenge` takes to encode in base64url.
-    #[expect(clippy::unwrap_used, reason = "we want to crash when there is a bug")]
     pub(super) const BASE64_LEN: usize = super::base64url_nopad_len(16).unwrap();
     /// Generates a random `Challenge`.
     ///
@@ -915,7 +907,7 @@ impl<'a: 'b + 'c, 'b, 'c> TryFrom<&'a str> for DomainOrigin<'b, 'c> {
 }
 /// [`PublicKeyCredentialDescriptor`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialdescriptor)
 /// associated with a registered credential.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PublicKeyCredentialDescriptor<T> {
     /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialdescriptor-id).
     pub id: CredentialId<T>,
@@ -1498,154 +1490,7 @@ trait Ceremony<const USER_LEN: usize, const DISCOVERABLE: bool> {
     }
 }
 /// `300_000` milliseconds is equal to five minutes.
-#[expect(
-    clippy::unwrap_used,
-    reason = "clearly correct, Option::unwrap is const, and better than unsafe"
-)]
 pub(super) const THREE_HUNDRED_THOUSAND: NonZeroU32 = NonZeroU32::new(300_000).unwrap();
-
-/// [`Hasher`] whose `write_*` methods simply store up to 64 bits of the passed argument _as is_ overwriting
-/// any previous state.
-///
-/// This is designed to only be used indirectly via a hash map whose keys are randomly generated on the server
-/// based on at least 64 bits—the size of the integer returned from [`Self::finish`]—of entropy.
-/// This makes this `Hasher` usable (and ideal) in only the most niche circumstances.
-///
-/// [`RegistrationServerState`], [`DiscoverableAuthenticationServerState`], and
-/// [`NonDiscoverableAuthenticationServerState`] implement [`Hash`] by simply writing the
-/// contained [`Challenge`]; thus when they are stored in a hashed collection (e.g., [`FixedCapHashSet`]), one can
-/// optimize without fear by using this `Hasher` since `Challenge`s are immutable and can only ever be created on
-/// the server via [`Challenge::new`] (and equivalently [`Challenge::default`]). `RegistrationServerState`,
-/// `DiscoverableAuthenticationServerState`, and `NonDiscoverableAuthenticationServerState` are also immutable and
-/// only constructable via [`PublicKeyCredentialCreationOptions::start_ceremony`],
-/// [`DiscoverableCredentialRequestOptions::start_ceremony`], and
-/// [`NonDiscoverableCredentialRequestOptions::start_ceremony`] respectively. Since `Challenge` is already based on
-/// a random `u128`, other `Hasher`s will be slower and likely produce lower-quality hashes (and never
-/// higher quality).
-#[cfg_attr(docsrs, doc(cfg(not(feature = "serializable_server_state"))))]
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-#[derive(Debug)]
-pub struct IdentityHasher(u64);
-// Note it is _not_ required for `write_*` methods to do the same thing as other `write_*` methods
-// (e.g., `Self::write_u64` may not be the same thing as 8 calls to `Self::write_u8`).
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-impl Hasher for IdentityHasher {
-    /// Returns `0` if no `write_*` calls have been made; otherwise returns the result of the most recent
-    /// `write_*` call.
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0
-    }
-    /// Writes `i` to `self`.
-    #[inline]
-    fn write_u64(&mut self, i: u64) {
-        self.0 = i;
-    }
-    /// Sign-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`].
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_sign_loss,
-        reason = "we simply need to convert into a u64 in a deterministic way"
-    )]
-    #[inline]
-    fn write_i8(&mut self, i: i8) {
-        self.write_u64(i as u64);
-    }
-    /// Sign-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`].
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_sign_loss,
-        reason = "we simply need to convert into a u64 in a deterministic way"
-    )]
-    #[inline]
-    fn write_i16(&mut self, i: i16) {
-        self.write_u64(i as u64);
-    }
-    /// Sign-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`].
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_sign_loss,
-        reason = "we simply need to convert into a u64 in a deterministic way"
-    )]
-    #[inline]
-    fn write_i32(&mut self, i: i32) {
-        self.write_u64(i as u64);
-    }
-    /// Redirects to [`Self::write_u64`].
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_sign_loss,
-        reason = "we simply need to convert into a u64 in a deterministic way"
-    )]
-    #[inline]
-    fn write_i64(&mut self, i: i64) {
-        self.write_u64(i as u64);
-    }
-    /// Truncates `i` to a [`u64`] before redirecting to [`Self::write_u64`].
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "we simply need to convert into a u64 in a deterministic way"
-    )]
-    #[inline]
-    fn write_i128(&mut self, i: i128) {
-        self.write_u64(i as u64);
-    }
-    /// Zero-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`].
-    #[inline]
-    fn write_u8(&mut self, i: u8) {
-        self.write_u64(u64::from(i));
-    }
-    /// Zero-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`].
-    #[inline]
-    fn write_u16(&mut self, i: u16) {
-        self.write_u64(u64::from(i));
-    }
-    /// Zero-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`].
-    #[inline]
-    fn write_u32(&mut self, i: u32) {
-        self.write_u64(u64::from(i));
-    }
-    /// Truncates `i` to a [`u64`] before redirecting to [`Self::write_u64`].
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_possible_truncation,
-        reason = "we simply need to convert into a u64 in a deterministic way"
-    )]
-    #[inline]
-    fn write_u128(&mut self, i: u128) {
-        self.write_u64(i as u64);
-    }
-    /// This does nothing iff `bytes.len() < 8`; otherwise the first 8 bytes are converted
-    /// to a [`u64`] that is written via [`Self::write_u64`];
-    #[expect(clippy::host_endian_bytes, reason = "endianness does not matter")]
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        if let Some(data) = bytes.get(..8) {
-            let mut val = [0; 8];
-            val.copy_from_slice(data);
-            self.write_u64(u64::from_ne_bytes(val));
-        }
-    }
-}
-/// [`BuildHasher`] of an [`IdentityHasher`].
-///
-/// This MUST only be used with hash maps with keys that are randomly generated on the server based on at least 64
-/// bits of entropy.
-#[cfg_attr(docsrs, doc(cfg(not(feature = "serializable_server_state"))))]
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-#[derive(Clone, Copy, Debug)]
-pub struct BuildIdentityHasher;
-#[cfg_attr(docsrs, doc(cfg(not(feature = "serializable_server_state"))))]
-#[cfg(not(feature = "serializable_server_state"))]
-impl BuildHasher for BuildIdentityHasher {
-    type Hasher = IdentityHasher;
-    #[inline]
-    fn build_hasher(&self) -> Self::Hasher {
-        IdentityHasher(0)
-    }
-}
 /// "Ceremonies" stored on the server that expire after a certain duration.
 ///
 /// Types like [`RegistrationServerState`] and [`DiscoverableAuthenticationServerState`] are based on [`Challenge`]s
@@ -1660,249 +1505,6 @@ pub trait TimedCeremony {
     /// Returns the `SystemTime` the ceremony expires.
     #[cfg(all(not(doc), feature = "serializable_server_state"))]
     fn expiration(&self) -> SystemTime;
-    /// Returns the `SentChallenge`.
-    fn sent_challenge(&self) -> SentChallenge;
-}
-/// Fixed-capacity hash set that only inserts items when there is available capacity.
-///
-/// This should only be used if _both_ of the following conditions are met:
-///
-/// * Application is already protected from memory exhaustion attacks (e.g., users must be connected
-///   via VPN).
-/// * There are legitimate reasons for an in-memory collection to grow unbounded.
-///
-/// The first point is necessary; otherwise an attacker could trivially slow down the application
-/// by causing repeated inserts forcing repeated calls to functions like [`Self::retain`]. The second
-/// point is necessary; otherwise any in-memory collection would suffice.
-///
-/// When `T` is a [`TimedCeremony`], there are legitimate reasons why a ceremony will never finish (e.g.,
-/// an outage could kill a user's connection after starting a ceremony). The longer the application
-/// runs the more such instances occur to the point where the in-memory collection is full of expired
-/// ceremonies. Since this should rarely occur and as long as [`Self::capacity`] is appropriate,
-/// [`Self::insert`] should almost always succeed; however very rarely there will be a point when
-/// one will have to [`Self::remove_expired_ceremonies`]. A vast majority of the time a user
-/// will complete the ceremony which requires ownership of the `TimedCeremony` which in turn requires
-/// [`Self::take`] which will add an available slot.
-#[cfg_attr(docsrs, doc(cfg(not(feature = "serializable_server_state"))))]
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-#[derive(Debug)]
-pub struct FixedCapHashSet<T, S = BuildIdentityHasher>(HashSet<T, S>);
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-impl<T> FixedCapHashSet<T, BuildIdentityHasher> {
-    /// Creates an empty `FixedCapHashSet` with at least the specified capacity.
-    ///
-    /// The hash set will be able to hold at least `capacity` elements without reallocating. This method is allowed
-    /// to allocate for more elements than `capacity`.
-    #[inline]
-    #[must_use]
-    pub fn new(capacity: usize) -> Self {
-        Self(HashSet::with_capacity_and_hasher(
-            capacity,
-            BuildIdentityHasher,
-        ))
-    }
-}
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-impl<T, S> FixedCapHashSet<T, S> {
-    /// Creates an empty `FixedCapHashSet` with at least the specified capacity, using `hasher` to hash the keys.
-    ///
-    /// The hash set will be able to hold at least `capacity` elements without reallocating. This method is allowed
-    /// to allocate for more elements than `capacity`.
-    #[inline]
-    #[must_use]
-    pub fn new_with_hasher(capacity: usize, hasher: S) -> Self {
-        Self(HashSet::with_capacity_and_hasher(capacity, hasher))
-    }
-    /// Returns the immutable capacity.
-    ///
-    /// This number is a lower bound; the `FixedCapHashSet` might be able to hold more, but is guaranteed to be
-    /// able to hold at least this many.
-    #[inline]
-    #[must_use]
-    pub fn capacity(&self) -> usize {
-        self.0.capacity()
-    }
-    /// Clears the set, removing all values.
-    #[inline]
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
-    /// Returns the number of elements in the set.
-    #[inline]
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-    /// Returns `true` iff the set contains no elements.
-    #[inline]
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-    /// Retains only the elements specified by the predicate.
-    ///
-    /// In other words, remove all elements `e` for which `f(&e)` returns `false`. The elements are visited in
-    /// unsorted (and unspecified) order.
-    #[inline]
-    pub fn retain<F>(&mut self, f: F)
-    where
-        F: FnMut(&T) -> bool,
-    {
-        self.0.retain(f);
-    }
-}
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-impl<T: TimedCeremony, S> FixedCapHashSet<T, S> {
-    /// Removes all expired ceremonies.
-    #[inline]
-    pub fn remove_expired_ceremonies(&mut self) {
-        // Even though it's more accurate to check the current `Instant` for each ceremony, we elect to capture
-        // the `Instant` we begin iteration for performance reasons. It's unlikely an appreciable amount of
-        // additional ceremonies would be removed.
-        let now = Instant::now();
-        self.retain(|v| v.expiration() >= now);
-    }
-}
-/// Result returned from [`FixedCapHashSet::insert`], [`FixedCapHashSet::insert_or_replace_expired`], and
-/// [`FixedCapHashSet::insert_or_replace_all_expired`].
-#[cfg_attr(docsrs, doc(cfg(not(feature = "serializable_server_state"))))]
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-#[derive(Clone, Copy, Debug)]
-pub enum InsertResult {
-    /// Value was successfully inserted.
-    Success,
-    /// Value was not inserted since the capacity was full.
-    CapacityFull,
-    /// Value was not inserted since the value already existed.
-    ///
-    /// When the keys are based on [`Challenge`]s, this should almost never occur since `Challenge`s
-    /// are 16 bytes of random data.
-    Duplicate,
-}
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
-    /// Returns `true` iff the set contains a value.
-    ///
-    /// The value may be any borrowed form of the set's value type, but `Hash` and `Eq` on the borrowed form _must_
-    /// match those for the value type.
-    #[inline]
-    #[must_use]
-    pub fn contains<Q>(&self, value: &Q) -> bool
-    where
-        T: Borrow<Q>,
-        Q: Eq + Hash + ?Sized,
-    {
-        self.0.contains(value)
-    }
-    /// Returns a reference to the value in the set, if any, that is equal to the given value.
-    ///
-    /// The value may be any borrowed form of the set's value type, but `Hash` and `Eq` on the borrowed form _must_
-    /// match those for the value type.
-    #[inline]
-    #[must_use]
-    pub fn get<Q>(&self, value: &Q) -> Option<&T>
-    where
-        T: Borrow<Q>,
-        Q: Eq + Hash + ?Sized,
-    {
-        self.0.get(value)
-    }
-    /// Removes a value from the set. Returns whether the value was present in the set.
-    ///
-    /// The value may be any borrowed form of the set's value type, but `Hash` and `Eq` on the borrowed form _must_
-    /// match those for the value type.
-    #[inline]
-    pub fn remove<Q>(&mut self, value: &Q) -> bool
-    where
-        T: Borrow<Q>,
-        Q: Eq + Hash + ?Sized,
-    {
-        self.0.remove(value)
-    }
-    /// Removes and returns the value in the set, if any, that is equal to the given one.
-    ///
-    /// The value may be any borrowed form of the set's value type, but `Hash` and `Eq` on the borrowed form _must_
-    /// match those for the value type.
-    #[inline]
-    pub fn take<Q>(&mut self, value: &Q) -> Option<T>
-    where
-        T: Borrow<Q>,
-        Q: Eq + Hash + ?Sized,
-    {
-        self.0.take(value)
-    }
-    /// Adds `value` to the set iff [`Self::capacity`] `>` [`Self::len`].
-    #[inline]
-    pub fn insert(&mut self, value: T) -> InsertResult {
-        if self.len() == self.capacity() {
-            InsertResult::CapacityFull
-        } else if self.0.insert(value) {
-            InsertResult::Success
-        } else {
-            InsertResult::Duplicate
-        }
-    }
-}
-#[cfg(any(doc, not(feature = "serializable_server_state")))]
-impl<T: Borrow<SentChallenge> + Eq + Hash + TimedCeremony, S: BuildHasher> FixedCapHashSet<T, S> {
-    /// Adds a ceremony to the set.
-    ///
-    /// This will only insert `value` iff [`Self::capacity`] `>` [`Self::len`]. When [`Self::len`] `==`
-    /// [`Self::capacity`], this will iterate items in the set until an expired ceremony is encountered; at which
-    /// point, the expired ceremony will be removed before `value` is inserted. In the event no expired ceremonies
-    /// exist, [`InsertResult::CapacityFull`] will be returned.
-    ///
-    /// If one wants to avoid the potentially expensive operation of iterating the set for an expired ceremony,
-    /// call [`Self::insert`]. Alternatively one can call [`Self::insert_or_replace_all_expired`] to avoid
-    /// repeatedly iterating the hash set once its capacity is full.
-    #[inline]
-    pub fn insert_or_replace_expired(&mut self, value: T) -> InsertResult {
-        if self.len() == self.capacity() {
-            let now = Instant::now();
-            self.0
-                .iter()
-                .try_fold((), |(), v| {
-                    if v.expiration() < now {
-                        Err(v.sent_challenge())
-                    } else {
-                        Ok(())
-                    }
-                })
-                .map_or_else(
-                    |chall| {
-                        self.remove(&chall);
-                        if self.0.insert(value) {
-                            InsertResult::Success
-                        } else {
-                            InsertResult::Duplicate
-                        }
-                    },
-                    |()| InsertResult::CapacityFull,
-                )
-        } else if self.0.insert(value) {
-            InsertResult::Success
-        } else {
-            InsertResult::Duplicate
-        }
-    }
-    /// Adds a ceremony to the set.
-    ///
-    /// This will only insert `value` iff [`Self::capacity`] `>` [`Self::len`]. When [`Self::len`] `==`
-    /// [`Self::capacity`], this will [`Self::remove_expired_ceremonies`] before `value` is inserted. In the event
-    /// no expired ceremonies exist, [`InsertResult::CapacityFull`] will be returned.
-    #[inline]
-    pub fn insert_or_replace_all_expired(&mut self, value: T) -> InsertResult {
-        if self.len() == self.capacity() {
-            self.remove_expired_ceremonies();
-        }
-        if self.len() == self.capacity() {
-            InsertResult::CapacityFull
-        } else if self.0.insert(value) {
-            InsertResult::Success
-        } else {
-            InsertResult::Duplicate
-        }
-    }
 }
 #[cfg(test)]
 mod tests {
@@ -1919,9 +1521,9 @@ mod tests {
                 register::{
                     AuthenticationExtensionsPrfOutputs, AuthenticatorAttestation,
                     AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputs,
-                    CompressedP256PubKey, CompressedP384PubKey, CompressedPubKey,
-                    CredentialProtectionPolicy, DynamicState, Ed25519PubKey, Registration,
-                    RsaPubKey, StaticState, UncompressedPubKey,
+                    ClientExtensionsOutputsStaticState, CompressedP256PubKey, CompressedP384PubKey,
+                    CompressedPubKey, CredentialProtectionPolicy, DynamicState, Ed25519PubKey,
+                    Registration, RsaPubKey, StaticState, UncompressedPubKey,
                 },
             },
         },
@@ -1933,7 +1535,7 @@ mod tests {
             Extension as AuthExt, NonDiscoverableCredentialRequestOptions, PrfInputOwned,
         },
         register::{
-            CredProtect, Extension as RegExt, PublicKeyCredentialCreationOptions,
+            CredProtect, Extension as RegExt, FourToSixtyThree, PublicKeyCredentialCreationOptions,
             PublicKeyCredentialUserEntity, RegistrationVerificationOptions, UserHandle,
         },
     };
@@ -1970,7 +1572,7 @@ mod tests {
     const CBOR_TRUE: u8 = CBOR_SIMPLE | 21;
     #[test]
     #[cfg(feature = "custom")]
-    fn ed25519_reg() -> Result<(), AggErr> {
+    fn eddsa_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
@@ -1985,8 +1587,15 @@ mod tests {
         opts.challenge = Challenge(0);
         opts.extensions = RegExt {
             cred_props: None,
-            cred_protect: CredProtect::UserVerificationRequired(ExtensionInfo::RequireEnforceValue),
-            min_pin_length: Some((10, ExtensionInfo::RequireEnforceValue)),
+            cred_protect: CredProtect::UserVerificationRequired(
+                false,
+                ExtensionInfo::RequireEnforceValue,
+            ),
+            min_pin_length: Some((
+                FourToSixtyThree::new(10)
+                    .unwrap_or_else(|| unreachable!("bug in FourToSixyThree::new")),
+                ExtensionInfo::RequireEnforceValue,
+            )),
             prf: Some(ExtensionInfo::RequireEnforceValue),
         };
         let client_data_json = br#"{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
@@ -2313,7 +1922,7 @@ mod tests {
     }
     #[test]
     #[cfg(feature = "custom")]
-    fn ed25519_auth() -> Result<(), AggErr> {
+    fn eddsa_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut creds = AllowedCredentials::with_capacity(1);
         creds.push(AllowedCredential {
@@ -2511,6 +2120,9 @@ mod tests {
                         cred_protect: CredentialProtectionPolicy::None,
                         hmac_secret: Some(true),
                     },
+                    client_extension_results: ClientExtensionsOutputsStaticState {
+                        prf: Some(AuthenticationExtensionsPrfOutputs { enabled: true }),
+                    }
                 },
                 DynamicState {
                     user_verified: true,
@@ -2525,7 +2137,7 @@ mod tests {
     }
     #[test]
     #[cfg(feature = "custom")]
-    fn p256_reg() -> Result<(), AggErr> {
+    fn es256_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
@@ -2783,7 +2395,7 @@ mod tests {
     }
     #[test]
     #[cfg(feature = "custom")]
-    fn p256_auth() -> Result<(), AggErr> {
+    fn es256_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
         opts.0.challenge = Challenge(0);
@@ -2879,6 +2491,7 @@ mod tests {
                         cred_protect: CredentialProtectionPolicy::None,
                         hmac_secret: None,
                     },
+                    client_extension_results: ClientExtensionsOutputsStaticState { prf: None }
                 },
                 DynamicState {
                     user_verified: true,
@@ -2893,7 +2506,7 @@ mod tests {
     }
     #[test]
     #[cfg(feature = "custom")]
-    fn p384_reg() -> Result<(), AggErr> {
+    fn es384_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
@@ -3186,7 +2799,7 @@ mod tests {
     }
     #[test]
     #[cfg(feature = "custom")]
-    fn p384_auth() -> Result<(), AggErr> {
+    fn es384_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
         opts.0.challenge = Challenge(0);
@@ -3283,6 +2896,7 @@ mod tests {
                         cred_protect: CredentialProtectionPolicy::None,
                         hmac_secret: None,
                     },
+                    client_extension_results: ClientExtensionsOutputsStaticState { prf: None }
                 },
                 DynamicState {
                     user_verified: true,
@@ -3297,7 +2911,7 @@ mod tests {
     }
     #[test]
     #[cfg(feature = "custom")]
-    fn rsa_reg() -> Result<(), AggErr> {
+    fn rs256_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
         let mut opts = PublicKeyCredentialCreationOptions::passkey(
@@ -3799,7 +3413,7 @@ mod tests {
     }
     #[test]
     #[cfg(feature = "custom")]
-    fn rsa_auth() -> Result<(), AggErr> {
+    fn rs256_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
         opts.0.challenge = Challenge(0);
@@ -3946,6 +3560,7 @@ mod tests {
                         cred_protect: CredentialProtectionPolicy::None,
                         hmac_secret: None,
                     },
+                    client_extension_results: ClientExtensionsOutputsStaticState { prf: None }
                 },
                 DynamicState {
                     user_verified: true,

@@ -1,7 +1,3 @@
-#![expect(
-    clippy::question_mark_used,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 extern crate alloc;
 use super::{
     AllAcceptedCredentialsOptions, AuthTransports, AuthenticatorAttachment, AuthenticatorTransport,
@@ -62,6 +58,8 @@ impl<'de> Deserialize<'de> for AuthenticatorTransport {
     /// Deserializes [`prim@str`] based on
     /// [`AuthenticatorTransport`](https://www.w3.org/TR/webauthn-3/#enumdef-authenticatortransport).
     ///
+    /// Note `"cable"` is also supported and will be interpreted as [`Self::Hybrid`].
+    ///
     /// # Examples
     ///
     /// ```
@@ -90,9 +88,11 @@ impl<'de> Deserialize<'de> for AuthenticatorTransport {
             where
                 E: Error,
             {
+                /// Legacy version of [`Self::Hybrid`].
+                const CA_BLE: &str = "cable";
                 match v {
                     BLE => Ok(AuthenticatorTransport::Ble),
-                    HYBRID => Ok(AuthenticatorTransport::Hybrid),
+                    CA_BLE | HYBRID => Ok(AuthenticatorTransport::Hybrid),
                     INTERNAL => Ok(AuthenticatorTransport::Internal),
                     NFC => Ok(AuthenticatorTransport::Nfc),
                     SMART_CARD => Ok(AuthenticatorTransport::SmartCard),
@@ -100,7 +100,7 @@ impl<'de> Deserialize<'de> for AuthenticatorTransport {
                     _ => Err(E::invalid_value(
                         Unexpected::Str(v),
                         &format!(
-                            "'{BLE}', '{HYBRID}', '{INTERNAL}', '{NFC}', '{SMART_CARD}', or '{USB}'"
+                            "'{BLE}', '{CA_BLE}', '{HYBRID}', '{INTERNAL}', '{NFC}', '{SMART_CARD}', or '{USB}'"
                         )
                         .as_str(),
                     )),
@@ -805,7 +805,11 @@ where
         )
     }
 }
-impl<const USER_LEN: usize> Serialize for AllAcceptedCredentialsOptions<'_, '_, USER_LEN> {
+use super::UserHandle;
+impl<const USER_LEN: usize> Serialize for AllAcceptedCredentialsOptions<'_, '_, USER_LEN>
+where
+    UserHandle<USER_LEN>: Serialize,
+{
     /// Serializes `self` to conform with
     /// [`AllAcceptedCredentialsOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-allacceptedcredentialsoptions).
     ///
@@ -865,7 +869,10 @@ impl<const USER_LEN: usize> Serialize for AllAcceptedCredentialsOptions<'_, '_, 
             })
     }
 }
-impl<const LEN: usize> Serialize for CurrentUserDetailsOptions<'_, '_, '_, '_, LEN> {
+impl<const LEN: usize> Serialize for CurrentUserDetailsOptions<'_, '_, '_, '_, LEN>
+where
+    UserHandle<LEN>: Serialize,
+{
     /// Serializes `self` to conform with
     /// [`CurrentUserDetailsOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions).
     ///

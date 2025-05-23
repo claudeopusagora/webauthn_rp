@@ -3,18 +3,17 @@ use self::{
     super::ser_relaxed::{RelaxedClientDataJsonParser, SerdeJsonErr},
     ser_relaxed::{AuthenticationRelaxed, CustomAuthentication},
 };
-#[cfg(all(doc, feature = "serde_relaxed"))]
-use super::super::request::FixedCapHashSet;
 #[cfg(doc)]
 use super::super::{
     AuthenticatedCredential, RegisteredCredential, StaticState,
+    hash::hash_set::FixedCapHashSet,
     request::{
         Challenge,
         auth::{
-            DiscoverableAuthenticationServerState, NonDiscoverableAuthenticationServerState,
-            PublicKeyCredentialRequestOptions,
+            CredentialSpecificExtension, DiscoverableAuthenticationServerState, Extension,
+            NonDiscoverableAuthenticationServerState, PublicKeyCredentialRequestOptions,
         },
-        register::{UserHandle16, UserHandle64},
+        register::{self, UserHandle16, UserHandle64},
     },
 };
 use super::{
@@ -22,7 +21,7 @@ use super::{
     AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthenticatorAttachment,
     CborSuccess, ClientDataJsonParser as _, CollectedClientData, CredentialId, Flag, FromCbor,
     LimitedVerificationParser, ParsedAuthData, Response, SentChallenge,
-    auth::error::{AuthenticatorDataErr, AuthenticatorExtensionOutputErr},
+    auth::error::{AuthenticatorDataErr, AuthenticatorExtensionOutputErr, MissingUserHandleErr},
     cbor,
     error::CollectedClientDataErr,
     register::CompressedPubKey,
@@ -48,13 +47,35 @@ pub(super) mod ser;
 #[cfg(feature = "serde_relaxed")]
 pub mod ser_relaxed;
 /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension).
+///
+/// This is only relevant when [`Extension::prf`] or [`CredentialSpecificExtension::prf`] is `Some` and for
+/// authenticators that implement [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension) on top of
+/// `hmac-secret`.
+///
+/// Note while many authenticators that implement `prf` don't require `prf` to have been sent during registration
+/// (i.e., [`register::Extension::prf`]), it is recommended to do so for those authenticators that do require it.
 #[derive(Clone, Copy, Debug)]
 pub enum HmacSecret {
     /// No `hmac-secret` response.
+    ///
+    /// Either [`Extension::prf`] was not sent, the credential is not PRF-capable, or the authenticator does not use
+    /// the
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
+    /// extension.
     None,
     /// One encrypted `hmac-secret`.
+    ///
+    /// [`Extension::prf`] was sent with one PRF input for a PRF-capable credential whose authenticator implements
+    /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension) on top of the
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
+    /// extension.
     One,
     /// Two encrypted `hmac-secret`s.
+    ///
+    /// [`Extension::prf`] was sent with two PRF inputs for a PRF-capable credential whose authenticator implements
+    /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension) on top of the
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
+    /// extension.
     Two,
 }
 impl FromCbor<'_> for HmacSecret {
@@ -299,7 +320,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool>
     /// [`clientDataJSON`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorresponse-clientdatajson).
     #[inline]
     #[must_use]
-    pub fn client_data_json(&self) -> &[u8] {
+    pub const fn client_data_json(&self) -> &[u8] {
         self.client_data_json.as_slice()
     }
     /// [`authenticatorData`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-authenticatordata).
@@ -320,7 +341,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool>
     /// [`signature`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorassertionresponse-signature).
     #[inline]
     #[must_use]
-    pub fn signature(&self) -> &[u8] {
+    pub const fn signature(&self) -> &[u8] {
         self.signature.as_slice()
     }
     /// Constructs an instance of `Self` with the contained data.
@@ -533,6 +554,39 @@ pub type DiscoverableAuthenticatorAssertion<const USER_LEN: usize> =
 /// `AuthenticatorAssertion` with an optional `UserHandle`.
 pub type NonDiscoverableAuthenticatorAssertion<const USER_LEN: usize> =
     AuthenticatorAssertion<USER_LEN, false>;
+impl<const USER_LEN: usize> From<DiscoverableAuthenticatorAssertion<USER_LEN>>
+    for NonDiscoverableAuthenticatorAssertion<USER_LEN>
+{
+    #[inline]
+    fn from(value: DiscoverableAuthenticatorAssertion<USER_LEN>) -> Self {
+        Self {
+            client_data_json: value.client_data_json,
+            authenticator_data_and_c_data_hash: value.authenticator_data_and_c_data_hash,
+            signature: value.signature,
+            user_handle: value.user_handle,
+        }
+    }
+}
+impl<const USER_LEN: usize> TryFrom<NonDiscoverableAuthenticatorAssertion<USER_LEN>>
+    for DiscoverableAuthenticatorAssertion<USER_LEN>
+{
+    type Error = MissingUserHandleErr;
+    #[inline]
+    fn try_from(
+        value: NonDiscoverableAuthenticatorAssertion<USER_LEN>,
+    ) -> Result<Self, MissingUserHandleErr> {
+        if value.user_handle.is_some() {
+            Ok(Self {
+                client_data_json: value.client_data_json,
+                authenticator_data_and_c_data_hash: value.authenticator_data_and_c_data_hash,
+                signature: value.signature,
+                user_handle: value.user_handle,
+            })
+        } else {
+            Err(MissingUserHandleErr)
+        }
+    }
+}
 /// [`PublicKeyCredential`](https://www.w3.org/TR/webauthn-3/#iface-pkcredential) for authentication ceremonies.
 #[expect(
     clippy::field_scoped_visibility_modifiers,
@@ -673,6 +727,33 @@ pub type DiscoverableAuthentication64 = Authentication<USER_HANDLE_MAX_LEN, true
 pub type DiscoverableAuthentication16 = Authentication<16, true>;
 /// `Authentication` with an optional [`UserHandle`].
 pub type NonDiscoverableAuthentication<const USER_LEN: usize> = Authentication<USER_LEN, false>;
+impl<const USER_LEN: usize> From<DiscoverableAuthentication<USER_LEN>>
+    for NonDiscoverableAuthentication<USER_LEN>
+{
+    #[inline]
+    fn from(value: DiscoverableAuthentication<USER_LEN>) -> Self {
+        Self {
+            raw_id: value.raw_id,
+            response: value.response.into(),
+            authenticator_attachment: value.authenticator_attachment,
+        }
+    }
+}
+impl<const USER_LEN: usize> TryFrom<NonDiscoverableAuthentication<USER_LEN>>
+    for DiscoverableAuthentication<USER_LEN>
+{
+    type Error = MissingUserHandleErr;
+    #[inline]
+    fn try_from(
+        value: NonDiscoverableAuthentication<USER_LEN>,
+    ) -> Result<Self, MissingUserHandleErr> {
+        value.response.try_into().map(|response| Self {
+            raw_id: value.raw_id,
+            response,
+            authenticator_attachment: value.authenticator_attachment,
+        })
+    }
+}
 /// `Authentication` with an optional [`UserHandle64`].
 pub type NonDiscoverableAuthentication64 = Authentication<USER_HANDLE_MAX_LEN, false>;
 /// `Authentication` with an optional [`UserHandle16`].

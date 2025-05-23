@@ -1,7 +1,3 @@
-#![expect(
-    clippy::question_mark_used,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 #[cfg(doc)]
 use super::super::{super::request::register::CoseAlgorithmIdentifier, Challenge, CredentialId};
 use super::{
@@ -1122,7 +1118,7 @@ mod tests {
         // Unknown `transports`.
         err = Error::invalid_value(
             Unexpected::Str("Usb"),
-            &"'ble', 'hybrid', 'internal', 'nfc', 'smart-card', or 'usb'",
+            &"'ble', 'cable', 'hybrid', 'internal', 'nfc', 'smart-card', or 'usb'",
         )
         .to_string()
         .into_bytes();
@@ -1716,7 +1712,7 @@ mod tests {
         // Unknown `transports`.
         err = Error::invalid_value(
             Unexpected::Str("Usb"),
-            &"'ble', 'hybrid', 'internal', 'nfc', 'smart-card', or 'usb'",
+            &"'ble', 'cable', 'hybrid', 'internal', 'nfc', 'smart-card', or 'usb'",
         )
         .to_string()
         .into_bytes();
@@ -3827,7 +3823,7 @@ mod tests {
         );
         // `publicKeyAlgorithm` mismatch.
         let mut err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
+            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Es384).as_str()
         )
         .to_string().into_bytes();
@@ -3841,7 +3837,7 @@ mod tests {
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -7,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -3939,13 +3935,8 @@ mod tests {
                 },
                 "clientExtensionResults": {},
                 "type": "public-key"
-            })
-            .to_string()
-            .as_str()
-            )
-            .unwrap_err().to_string().into_bytes()[..err.len()],
-            err
-        );
+            }).to_string().as_str()
+        ).unwrap_err().to_string().into_bytes()[..err.len()], err);
         // Missing `publicKey`.
         assert!(
             serde_json::from_str::<RegistrationRelaxed>(
@@ -4732,8 +4723,8 @@ mod tests {
             .to_string()
             .as_str()
             )
-            .unwrap_err().to_string().into_bytes()[..err.len()],
-            err
+           .unwrap_err().to_string().into_bytes()[..err.len()],
+           err
         );
         // Missing `publicKey`.
         assert!(

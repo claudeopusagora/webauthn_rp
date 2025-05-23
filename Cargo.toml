@@ -9,27 +9,74 @@ license = "MIT OR Apache-2.0"
 name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
-rust-version = "1.86.0"
-version = "0.3.0"
+rust-version = "1.87.0"
+version = "0.4.0"
+
+[lints.rust]
+unknown_lints = { level = "deny", priority = -1 }
+future_incompatible = { level = "deny", priority = -1 }
+let_underscore = { level = "deny", priority = -1 }
+missing_docs = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+refining_impl_trait = { level = "deny", priority = -1 }
+rust_2018_compatibility = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "deny", priority = -1 }
+rust_2021_compatibility = { level = "deny", priority = -1 }
+rust_2024_compatibility = { level = "deny", priority = -1 }
+unsafe_code = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
+warnings = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+restriction = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+# Noisy, opinionated, and likely don't prevent bugs or improve APIs.
+arbitrary_source_item_ordering = "allow"
+blanket_clippy_restriction_lints = "allow"
+exhaustive_enums = "allow"
+exhaustive_structs = "allow"
+implicit_return = "allow"
+min_ident_chars = "allow"
+missing_trait_methods = "allow"
+module_name_repetitions = "allow"
+multiple_crate_versions = "allow"
+pub_with_shorthand = "allow"
+pub_use = "allow"
+question_mark_used = "allow"
+ref_patterns = "allow"
+return_and_then = "allow"
+self_named_module_files = "allow"
+single_call_fn = "allow"
+single_char_lifetime_names = "allow"
+unseparated_literal_suffix = "allow"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-data-encoding = { version = "2.8.0", default-features = false }
+data-encoding = { version = "2.9.0", default-features = false }
 ed25519-dalek = { version = "2.1.1", default-features = false, features = ["fast"] }
+hashbrown = { version = "0.15.3", default-features = false }
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.13.1", default-features = false, features = ["ecdsa"] }
 precis-profiles = { version = "0.1.12", default-features = false }
-rand = { version = "0.9.0", default-features = false, features = ["thread_rng"] }
+rand = { version = "0.9.1", default-features = false, features = ["thread_rng"] }
 rsa = { version = "0.9.8", default-features = false, features = ["sha2"] }
 serde = { version = "1.0.219", default-features = false, features = ["alloc"], optional = true }
 serde_json = { version = "1.0.140", default-features = false, features = ["alloc"], optional = true }
 url = { version = "2.5.4", default-features = false }
 
 [dev-dependencies]
-data-encoding = { version = "2.8.0", default-features = false, features = ["alloc"] }
+data-encoding = { version = "2.9.0", default-features = false, features = ["alloc"] }
 ed25519-dalek = { version = "2.1.1", default-features = false, features = ["alloc", "pkcs8"] }
 p256 = { version = "0.13.2", default-features = false, features = ["pem"] }
 p384 = { version = "0.13.1", default-features = false, features = ["pkcs8"] }

@@ -17,16 +17,18 @@ having said that, there are pre-defined serialization formats for "common" deplo
 ## `webauthn_rp` in action
 
 ```rust
+use core::convert;
 use webauthn_rp::{
-    AuthenticatedCredential, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
-    DiscoverableCredentialRequestOptions, PublicKeyCredentialCreationOptions, RegisteredCredential,
-    Registration, RegistrationServerState,
+    AuthenticatedCredential64, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
+    DiscoverableCredentialRequestOptions, PublicKeyCredentialCreationOptions64, RegisteredCredential64,
+    Registration, RegistrationServerState64,
+    hash::hash_set::FixedCapHashSet,
     request::{
         AsciiDomain, PublicKeyCredentialDescriptor, RpId,
         auth::AuthenticationVerificationOptions,
         register::{
-            Nickname, PublicKeyCredentialUserEntity, RegistrationVerificationOptions,
-            USER_HANDLE_MAX_LEN, UserHandle64, Username,
+            Nickname, PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
+            UserHandle64, Username,
         },
     },
     response::{
@@ -35,8 +37,6 @@ use webauthn_rp::{
         register::{CompressedPubKey, DynamicState, error::RegCeremonyErr},
     },
 };
-// These are available iff `serializable_server_state` is _not_ enabled.
-use webauthn_rp::request::{FixedCapHashSet, InsertResult};
 use serde::de::{Deserialize, Deserializer};
 use serde_json::Error as JsonErr;
 /// The RP ID our application uses.
@@ -99,7 +99,7 @@ impl<'de: 'a + 'b, 'a, 'b> Deserialize<'de> for AccountReg<'a, 'b> {
 /// already exist otherwise. This is similar to credential creation except a random `UserHandle64` is generated and
 /// will be used for subsequent credential registrations.
 fn start_account_creation(
-    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
 ) -> Result<Vec<u8>, AppErr> {
     let rp_id = RpId::Domain(
         AsciiDomain::try_from(RP_ID.to_owned())
@@ -107,19 +107,17 @@ fn start_account_creation(
     );
     let user_id = UserHandle64::new();
     let (server, client) =
-        PublicKeyCredentialCreationOptions::first_passkey_with_blank_user_info(
+        PublicKeyCredentialCreationOptions64::first_passkey_with_blank_user_info(
             &rp_id, &user_id,
         )
         .start_ceremony()
         .unwrap_or_else(|_e| {
-            unreachable!("we don't manually mutate the options; thus this can't fail")
+            unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
         });
-    if matches!(
-        reg_ceremonies.insert_or_replace_all_expired(server),
-        InsertResult::Success
-    ) {
+    if reg_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+    {
         Ok(serde_json::to_vec(&client)
-            .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize")))
+            .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState64::serialize")))
     } else {
         Err(AppErr::WebAuthnCeremonyCreation)
     }
@@ -133,7 +131,7 @@ fn start_account_creation(
 /// Note if this errors, then the user should be notified to delete the passkey created on their
 /// authenticator.
 fn finish_account_creation(
-    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
     client_data: Vec<u8>,
 ) -> Result<(), AppErr> {
     let account = serde_json::from_slice::<AccountReg<'_, '_>>(client_data.as_slice())?;
@@ -161,24 +159,22 @@ fn finish_account_creation(
 /// the authenticator.
 fn start_cred_registration(
     user_id: &UserHandle64,
-    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
 ) -> Result<Vec<u8>, AppErr> {
     let rp_id = RpId::Domain(
         AsciiDomain::try_from(RP_ID.to_owned())
             .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
     );
     let (entity, creds) = select_user_info(user_id)?.ok_or_else(|| AppErr::NoAccount)?;
-    let (server, client) = PublicKeyCredentialCreationOptions::passkey(&rp_id, entity, creds)
+    let (server, client) = PublicKeyCredentialCreationOptions64::passkey(&rp_id, entity, creds)
         .start_ceremony()
         .unwrap_or_else(|_e| {
-            unreachable!("we don't manually mutate the options; thus this won't error")
+            unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
         });
-    if matches!(
-        reg_ceremonies.insert_or_replace_all_expired(server),
-        InsertResult::Success
-    ) {
+    if reg_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+    {
         Ok(serde_json::to_vec(&client)
-            .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize")))
+            .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState64::serialize")))
     } else {
         Err(AppErr::WebAuthnCeremonyCreation)
     }
@@ -192,7 +188,7 @@ fn start_cred_registration(
 /// Note if this errors, then the user should be notified to delete the passkey created on their
 /// authenticator.
 fn finish_cred_registration(
-    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState<USER_HANDLE_MAX_LEN>>,
+    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
     client_data: Vec<u8>,
 ) -> Result<(), AppErr> {
     // `Registration::from_json_custom` is available iff `serde_relaxed` is enabled.
@@ -223,12 +219,10 @@ fn start_auth(
     let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id)
         .start_ceremony()
         .unwrap_or_else(|_e| {
-            unreachable!("we don't manually mutate the options; thus this won't error")
+            unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
         });
-    if matches!(
-        auth_ceremonies.insert_or_replace_all_expired(server),
-        InsertResult::Success
-    ) {
+    if auth_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+    {
         Ok(serde_json::to_vec(&client).unwrap_or_else(|_e| {
             unreachable!("bug in DiscoverableAuthenticationClientState::serialize")
         }))
@@ -241,7 +235,7 @@ fn finish_auth(
     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
     client_data: Vec<u8>,
 ) -> Result<(), AppErr> {
-    // `Authentication::from_json_custom` is available iff `serde_relaxed` is enabled.
+    // `DiscoverableAuthentication64::from_json_custom` is available iff `serde_relaxed` is enabled.
     let authentication =
         DiscoverableAuthentication64::from_json_custom(client_data.as_slice())?;
     let mut cred = select_credential(
@@ -250,7 +244,7 @@ fn finish_auth(
     )?
     .ok_or_else(|| AppErr::NoCredential)?;
     if auth_ceremonies
-        // `Authentication::challenge_relaxed` is available iff `serde_relaxed` is enabled.
+        // `DiscoverableAuthentication64::challenge_relaxed` is available iff `serde_relaxed` is enabled.
         .take(&authentication.challenge_relaxed()?)
         .ok_or(AppErr::MissingWebAuthnCeremony)?
         .verify(
@@ -276,7 +270,7 @@ fn finish_auth(
 /// `CredentialId`, or there already exists an account using the same `UserHandle64`.
 fn insert_account(
     account: &AccountReg<'_, '_>,
-    cred: RegisteredCredential<'_, USER_HANDLE_MAX_LEN>,
+    cred: RegisteredCredential64<'_>,
 ) -> Result<(), AppErr> {
     // ⋮
 }
@@ -289,7 +283,7 @@ fn select_user_info<'a>(
     user_id: &'a UserHandle64,
 ) -> Result<
     Option<(
-        PublicKeyCredentialUserEntity<'static, 'static, 'a, USER_HANDLE_MAX_LEN>,
+        PublicKeyCredentialUserEntity64<'static, 'static, 'a>,
         Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
     )>,
     AppErr,
@@ -300,9 +294,10 @@ fn select_user_info<'a>(
 ///
 /// # Errors
 ///
-/// Errors iff writing `cred` errors or there already exists a credential using the same `CredentialId`.
+/// Errors iff writing `cred` errors, there already exists a credential using the same `CredentialId`,
+/// or there does not exist an account under the `UserHandle64`.
 fn insert_credential(
-    cred: RegisteredCredential<'_, USER_HANDLE_MAX_LEN>,
+    cred: RegisteredCredential64<'_>,
 ) -> Result<(), AppErr> {
     // ⋮
 }
@@ -317,10 +312,9 @@ fn select_credential<'cred, 'user>(
     user_id: &'user UserHandle64,
 ) -> Result<
     Option<
-        AuthenticatedCredential<
+        AuthenticatedCredential64<
             'cred,
             'user,
-            USER_HANDLE_MAX_LEN,
             CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>,
         >,
     >,
@@ -347,7 +341,6 @@ fn update_credential(
  will occur.
 
 ### `bin`
-
 Enables binary (de)serialization via `Encode` and `Decode`. Since registered credentials will almost always
 have to be saved to persistent storage, _some_ form of (de)serialization is necessary. In the event `bin` is
 unsuitable or only partially suitable (e.g., human-readable output is desired), one will need to enable
@@ -405,13 +398,14 @@ wants to accommodate non-conforming clients or clients that implement older vers
 ### `serializable_server_state`
 
 Automatically enables [`bin`](#bin) in addition to `Encode` and `Decode` implementations for
-`RegistrationServerState` and `AuthenticationServerState`. Less accurate `SystemTime` is used instead of
-`Instant` for timeout enforcement. This should be enabled if you don't desire to use in-memory collections to
-store the instances of those types.
+`RegistrationServerState`, `DiscoverableAuthenticationServerState`, and
+`NonDiscoverableAuthenticationServerState`. Less accurate `SystemTime` is used instead of `Instant` for
+timeout enforcement. This should be enabled if you don't desire to use in-memory collections to store the instances
+of those types.
 
 Note even when written to persistent storage, an application should still periodically remove expired ceremonies.
-If one is using a relational database (RDB); then one can achieve this by storing `ServerState::sent_challenge`,
-the `Vec` returned from `Encode::encode`, and `ServerState::expiration` and periodically remove all rows
+If one is using a relational database (RDB); then one can achieve this by storing `SentChallenge`,
+the `Vec` returned from `Encode::encode`, and `TimedCeremony::expiration` and periodically remove all rows
 whose expiration exceeds the current date and time.
 
 ## Registration and authentication
@@ -435,13 +429,14 @@ It is for those reasons data like `RegistrationServerState` are not serializable
 use of in-memory collections (e.g., `FixedCapHashSet`). To better ensure OOM is not a concern, RPs should set
 reasonable timeouts. Since ceremonies can only be completed by moving data (e.g.,
 `RegistrationServerState::verify`), ceremony completion is guaranteed to free up the memory used—
-`RegistrationServerState` instances are only 48 bytes on `x86_64-unknown-linux-gnu` platforms. To avoid issues
-related to incomplete ceremonies, RPs can periodically iterate the collection for expired ceremonies and remove
-such data. Other techniques can be employed as well to mitigate OOM, but they are application specific and
-out-of-scope. If this is undesirable, one can enable [`serializable_server_state`](#serializable_server_state)
-so that `RegistrationServerState` and `AuthenticationServerState` implement `Encode` and `Decode`. Another
-reason one may need to store this information persistently is for load-balancing purposes where the server that
-started the ceremony is not guaranteed to be the server that finishes the ceremony.
+`RegistrationServerState` instances are as small as 48 bytes on `x86_64-unknown-linux-gnu` platforms. To avoid
+issues related to incomplete ceremonies, RPs can periodically iterate the collection for expired ceremonies and
+remove such data. Other techniques can be employed as well to mitigate OOM, but they are application specific
+and out-of-scope. If this is undesirable, one can enable [`serializable_server_state`](#serializable_server_state)
+so that `RegistrationServerState`, `DiscoverableAuthenticationServerState`, and
+`NonDiscoverableAuthenticationServerState` implement `Encode` and `Decode`. Another reason one may need to
+store this information persistently is for load-balancing purposes where the server that started the ceremony is
+not guaranteed to be the server that finishes the ceremony.
 
 ## Supported signature algorithms
 

@@ -19,7 +19,6 @@ impl Serialize for Challenge {
     /// assert_eq!(serde_json::to_string(&Challenge::new())?.len(), 24);
     /// # Ok::<_, serde_json::Error>(())
     /// ```
-    #[expect(clippy::unreachable, reason = "when there is a bug, we want to crash")]
     #[expect(
         clippy::little_endian_bytes,
         reason = "SentChallenge::deserialize and Challenge::serialize need to be consistent across architectures"
@@ -29,13 +28,10 @@ impl Serialize for Challenge {
     where
         S: Serializer,
     {
-        let mut data = [0; Self::BASE64_LEN];
-        BASE64URL_NOPAD.encode_mut(self.0.to_le_bytes().as_slice(), data.as_mut_slice());
-        serializer.serialize_str(
-            str::from_utf8(data.as_slice())
-                // There is a bug, so crash and burn.
-                .unwrap_or_else(|_| unreachable!("there is a bug in Challenge::serialize")),
-        )
+        serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(
+            self.0.to_le_bytes().as_slice(),
+            [0; Self::BASE64_LEN].as_mut_slice(),
+        ))
     }
 }
 impl Serialize for RpId {

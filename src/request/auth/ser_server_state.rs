@@ -1,8 +1,3 @@
-#![expect(
-    clippy::question_mark_used,
-    clippy::unseparated_literal_suffix,
-    reason = "noisy, opinionated, and likely doesn't prevent bugs or improve APIs"
-)]
 use super::{
     super::super::bin::{
         Decode, DecodeBuffer, EncDecErr, Encode, EncodeBuffer, EncodeBufferFallible,
