@@ -1,9 +1,10 @@
 extern crate alloc;
 use super::{
-    AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
-    CoseAlgorithmIdentifier, CoseAlgorithmIdentifiers, CredProtect, CrossPlatformHint, Extension,
-    Hint, Nickname, PlatformHint, PublicKeyCredentialUserEntity,
-    RegistrationClientState, ResidentKeyRequirement, RpId, UserHandle, Username,
+    AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, CoseAlgorithmIdentifier,
+    CoseAlgorithmIdentifiers, CredProtect, CredentialCreationOptions, CrossPlatformHint, Extension,
+    Hint, Nickname, PlatformHint, PrfInput, PublicKeyCredentialCreationOptions,
+    PublicKeyCredentialUserEntity, RegistrationClientState, ResidentKeyRequirement, RpId,
+    UserHandle, Username,
 };
 use alloc::borrow::Cow;
 #[cfg(doc)]
@@ -16,7 +17,7 @@ use core::{
 use data_encoding::BASE64URL_NOPAD;
 use serde::{
     de::{Deserialize, Deserializer, Error, Unexpected, Visitor},
-    ser::{Serialize, SerializeSeq as _, SerializeStruct, Serializer},
+    ser::{Serialize, SerializeSeq as _, SerializeStruct as _, Serializer},
 };
 impl Serialize for Nickname<'_> {
     /// Serializes `self` as a [`prim@str`].
@@ -80,12 +81,15 @@ impl Serialize for CoseAlgorithmIdentifier {
             .serialize_struct("PublicKeyCredentialParameters", 2)
             .and_then(|mut ser| {
                 ser.serialize_field("type", "public-key").and_then(|()| {
-                    ser.serialize_field("alg", &match *self {
-                        Self::Eddsa => EDDSA,
-                        Self::Es256 => ES256,
-                        Self::Es384 => ES384,
-                        Self::Rs256 => RS256,
-                    })
+                    ser.serialize_field(
+                        "alg",
+                        &match *self {
+                            Self::Eddsa => EDDSA,
+                            Self::Es256 => ES256,
+                            Self::Es384 => ES384,
+                            Self::Rs256 => RS256,
+                        },
+                    )
                     .and_then(|()| ser.end())
                 })
             })
@@ -120,7 +124,12 @@ impl Serialize for CoseAlgorithmIdentifiers {
     {
         // At most we add `1` four times which clearly cannot overflow or `usize`.
         serializer
-            .serialize_seq(Some(usize::from(self.contains(CoseAlgorithmIdentifier::Eddsa)) + usize::from(self.contains(CoseAlgorithmIdentifier::Es256)) + usize::from(self.contains(CoseAlgorithmIdentifier::Es384)) + usize::from(self.contains(CoseAlgorithmIdentifier::Es384))))
+            .serialize_seq(Some(
+                usize::from(self.contains(CoseAlgorithmIdentifier::Eddsa))
+                    + usize::from(self.contains(CoseAlgorithmIdentifier::Es256))
+                    + usize::from(self.contains(CoseAlgorithmIdentifier::Es384))
+                    + usize::from(self.contains(CoseAlgorithmIdentifier::Es384)),
+            ))
             .and_then(|mut ser| {
                 if self.contains(CoseAlgorithmIdentifier::Eddsa) {
                     ser.serialize_element(&CoseAlgorithmIdentifier::Eddsa)
@@ -195,7 +204,10 @@ impl Serialize for UserHandle<1> {
     where
         S: Serializer,
     {
-        serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(self.0.as_slice(), [0; crate::base64url_nopad_len(1).unwrap()].as_mut_slice()))
+        serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(
+            self.0.as_slice(),
+            [0; crate::base64url_nopad_len(1).unwrap()].as_mut_slice(),
+        ))
     }
 }
 /// Implements [`Serialize`] for [`UserHandle`] of array of length of the passed `usize` literal.
@@ -211,7 +223,7 @@ impl Serialize for UserHandle<$x> {
     where
         S: Serializer,
     {
-        
+
         serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(self.0.as_slice(), [0; crate::base64url_nopad_len($x).unwrap()].as_mut_slice()))
     }
 }
@@ -220,9 +232,9 @@ impl Serialize for UserHandle<$x> {
 }
 // MUST only pass `2`–[`USER_HANDLE_MAX_LEN`] inclusively.
 user_serialize!(
-    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-    27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-    51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+    28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64
 );
 impl<const LEN: usize> Serialize for PublicKeyCredentialUserEntity<'_, '_, '_, LEN>
 where
@@ -454,20 +466,19 @@ impl Serialize for AuthenticatorSelectionCriteria {
 }
 /// Helper that serializes prf registration information to conform with
 /// [`AuthenticationExtensionsPRFInputs`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfinputs).
-///
-/// Since CTAP 2.2 does not allow PRF evaluation at creation time, we send an empty map.
-struct Prf;
-impl Serialize for Prf {
+struct Prf<'a, 'b>(PrfInput<'a, 'b>);
+impl Serialize for Prf<'_, '_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer
-            .serialize_struct("Prf", 0)
-            .and_then(SerializeStruct::end)
+        serializer.serialize_struct("Prf", 1).and_then(|mut ser| {
+            ser.serialize_field("eval", &self.0)
+                .and_then(|()| ser.end())
+        })
     }
 }
-impl Serialize for Extension {
+impl Serialize for Extension<'_, '_> {
     /// Serializes `self` to conform with
     /// [`AuthenticationExtensionsClientInputsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsclientinputsjson).
     ///
@@ -476,7 +487,7 @@ impl Serialize for Extension {
     /// ```
     /// # use webauthn_rp::request::{
     /// #     register::{CredProtect, Extension, FourToSixtyThree},
-    /// #     ExtensionInfo, ExtensionReq,
+    /// #     PrfInput, ExtensionInfo, ExtensionReq,
     /// # };
     /// assert_eq!(serde_json::to_string(&Extension::default())?, r#"{}"#);
     /// assert_eq!(
@@ -484,9 +495,9 @@ impl Serialize for Extension {
     ///         cred_props: Some(ExtensionReq::Allow),
     ///         cred_protect: CredProtect::UserVerificationRequired(false, ExtensionInfo::RequireEnforceValue),
     ///         min_pin_length: Some((FourToSixtyThree::new(16).unwrap_or_else(|| unreachable!("bug in FourToSixtyThree::new")), ExtensionInfo::AllowDontEnforceValue)),
-    ///         prf: Some(ExtensionInfo::AllowEnforceValue)
+    ///         prf: Some((PrfInput { first: [0].as_slice(), second: None, }, ExtensionInfo::AllowEnforceValue))
     ///     })?,
-    ///     r#"{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{}}"#
+    ///     r#"{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{"eval":{"first":"AA"}}}"#
     /// );
     /// # Ok::<_, serde_json::Error>(())
     /// ```
@@ -538,7 +549,8 @@ impl Serialize for Extension {
                                         "userVerificationOptional"
                                     }
                                     CredProtect::UserVerificationOptionalWithCredentialIdList(
-                                        enforce, _,
+                                        enforce,
+                                        _,
                                     ) => {
                                         enforce_policy = enforce;
                                         "userVerificationOptionalWithCredentialIDList"
@@ -561,7 +573,9 @@ impl Serialize for Extension {
                                 .map_or(Ok(()), |_| ser.serialize_field(MIN_PIN_LENGTH, &true))
                                 .and_then(|()| {
                                     self.prf
-                                        .map_or(Ok(()), |_| ser.serialize_field(PRF, &Prf))
+                                        .map_or(Ok(()), |(prf, _)| {
+                                            ser.serialize_field(PRF, &Prf(prf))
+                                        })
                                         .and_then(|()| ser.end())
                                 })
                         })
@@ -569,12 +583,156 @@ impl Serialize for Extension {
             })
     }
 }
-impl<'user_name, 'user_display_name, 'user_id, const USER_LEN: usize> Serialize for RegistrationClientState<'_, 'user_name, 'user_display_name, 'user_id, USER_LEN>
+impl<'user_name, 'user_display_name, 'user_id, const USER_LEN: usize> Serialize
+    for PublicKeyCredentialCreationOptions<
+        '_,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        '_,
+        '_,
+        USER_LEN,
+    >
 where
     PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>: Serialize,
 {
     /// Serializes `self` to conform with
     /// [`PublicKeyCredentialCreationOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialcreationoptionsjson).
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        /// "none".
+        const NONE: &str = "none";
+        serializer
+            .serialize_struct("PublicKeyCredentialCreationOptions", 11)
+            .and_then(|mut ser| {
+                ser.serialize_field("rp", &PublicKeyCredentialRpEntity(self.rp_id))
+                    .and_then(|()| {
+                        ser.serialize_field("user", &self.user).and_then(|()| {
+                            ser.serialize_field("challenge", &self.challenge)
+                                .and_then(|()| {
+                                    ser.serialize_field(
+                                        "pubKeyCredParams",
+                                        &self.pub_key_cred_params,
+                                    )
+                                    .and_then(|()| {
+                                        ser.serialize_field("timeout", &self.timeout).and_then(
+                                            |()| {
+                                                ser.serialize_field(
+                                                    "excludeCredentials",
+                                                    self.exclude_credentials.as_slice(),
+                                                )
+                                                .and_then(|()| {
+                                                    ser.serialize_field(
+                                                        "authenticatorSelection",
+                                                        &self.authenticator_selection,
+                                                    )
+                                                    .and_then(|()| {
+                                                        ser.serialize_field("hints", &match self.authenticator_selection.authenticator_attachment {
+                                                            AuthenticatorAttachmentReq::None(hint) => hint,
+                                                            AuthenticatorAttachmentReq::Platform(hint) => hint.into(),
+                                                            AuthenticatorAttachmentReq::CrossPlatform(hint) => hint.into(),
+                                                        }).and_then(|()| {
+                                                            ser.serialize_field("attestation", NONE).and_then(|()| {
+                                                                ser.serialize_field("attestationFormats", [NONE].as_slice()).and_then(|()| {
+                                                                    ser.serialize_field("extensions", &self.extensions).and_then(|()| ser.end())
+                                                                })
+                                                            })
+                                                        })
+                                                    })
+                                                })
+                                            },
+                                        )
+                                    })
+                                })
+                        })
+                    })
+            })
+    }
+}
+impl<
+    'rp_id,
+    'user_name,
+    'user_display_name,
+    'user_id,
+    'prf_first,
+    'prf_second,
+    const USER_LEN: usize,
+> Serialize
+    for CredentialCreationOptions<
+        'rp_id,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        'prf_first,
+        'prf_second,
+        USER_LEN,
+    >
+where
+    PublicKeyCredentialCreationOptions<
+        'rp_id,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        'prf_first,
+        'prf_second,
+        USER_LEN,
+    >: Serialize,
+{
+    /// Serializes `self` to conform with
+    /// [`CredentialCreationOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialcreationoptions).
+    ///
+    /// Note [`signal`](https://www.w3.org/TR/credential-management-1/#dom-credentialcreationoptions-signal)
+    /// is not present, and [`publicKey`](https://www.w3.org/TR/credential-management-1/#sctn-cred-type-registry)
+    /// is serialized according to [`PublicKeyCredentialCreationOptions::serialize`].
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer
+            .serialize_struct("CredentialCreationOptions", 2)
+            .and_then(|mut ser| {
+                ser.serialize_field("mediation", &self.mediation)
+                    .and_then(|()| {
+                        ser.serialize_field("publicKey", &self.public_key)
+                            .and_then(|()| ser.end())
+                    })
+            })
+    }
+}
+impl<
+    'rp_id,
+    'user_name,
+    'user_display_name,
+    'user_id,
+    'prf_first,
+    'prf_second,
+    const USER_LEN: usize,
+> Serialize
+    for RegistrationClientState<
+        'rp_id,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        'prf_first,
+        'prf_second,
+        USER_LEN,
+    >
+where
+    CredentialCreationOptions<
+        'rp_id,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        'prf_first,
+        'prf_second,
+        USER_LEN,
+    >: Serialize,
+{
+    /// Serializes `self` according to [`CredentialCreationOptions::serialize`].
     ///
     /// # Examples
     ///
@@ -584,7 +742,7 @@ where
     /// # use webauthn_rp::{
     /// #     request::{
     /// #         register::{
-    /// #             FourToSixtyThree, UserHandle64, AuthenticatorAttachmentReq, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
+    /// #             FourToSixtyThree, UserHandle64, AuthenticatorAttachmentReq, CredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
     /// #         },
     /// #         AsciiDomain, ExtensionInfo, Hint, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
     /// #     },
@@ -609,75 +767,78 @@ where
     /// creds.push(PublicKeyCredentialDescriptor { id, transports });
     /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
     /// let user_handle = UserHandle64::new();
-    /// let mut options = PublicKeyCredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: &user_handle, display_name: Some("Pierre de Fermat".try_into()?) }, creds);
-    /// options.authenticator_selection.authenticator_attachment = AuthenticatorAttachmentReq::None(Hint::SecurityKey);
-    /// options.extensions.min_pin_length = Some((FourToSixtyThree::new(16).unwrap_or_else(|| unreachable!("bug in FourToSixtyThree::new")), ExtensionInfo::RequireEnforceValue));
+    /// let mut options = CredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: &user_handle, display_name: Some("Pierre de Fermat".try_into()?) }, creds);
+    /// options.public_key.authenticator_selection.authenticator_attachment = AuthenticatorAttachmentReq::None(Hint::SecurityKey);
+    /// options.public_key.extensions.min_pin_length = Some((FourToSixtyThree::new(16).unwrap_or_else(|| unreachable!("bug in FourToSixtyThree::new")), ExtensionInfo::RequireEnforceValue));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap();
+    /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize"));
     /// let json = serde_json::json!({
-    ///     "rp":{
-    ///         "name":"example.com",
-    ///         "id":"example.com"
-    ///     },
-    ///     "user":{
-    ///         "name":"pierre.de.fermat",
-    ///         "id":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    ///         "displayName":"Pierre de Fermat"
-    ///     },
-    ///     "challenge":"AAAAAAAAAAAAAAAAAAAAAA",
-    ///     "pubKeyCredParams":[
-    ///         {
-    ///             "type":"public-key",
-    ///             "alg":-8
+    ///     "mediation":"optional",
+    ///     "publicKey":{
+    ///         "rp":{
+    ///             "name":"example.com",
+    ///             "id":"example.com"
     ///         },
-    ///         {
-    ///             "type":"public-key",
-    ///             "alg":-7
+    ///         "user":{
+    ///             "name":"pierre.de.fermat",
+    ///             "id":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    ///             "displayName":"Pierre de Fermat"
     ///         },
-    ///         {
-    ///             "type":"public-key",
-    ///             "alg":-35
+    ///         "challenge":"AAAAAAAAAAAAAAAAAAAAAA",
+    ///         "pubKeyCredParams":[
+    ///             {
+    ///                 "type":"public-key",
+    ///                 "alg":-8
+    ///             },
+    ///             {
+    ///                 "type":"public-key",
+    ///                 "alg":-7
+    ///             },
+    ///             {
+    ///                 "type":"public-key",
+    ///                 "alg":-35
+    ///             },
+    ///             {
+    ///                 "type":"public-key",
+    ///                 "alg":-257
+    ///             },
+    ///         ],
+    ///         "timeout":300000,
+    ///         "excludeCredentials":[
+    ///             {
+    ///                 "type":"public-key",
+    ///                 "id":"AAAAAAAAAAAAAAAAAAAAAA",
+    ///                 "transports":["usb"]
+    ///             }
+    ///         ],
+    ///         "authenticatorSelection":{
+    ///             "residentKey":"required",
+    ///             "requireResidentKey":true,
+    ///             "userVerification":"required"
     ///         },
-    ///         {
-    ///             "type":"public-key",
-    ///             "alg":-257
-    ///         },
-    ///     ],
-    ///     "timeout":300000,
-    ///     "excludeCredentials":[
-    ///         {
-    ///             "type":"public-key",
-    ///             "id":"AAAAAAAAAAAAAAAAAAAAAA",
-    ///             "transports":["usb"]
+    ///         "hints":[
+    ///             "security-key"
+    ///         ],
+    ///         "attestation":"none",
+    ///         "attestationFormats":[
+    ///             "none"
+    ///         ],
+    ///         "extensions":{
+    ///             "credentialProtectionPolicy":"userVerificationRequired",
+    ///             "enforceCredentialProtectionPolicy":false,
+    ///             "minPinLength":true
     ///         }
-    ///     ],
-    ///     "authenticatorSelection":{
-    ///         "residentKey":"required",
-    ///         "requireResidentKey":true,
-    ///         "userVerification":"required"
-    ///     },
-    ///     "hints":[
-    ///         "security-key"
-    ///     ],
-    ///     "attestation":"none",
-    ///     "attestationFormats":[
-    ///         "none"
-    ///     ],
-    ///     "extensions":{
-    ///         "credentialProtectionPolicy":"userVerificationRequired",
-    ///         "enforceCredentialProtectionPolicy":false,
-    ///         "minPinLength":true
     ///     }
     /// }).to_string();
     /// // Since `Challenge`s are randomly generated, we don't know what it will be.
     /// // Similarly since we randomly generated a 64-byte `UserHandle`, we don't know what
     /// // it will be; thus we test the JSON string for everything except those two.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// assert_eq!(client_state.get(..88), json.get(..88));
+    /// assert_eq!(client_state.get(..124), json.get(..124));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// assert_eq!(client_state.get(174..212), json.get(174..212));
+    /// assert_eq!(client_state.get(210..259), json.get(210..259));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// assert_eq!(client_state.get(245..), json.get(245..));
+    /// assert_eq!(client_state.get(281..), json.get(281..));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
     #[inline]
@@ -685,53 +846,7 @@ where
     where
         S: Serializer,
     {
-        /// "none".
-        const NONE: &str = "none";
-        serializer
-            .serialize_struct("RegistrationClientState", 11)
-            .and_then(|mut ser| {
-                ser.serialize_field("rp", &PublicKeyCredentialRpEntity(self.0.rp_id))
-                    .and_then(|()| {
-                        ser.serialize_field("user", &self.0.user).and_then(|()| {
-                            ser.serialize_field("challenge", &self.0.challenge)
-                                .and_then(|()| {
-                                    ser.serialize_field(
-                                        "pubKeyCredParams",
-                                        &self.0.pub_key_cred_params,
-                                    )
-                                    .and_then(|()| {
-                                        ser.serialize_field("timeout", &self.0.timeout).and_then(
-                                            |()| {
-                                                ser.serialize_field(
-                                                    "excludeCredentials",
-                                                    self.0.exclude_credentials.as_slice(),
-                                                )
-                                                .and_then(|()| {
-                                                    ser.serialize_field(
-                                                        "authenticatorSelection",
-                                                        &self.0.authenticator_selection,
-                                                    )
-                                                    .and_then(|()| {
-                                                        ser.serialize_field("hints", &match self.0.authenticator_selection.authenticator_attachment {
-                                                            AuthenticatorAttachmentReq::None(hint) => hint,
-                                                            AuthenticatorAttachmentReq::Platform(hint) => hint.into(),
-                                                            AuthenticatorAttachmentReq::CrossPlatform(hint) => hint.into(),
-                                                        }).and_then(|()| {
-                                                            ser.serialize_field("attestation", NONE).and_then(|()| {
-                                                                ser.serialize_field("attestationFormats", [NONE].as_slice()).and_then(|()| {
-                                                                    ser.serialize_field("extensions", &self.0.extensions).and_then(|()| ser.end())
-                                                                })
-                                                            })
-                                                        })
-                                                    })
-                                                })
-                                            },
-                                        )
-                                    })
-                                })
-                        })
-                    })
-            })
+        self.0.serialize(serializer)
     }
 }
 impl<'de: 'a, 'a> Deserialize<'de> for Nickname<'a> {
@@ -853,25 +968,36 @@ where
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("UserHandle")
             }
-            #[expect(clippy::panic_in_result_fn, clippy::unreachable, reason = "we want to crash when there is a bug")]
+            #[expect(
+                clippy::panic_in_result_fn,
+                clippy::unreachable,
+                reason = "we want to crash when there is a bug"
+            )]
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: Error,
             {
                 // Any value between `USER_HANDLE_MIN_LEN` and `USER_HANDLE_MAX_LEN` can be base64url encoded
                 // without fear since that range is just 1 to 64, and 4/3 of 64 is less than `usize::MAX`.
-                if crate::base64url_nopad_len(L).unwrap_or_else(|| unreachable!("there is a bug in webauthn_rp::base64url_nopad_len")) == v.len() {
+                if crate::base64url_nopad_len(L).unwrap_or_else(|| {
+                    unreachable!("there is a bug in webauthn_rp::base64url_nopad_len")
+                }) == v.len()
+                {
                     let mut data = [0; L];
                     BASE64URL_NOPAD
                         .decode_mut(v.as_bytes(), data.as_mut_slice())
                         .map_err(|e| E::custom(e.error))
                         .map(|len| {
-                            assert_eq!(len, L, "there is a bug in data_encoding::BASE64URL_NOPAD::decode_mut");
+                            assert_eq!(
+                                len, L,
+                                "there is a bug in data_encoding::BASE64URL_NOPAD::decode_mut"
+                            );
                             UserHandle(data)
                         })
                 } else {
                     Err(E::invalid_value(
-                        Unexpected::Str(v), &format!("{L} bytes encoded in base64url without padding").as_str()
+                        Unexpected::Str(v),
+                        &format!("{L} bytes encoded in base64url without padding").as_str(),
                     ))
                 }
             }
@@ -903,7 +1029,7 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifier {
                 match v {
                     EDDSA => Ok(CoseAlgorithmIdentifier::Eddsa),
                     ES256 => Ok(CoseAlgorithmIdentifier::Es256),
-                    ES384=> Ok(CoseAlgorithmIdentifier::Es384),
+                    ES384 => Ok(CoseAlgorithmIdentifier::Es384),
                     RS256 => Ok(CoseAlgorithmIdentifier::Rs256),
                     _ => Err(E::invalid_value(
                         Unexpected::Signed(i64::from(v)),

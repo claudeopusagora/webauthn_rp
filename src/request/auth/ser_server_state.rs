@@ -19,24 +19,25 @@ use std::time::{SystemTime, SystemTimeError};
 impl EncodeBuffer for ServerPrfInfo {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         match *self {
+            Self::None => 0u8.encode_into_buffer(buffer),
             Self::One(req) => {
-                0u8.encode_into_buffer(buffer);
-                req
+                1u8.encode_into_buffer(buffer);
+                req.encode_into_buffer(buffer);
             }
             Self::Two(req) => {
-                1u8.encode_into_buffer(buffer);
-                req
+                2u8.encode_into_buffer(buffer);
+                req.encode_into_buffer(buffer);
             }
         }
-        .encode_into_buffer(buffer);
     }
 }
 impl<'a> DecodeBuffer<'a> for ServerPrfInfo {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         u8::decode_from_buffer(data).and_then(|val| match val {
-            0 => ExtensionReq::decode_from_buffer(data).map(Self::One),
-            1 => ExtensionReq::decode_from_buffer(data).map(Self::Two),
+            0 => Ok(Self::None),
+            1 => ExtensionReq::decode_from_buffer(data).map(Self::One),
+            2 => ExtensionReq::decode_from_buffer(data).map(Self::Two),
             _ => Err(EncDecErr),
         })
     }
@@ -49,7 +50,7 @@ impl EncodeBuffer for ServerCredSpecificExtensionInfo {
 impl<'a> DecodeBuffer<'a> for ServerCredSpecificExtensionInfo {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        Option::decode_from_buffer(data).map(|prf| Self { prf })
+        ServerPrfInfo::decode_from_buffer(data).map(|prf| Self { prf })
     }
 }
 impl EncodeBuffer for CredInfo {
@@ -74,7 +75,7 @@ impl EncodeBuffer for ServerExtensionInfo {
 impl<'a> DecodeBuffer<'a> for ServerExtensionInfo {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        Option::decode_from_buffer(data).map(|prf| Self { prf })
+        ServerPrfInfo::decode_from_buffer(data).map(|prf| Self { prf })
     }
 }
 impl EncodeBuffer for SignatureCounterEnforcement {

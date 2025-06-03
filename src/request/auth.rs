@@ -24,9 +24,9 @@ use super::{
             register::{CompressedPubKey, CredentialProtectionPolicy},
         },
     },
-    BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, Credentials, ExtensionReq, Hint,
-    Origin, PublicKeyCredentialDescriptor, RpId, SentChallenge, THREE_HUNDRED_THOUSAND,
-    TimedCeremony, UserVerificationRequirement,
+    BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, CredentialMediationRequirement,
+    Credentials, ExtensionReq, Hint, Origin, PrfInput, PublicKeyCredentialDescriptor, RpId,
+    SentChallenge, THREE_HUNDRED_THOUSAND, TimedCeremony, UserVerificationRequirement,
     auth::error::{RequestOptionsErr, SecondFactorErr},
 };
 use core::{
@@ -85,45 +85,6 @@ impl SignatureCounterEnforcement {
         }
     }
 }
-/// [`AuthenticationExtensionsPRFValues`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfvalues).
-///
-/// This is only applicable if
-/// [`PublicKeyCredentialRequestOptions::user_verification`] is [`UserVerificationRequirement::Required`].
-/// Additionally [`AuthenticatorExtensionOutputStaticState::hmac_secret`] must either be `None` or `Some(true)`
-/// and [`ClientExtensionsOutputsStaticState::prf`] must be `None` or
-/// `Some(AuthenticationExtensionsPrfOutputs { enabled: true })`.
-///
-/// Unlike the spec, it is forbidden for
-/// [the decrypted outputs](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfoutputs) to be
-/// passed back in an effort to ensure sensitive data remains client-side. This means
-/// [`prf`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfoutputs) must not exist,
-/// be `null`, or be an
-/// [`AuthenticationExtensionsPRFOutputs`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfoutputs)
-/// such that [`results`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfoutputs-results) does not exist,
-/// is `null`, or is an
-/// [`AuthenticationExtensionsPRFValues`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfvalues) such
-/// that [`first`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-first) is `null` and
-/// [`second`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-second) does not exist or is `null`.
-///
-/// For the owned analog, see [`PrfInputOwned`].
-///
-/// When relying on [`DiscoverableCredentialRequestOptions`], one will likely use a static PRF input for _all_
-/// credentials since rolling over PRF inputs is not feasible. One uses this type for such a thing. In other words,
-/// `'a` will likely be `'static` and [`Self::second`] will likely be `None`.
-#[derive(Clone, Copy, Debug)]
-pub struct PrfInput<'a> {
-    /// [`first`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-first).
-    pub first: &'a [u8],
-    /// [`second`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-second).
-    pub second: Option<&'a [u8]>,
-    /// Response requirements.
-    ///
-    /// Note this is only applicable for authenticators that implement the
-    /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension) extension on top of the
-    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-extension)
-    /// extension since the data is encrypted and is part of the [`AuthenticatorData`].
-    pub ext_info: ExtensionReq,
-}
 /// Owned version of [`PrfInput`].
 ///
 /// When relying on [`NonDiscoverableCredentialRequestOptions`], it's recommended to use credential-specific PRF
@@ -134,21 +95,25 @@ pub struct PrfInputOwned {
     pub first: Vec<u8>,
     /// [`second`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-second).
     pub second: Option<Vec<u8>>,
-    ///
     /// Note this is only applicable for authenticators that implement the
     /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension) extension on top of the
     /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-extension)
     /// extension since the data is encrypted and is part of the [`AuthenticatorData`].
-    pub ext_info: ExtensionReq,
+    pub ext_req: ExtensionReq,
 }
 /// The [defined extensions](https://www.w3.org/TR/webauthn-3/#sctn-defined-extensions) to send to the client.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Extension<'prf> {
+pub struct Extension<'prf_first, 'prf_second> {
     /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension).
     ///
     /// If both [`CredentialSpecificExtension::prf`] and this are [`Some`], then `CredentialSpecificExtension::prf`
     /// takes priority.
-    pub prf: Option<PrfInput<'prf>>,
+    ///
+    /// Note `ExtensionReq` is only applicable for authenticators that implement the
+    /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension) extension on top of the
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-extension)
+    /// extension since the data is encrypted and is part of the [`AuthenticatorData`].
+    pub prf: Option<(PrfInput<'prf_first, 'prf_second>, ExtensionReq)>,
 }
 /// The [defined extensions](https://www.w3.org/TR/webauthn-3/#sctn-defined-extensions) to send to the client that
 /// are credential-specific which among other things implies a non-discoverable request.
@@ -325,18 +290,18 @@ impl From<Vec<PublicKeyCredentialDescriptor<Vec<u8>>>> for AllowedCredentials {
 }
 /// Helper that verifies the overlap of [`DiscoverableCredentialRequestOptions::start_ceremony`] and
 /// [`DiscoverableAuthenticationServerState::decode`].
-fn validate_discoverable_options_helper(
+const fn validate_discoverable_options_helper(
     ext: ServerExtensionInfo,
     uv: UserVerificationRequirement,
 ) -> Result<(), RequestOptionsErr> {
     // If PRF is set, the user has to verify themselves.
-    ext.prf.as_ref().map_or(Ok(()), |_| {
-        if matches!(uv, UserVerificationRequirement::Required) {
-            Ok(())
-        } else {
-            Err(RequestOptionsErr::PrfWithoutUserVerification)
-        }
-    })
+    if matches!(ext.prf, ServerPrfInfo::One(_) | ServerPrfInfo::Two(_))
+        && !matches!(uv, UserVerificationRequirement::Required)
+    {
+        Err(RequestOptionsErr::PrfWithoutUserVerification)
+    } else {
+        Ok(())
+    }
 }
 /// Helper that verifies the overlap of [`NonDiscoverableCredentialRequestOptions::start_ceremony`] and
 /// [`NonDiscoverableAuthenticationServerState::decode`].
@@ -346,34 +311,40 @@ fn validate_non_discoverable_options_helper(
 ) -> Result<(), RequestOptionsErr> {
     creds.iter().try_fold((), |(), cred| {
         // If PRF is set, the user has to verify themselves.
-        cred.ext.prf.as_ref().map_or(Ok(()), |_| {
-            if matches!(uv, UserVerificationRequirement::Required) {
-                Ok(())
-            } else {
-                Err(RequestOptionsErr::PrfWithoutUserVerification)
-            }
-        })
+        if matches!(cred.ext.prf, ServerPrfInfo::One(_) | ServerPrfInfo::Two(_))
+            && !matches!(uv, UserVerificationRequirement::Required)
+        {
+            Err(RequestOptionsErr::PrfWithoutUserVerification)
+        } else {
+            Ok(())
+        }
     })
 }
-/// The [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions)
-/// to send to the client when authenticating a credential.
+/// The [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions)
+/// to send to the client when authenticating a discoverable credentential.
 ///
 /// Upon saving the [`DiscoverableAuthenticationServerState`] returned from [`Self::start_ceremony`], one MUST send
 /// [`DiscoverableAuthenticationClientState`] to the client ASAP. After receiving the newly created
 /// [`DiscoverableAuthentication`], it is validated using [`DiscoverableAuthenticationServerState::verify`].
 #[derive(Debug)]
-pub struct DiscoverableCredentialRequestOptions<'rp_id, 'prf>(
-    pub PublicKeyCredentialRequestOptions<'rp_id, 'prf>,
-);
-impl<'rp_id, 'prf> DiscoverableCredentialRequestOptions<'rp_id, 'prf> {
-    /// Creates a `DiscoverableCredentialRequestOptions` containing [`PublicKeyCredentialRequestOptions::passkey`].
+pub struct DiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
+    /// [`mediation`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
+    pub mediation: CredentialMediationRequirement,
+    /// `public-key` [credential type](https://www.w3.org/TR/credential-management-1/#sctn-cred-type-registry).
+    pub public_key: PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,
+}
+impl<'rp_id, 'prf_first, 'prf_second>
+    DiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>
+{
+    /// Creates a `DiscoverableCredentialRequestOptions` containing [`CredentialMediationRequirement::default`] and
+    /// [`PublicKeyCredentialRequestOptions::passkey`].
     ///
     /// # Examples
     ///
     /// ```
     /// # use webauthn_rp::request::{auth::DiscoverableCredentialRequestOptions, AsciiDomain, RpId, UserVerificationRequirement};
     /// assert!(matches!(
-    ///     DiscoverableCredentialRequestOptions::passkey(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?)).0.user_verification,
+    ///     DiscoverableCredentialRequestOptions::passkey(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?)).public_key.user_verification,
     ///     UserVerificationRequirement::Required
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
@@ -381,7 +352,10 @@ impl<'rp_id, 'prf> DiscoverableCredentialRequestOptions<'rp_id, 'prf> {
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
-        Self(PublicKeyCredentialRequestOptions::passkey(rp_id))
+        Self {
+            mediation: CredentialMediationRequirement::default(),
+            public_key: PublicKeyCredentialRequestOptions::passkey(rp_id),
+        }
     }
     /// Begins the [authentication ceremony](https://www.w3.org/TR/webauthn-3/#authentication-ceremony) consuming
     /// `self`. Note that the expiration [`Instant`]/[`SystemTime`] is saved, so
@@ -398,51 +372,63 @@ impl<'rp_id, 'prf> DiscoverableCredentialRequestOptions<'rp_id, 'prf> {
     ) -> Result<
         (
             DiscoverableAuthenticationServerState,
-            DiscoverableAuthenticationClientState<'rp_id, 'prf>,
+            DiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>,
         ),
         RequestOptionsErr,
     > {
-        let extensions = self.0.extensions.into();
-        validate_discoverable_options_helper(extensions, self.0.user_verification).and_then(|()| {
-            #[cfg(not(feature = "serializable_server_state"))]
-            let res = Instant::now();
-            #[cfg(feature = "serializable_server_state")]
-            let res = SystemTime::now();
-            res.checked_add(Duration::from_millis(
-                NonZeroU64::from(self.0.timeout).get(),
-            ))
-            .ok_or(RequestOptionsErr::InvalidTimeout)
-            .map(|expiration| {
-                (
-                    DiscoverableAuthenticationServerState(AuthenticationServerState {
-                        challenge: SentChallenge(self.0.challenge.0),
-                        user_verification: self.0.user_verification,
-                        extensions,
-                        expiration,
-                    }),
-                    DiscoverableAuthenticationClientState(self),
-                )
+        let extensions = self.public_key.extensions.into();
+        validate_discoverable_options_helper(extensions, self.public_key.user_verification)
+            .and_then(|()| {
+                #[cfg(not(feature = "serializable_server_state"))]
+                let res = Instant::now();
+                #[cfg(feature = "serializable_server_state")]
+                let res = SystemTime::now();
+                res.checked_add(Duration::from_millis(
+                    NonZeroU64::from(self.public_key.timeout).get(),
+                ))
+                .ok_or(RequestOptionsErr::InvalidTimeout)
+                .map(|expiration| {
+                    (
+                        DiscoverableAuthenticationServerState(AuthenticationServerState {
+                            challenge: SentChallenge(self.public_key.challenge.0),
+                            user_verification: self.public_key.user_verification,
+                            extensions,
+                            expiration,
+                        }),
+                        DiscoverableAuthenticationClientState(self),
+                    )
+                })
             })
-        })
     }
 }
-/// The [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions)
-/// to send to the client when authenticating a credential.
+/// The [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions)
+/// to send to the client when authenticating non-discoverable credententials.
 ///
 /// Upon saving the [`NonDiscoverableAuthenticationServerState`] returned from [`Self::start_ceremony`], one MUST send
 /// [`NonDiscoverableAuthenticationClientState`] to the client ASAP. After receiving the newly created
 /// [`NonDiscoverableAuthentication`], it is validated using [`NonDiscoverableAuthenticationServerState::verify`].
 #[derive(Debug)]
-pub struct NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
+pub struct NonDiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
+    /// [`mediation`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
+    mediation: CredentialMediationRequirement,
     /// [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions).
-    options: PublicKeyCredentialRequestOptions<'rp_id, 'prf>,
+    options: PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,
     /// [`allowCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-allowcredentials).
     allow_credentials: AllowedCredentials,
 }
-impl<'rp_id, 'prf> NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
+impl<'rp_id, 'prf_first, 'prf_second>
+    NonDiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>
+{
+    /// Returns a mutable reference to the `CredentialMediationRequirement`.
+    #[inline]
+    pub const fn mediation(&mut self) -> &mut CredentialMediationRequirement {
+        &mut self.mediation
+    }
     /// Returns a mutable reference to the configurable options.
     #[inline]
-    pub const fn options(&mut self) -> &mut PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
+    pub const fn options(
+        &mut self,
+    ) -> &mut PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
         &mut self.options
     }
     /// Returns a reference to the [`AllowedCredential`]s.
@@ -452,7 +438,8 @@ impl<'rp_id, 'prf> NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
         &self.allow_credentials
     }
     /// Creates a `NonDiscoverableCredentialRequestOptions` containing
-    /// [`PublicKeyCredentialRequestOptions::second_factor`] and the passed [`AllowedCredentials`].
+    /// [`CredentialMediationRequirement::Optional`],
+    /// [`PublicKeyCredentialRequestOptions::second_factor`], and the passed [`AllowedCredentials`].
     ///
     /// # Errors
     ///
@@ -506,6 +493,7 @@ impl<'rp_id, 'prf> NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
             Err(SecondFactorErr)
         } else {
             Ok(Self {
+                mediation: CredentialMediationRequirement::default(),
                 options: PublicKeyCredentialRequestOptions::second_factor(rp_id),
                 allow_credentials,
             })
@@ -526,7 +514,7 @@ impl<'rp_id, 'prf> NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
     ) -> Result<
         (
             NonDiscoverableAuthenticationServerState,
-            NonDiscoverableAuthenticationClientState<'rp_id, 'prf>,
+            NonDiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>,
         ),
         RequestOptionsErr,
     > {
@@ -571,7 +559,7 @@ impl<'rp_id, 'prf> NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
 ///
 /// This does _not_ contain [`allowCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-allowcredentials).
 #[derive(Debug)]
-pub struct PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
+pub struct PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
     /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-challenge).
     pub challenge: Challenge,
     /// [`timeout`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-timeout).
@@ -589,9 +577,9 @@ pub struct PublicKeyCredentialRequestOptions<'rp_id, 'prf> {
     /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-hints).
     pub hints: Hint,
     /// [`extensions`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-extensions).
-    pub extensions: Extension<'prf>,
+    pub extensions: Extension<'prf_first, 'prf_second>,
 }
-impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_> {
+impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
     /// Creates a `PublicKeyCredentialRequestOptions` with [`Self::user_verification`] set to
     /// [`UserVerificationRequirement::Required`] and [`Self::timeout`] set to 5 minutes,
     ///
@@ -647,28 +635,36 @@ impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_> {
 /// Container of a [`DiscoverableCredentialRequestOptions`] that has been used to start the authentication ceremony.
 /// This gets sent to the client ASAP.
 #[derive(Debug)]
-pub struct DiscoverableAuthenticationClientState<'rp_id, 'prf>(
-    DiscoverableCredentialRequestOptions<'rp_id, 'prf>,
+pub struct DiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>(
+    DiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,
 );
-impl<'rp_id, 'prf> DiscoverableAuthenticationClientState<'rp_id, 'prf> {
+impl<'rp_id, 'prf_first, 'prf_second>
+    DiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>
+{
     /// Returns the `DiscoverableCredentialRequestOptions` that was used to start an authentication ceremony.
     #[inline]
     #[must_use]
-    pub const fn options(&self) -> &DiscoverableCredentialRequestOptions<'rp_id, 'prf> {
+    pub const fn options(
+        &self,
+    ) -> &DiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
         &self.0
     }
 }
 /// Container of a [`NonDiscoverableCredentialRequestOptions`] that has been used to start the authentication
 /// ceremony. This gets sent to the client ASAP.
 #[derive(Debug)]
-pub struct NonDiscoverableAuthenticationClientState<'rp_id, 'prf>(
-    NonDiscoverableCredentialRequestOptions<'rp_id, 'prf>,
+pub struct NonDiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>(
+    NonDiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,
 );
-impl<'rp_id, 'prf> NonDiscoverableAuthenticationClientState<'rp_id, 'prf> {
+impl<'rp_id, 'prf_first, 'prf_second>
+    NonDiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>
+{
     /// Returns the `NonDiscoverableCredentialRequestOptions` that was used to start an authentication ceremony.
     #[inline]
     #[must_use]
-    pub const fn options(&self) -> &NonDiscoverableCredentialRequestOptions<'rp_id, 'prf> {
+    pub const fn options(
+        &self,
+    ) -> &NonDiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
         &self.0
     }
 }
@@ -705,18 +701,14 @@ impl CredPrf {
 /// [`DiscoverableAuthenticationServerState`] in an in-memory collection.
 #[derive(Clone, Copy, Debug)]
 enum ServerPrfInfo {
+    /// No `PrfInput`.
+    None,
     /// `PrfInput::second` was `None`.
     One(ExtensionReq),
     /// `PrfInput::second` was `Some`.
     Two(ExtensionReq),
 }
 impl ServerPrfInfo {
-    /// Returns the `ExtensionReq` sent to the client.
-    const fn ext_info(self) -> ExtensionReq {
-        match self {
-            Self::One(info) | Self::Two(info) => info,
-        }
-    }
     /// Validates `val` based on the passed arguments.
     ///
     /// It's not possible to request the PRF extension without sending `UserVerificationRequirement::Required`;
@@ -724,89 +716,86 @@ impl ServerPrfInfo {
     /// However when we _don't_ send the PRF extension _and_ we don't error on an unsolicited response, it's
     /// possible to receive an `HmacSecret` without the user having been verified; thus we only ensure
     /// `user_verified` is true when we don't error on unsolicted responses _and_ we didn't send the PRF extension.
-    fn validate(
-        val: Option<Self>,
+    const fn validate(
+        self,
         user_verified: bool,
         cred_prf: CredPrf,
         hmac: HmacSecret,
         err_unsolicited: bool,
     ) -> Result<(), ExtensionErr> {
         match hmac {
-            HmacSecret::None => val.map_or(Ok(()), |input| {
-                if matches!(input.ext_info(), ExtensionReq::Allow) {
+            HmacSecret::None => match self {
+                Self::None => Ok(()),
+                Self::One(req) | Self::Two(req) => {
+                    if matches!(req, ExtensionReq::Allow) {
+                        if cred_prf.is_prf_capable() {
+                            Ok(())
+                        } else {
+                            Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                        }
+                    } else {
+                        match cred_prf {
+                            CredPrf::None | CredPrf::TrueNoHmac => Ok(()),
+                            CredPrf::FalseNoHmac | CredPrf::FalseFalseHmac => {
+                                Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                            }
+                            CredPrf::TrueTrueHmac => Err(ExtensionErr::MissingHmacSecret),
+                        }
+                    }
+                }
+            },
+            HmacSecret::One => match self {
+                Self::None => {
+                    if err_unsolicited {
+                        Err(ExtensionErr::ForbiddenHmacSecret)
+                    } else if cred_prf.is_prf_capable() {
+                        if user_verified {
+                            Ok(())
+                        } else {
+                            Err(ExtensionErr::UserNotVerifiedHmacSecret)
+                        }
+                    } else {
+                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                    }
+                }
+                Self::One(_) => {
                     if cred_prf.is_prf_capable() {
                         Ok(())
                     } else {
                         Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
                     }
-                } else {
-                    match cred_prf {
-                        CredPrf::None | CredPrf::TrueNoHmac => Ok(()),
-                        CredPrf::FalseNoHmac | CredPrf::FalseFalseHmac => {
-                            Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                }
+                Self::Two(_) => Err(ExtensionErr::InvalidHmacSecretValue(
+                    OneOrTwo::Two,
+                    OneOrTwo::One,
+                )),
+            },
+            HmacSecret::Two => match self {
+                Self::None => {
+                    if err_unsolicited {
+                        Err(ExtensionErr::ForbiddenHmacSecret)
+                    } else if cred_prf.is_prf_capable() {
+                        if user_verified {
+                            Ok(())
+                        } else {
+                            Err(ExtensionErr::UserNotVerifiedHmacSecret)
                         }
-                        CredPrf::TrueTrueHmac => Err(ExtensionErr::MissingHmacSecret),
+                    } else {
+                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
                     }
                 }
-            }),
-            HmacSecret::One => val.map_or_else(
-                || {
-                    if err_unsolicited {
-                        Err(ExtensionErr::ForbiddenHmacSecret)
-                    } else if cred_prf.is_prf_capable() {
-                        if user_verified {
-                            Ok(())
-                        } else {
-                            Err(ExtensionErr::UserNotVerifiedHmacSecret)
-                        }
+                Self::One(_) => Err(ExtensionErr::InvalidHmacSecretValue(
+                    OneOrTwo::One,
+                    OneOrTwo::Two,
+                )),
+                Self::Two(_) => {
+                    if cred_prf.is_prf_capable() {
+                        Ok(())
                     } else {
                         Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
                     }
-                },
-                |info| {
-                    if matches!(info, Self::One(_)) {
-                        if cred_prf.is_prf_capable() {
-                            Ok(())
-                        } else {
-                            Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
-                        }
-                    } else {
-                        Err(ExtensionErr::InvalidHmacSecretValue(
-                            OneOrTwo::Two,
-                            OneOrTwo::One,
-                        ))
-                    }
-                },
-            ),
-            HmacSecret::Two => val.map_or_else(
-                || {
-                    if err_unsolicited {
-                        Err(ExtensionErr::ForbiddenHmacSecret)
-                    } else if cred_prf.is_prf_capable() {
-                        if user_verified {
-                            Ok(())
-                        } else {
-                            Err(ExtensionErr::UserNotVerifiedHmacSecret)
-                        }
-                    } else {
-                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
-                    }
-                },
-                |info| {
-                    if matches!(info, Self::Two(_)) {
-                        if cred_prf.is_prf_capable() {
-                            Ok(())
-                        } else {
-                            Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
-                        }
-                    } else {
-                        Err(ExtensionErr::InvalidHmacSecretValue(
-                            OneOrTwo::One,
-                            OneOrTwo::Two,
-                        ))
-                    }
-                },
-            ),
+                }
+            },
         }
     }
 }
@@ -814,16 +803,19 @@ impl ServerPrfInfo {
 impl PartialEq for ServerPrfInfo {
     fn eq(&self, other: &Self) -> bool {
         match *self {
+            Self::None => matches!(*other, Self::None),
             Self::One(req) => matches!(*other, Self::One(req2) if req == req2),
             Self::Two(req) => matches!(*other, Self::Two(req2) if req == req2),
         }
     }
 }
-impl From<PrfInput<'_>> for ServerPrfInfo {
-    fn from(value: PrfInput<'_>) -> Self {
-        value
-            .second
-            .map_or_else(|| Self::One(value.ext_info), |_| Self::Two(value.ext_info))
+impl From<Option<(PrfInput<'_, '_>, ExtensionReq)>> for ServerPrfInfo {
+    fn from(value: Option<(PrfInput<'_, '_>, ExtensionReq)>) -> Self {
+        value.map_or(Self::None, |val| {
+            val.0
+                .second
+                .map_or_else(|| Self::One(val.1), |_| Self::Two(val.1))
+        })
     }
 }
 impl From<&PrfInputOwned> for ServerPrfInfo {
@@ -831,7 +823,7 @@ impl From<&PrfInputOwned> for ServerPrfInfo {
         value
             .second
             .as_ref()
-            .map_or_else(|| Self::One(value.ext_info), |_| Self::Two(value.ext_info))
+            .map_or_else(|| Self::One(value.ext_req), |_| Self::Two(value.ext_req))
     }
 }
 /// `Extension` without the actual data sent to reduce memory usage when storing [`AuthenticationServerState`]
@@ -839,12 +831,12 @@ impl From<&PrfInputOwned> for ServerPrfInfo {
 #[derive(Clone, Copy, Debug)]
 struct ServerExtensionInfo {
     /// `Extension::prf`.
-    prf: Option<ServerPrfInfo>,
+    prf: ServerPrfInfo,
 }
-impl From<Extension<'_>> for ServerExtensionInfo {
-    fn from(value: Extension<'_>) -> Self {
+impl From<Extension<'_, '_>> for ServerExtensionInfo {
+    fn from(value: Extension<'_, '_>) -> Self {
         Self {
-            prf: value.prf.map(ServerPrfInfo::from),
+            prf: value.prf.into(),
         }
     }
 }
@@ -859,7 +851,7 @@ impl PartialEq for ServerExtensionInfo {
 #[derive(Clone, Copy, Debug)]
 struct ServerCredSpecificExtensionInfo {
     /// `CredentialSpecificExtension::prf`.
-    prf: Option<ServerPrfInfo>,
+    prf: ServerPrfInfo,
 }
 #[cfg(test)]
 impl PartialEq for ServerCredSpecificExtensionInfo {
@@ -870,7 +862,10 @@ impl PartialEq for ServerCredSpecificExtensionInfo {
 impl From<&CredentialSpecificExtension> for ServerCredSpecificExtensionInfo {
     fn from(value: &CredentialSpecificExtension) -> Self {
         Self {
-            prf: value.prf.as_ref().map(ServerPrfInfo::from),
+            prf: value
+                .prf
+                .as_ref()
+                .map_or(ServerPrfInfo::None, ServerPrfInfo::from),
         }
     }
 }
@@ -878,7 +873,7 @@ impl ServerExtensionInfo {
     /// Validates the extensions.
     ///
     /// Note that this MUST only be called internally by `auth::validate_extensions`.
-    fn validate_extensions(
+    const fn validate_extensions(
         self,
         user_verified: bool,
         auth_ext: AuthenticatorExtensionOutput,
@@ -905,31 +900,26 @@ fn validate_extensions(
 ) -> Result<(), ExtensionErr> {
     cred_ext.map_or_else(
         || {
-            // No client-specific extensions, so we can simply focus on `ext`.
+            // No credental-specific extensions, so we can simply focus on `ext`.
             ext.validate_extensions(user_verified, auth_ext, error_unsolicited, cred_prf)
         },
         |c_ext| {
             // Must carefully process each extension based on overlap and which gets priority over the other.
-            c_ext.prf.as_ref().map_or_else(
-                || {
-                    ServerPrfInfo::validate(
-                        ext.prf,
-                        user_verified,
-                        cred_prf,
-                        auth_ext.hmac_secret,
-                        error_unsolicited,
-                    )
-                },
-                |_| {
-                    ServerPrfInfo::validate(
-                        c_ext.prf,
-                        user_verified,
-                        cred_prf,
-                        auth_ext.hmac_secret,
-                        error_unsolicited,
-                    )
-                },
-            )
+            if matches!(c_ext.prf, ServerPrfInfo::None) {
+                ext.prf.validate(
+                    user_verified,
+                    cred_prf,
+                    auth_ext.hmac_secret,
+                    error_unsolicited,
+                )
+            } else {
+                c_ext.prf.validate(
+                    user_verified,
+                    cred_prf,
+                    auth_ext.hmac_secret,
+                    error_unsolicited,
+                )
+            }
         },
     )
 }
@@ -1717,7 +1707,7 @@ mod tests {
     const CBOR_MAP: u8 = 0b101_00000;
     #[test]
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
-    fn ed25519_auth_ser() -> Result<(), AggErr> {
+    fn eddsa_auth_ser() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut creds = AllowedCredentials::with_capacity(1);
         creds.push(AllowedCredential {
@@ -1729,7 +1719,7 @@ mod tests {
                 prf: Some(PrfInputOwned {
                     first: Vec::new(),
                     second: Some(Vec::new()),
-                    ext_info: ExtensionReq::Require,
+                    ext_req: ExtensionReq::Require,
                 }),
             },
         });
@@ -1897,8 +1887,8 @@ mod tests {
             )?)
         );
         let mut opts_2 = DiscoverableCredentialRequestOptions::passkey(&rp_id);
-        opts_2.0.challenge = Challenge(0);
-        opts_2.0.extensions = Extension { prf: None };
+        opts_2.public_key.challenge = Challenge(0);
+        opts_2.public_key.extensions = Extension { prf: None };
         let server_2 = opts_2.start_ceremony()?.0;
         assert!(
             server_2.is_eq(&DiscoverableAuthenticationServerState::decode(
@@ -1937,7 +1927,7 @@ mod tests {
         /// `true` iff `UserVerificationRequirement::Required` should be used; otherwise
         /// `UserVerificationRequirement::Preferred` is used.
         None(bool),
-        Prf(PrfInput<'static>),
+        Prf((PrfInput<'static, 'static>, ExtensionReq)),
     }
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     #[derive(Clone, Copy)]
@@ -2119,17 +2109,17 @@ mod tests {
             client_data_json_relaxed: false,
         };
         let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
-        opts.0.challenge = Challenge(0);
-        opts.0.user_verification = UserVerificationRequirement::Preferred;
+        opts.public_key.challenge = Challenge(0);
+        opts.public_key.user_verification = UserVerificationRequirement::Preferred;
         match options.request.prf_uv {
             PrfUvOptions::None(required) => {
                 if required {
-                    opts.0.user_verification = UserVerificationRequirement::Required;
+                    opts.public_key.user_verification = UserVerificationRequirement::Required;
                 };
             }
             PrfUvOptions::Prf(input) => {
-                opts.0.user_verification = UserVerificationRequirement::Required;
-                opts.0.extensions.prf = Some(input);
+                opts.public_key.user_verification = UserVerificationRequirement::Required;
+                opts.public_key.extensions.prf = Some(input);
             }
         }
         let mut cred = AuthenticatedCredential::new(
@@ -2197,26 +2187,34 @@ mod tests {
         const ALL_UNSOLICIT_OPTIONS: [bool; 2] = [false, true];
         const ALL_NOT_FALSE_PRF_UV_OPTIONS: [PrfUvOptions; 5] = [
             PrfUvOptions::None(true),
-            PrfUvOptions::Prf(PrfInput {
-                first: [].as_slice(),
-                second: None,
-                ext_info: ExtensionReq::Require,
-            }),
-            PrfUvOptions::Prf(PrfInput {
-                first: [].as_slice(),
-                second: None,
-                ext_info: ExtensionReq::Allow,
-            }),
-            PrfUvOptions::Prf(PrfInput {
-                first: [].as_slice(),
-                second: Some([].as_slice()),
-                ext_info: ExtensionReq::Require,
-            }),
-            PrfUvOptions::Prf(PrfInput {
-                first: [].as_slice(),
-                second: Some([].as_slice()),
-                ext_info: ExtensionReq::Allow,
-            }),
+            PrfUvOptions::Prf((
+                PrfInput {
+                    first: [].as_slice(),
+                    second: None,
+                },
+                ExtensionReq::Require,
+            )),
+            PrfUvOptions::Prf((
+                PrfInput {
+                    first: [].as_slice(),
+                    second: None,
+                },
+                ExtensionReq::Allow,
+            )),
+            PrfUvOptions::Prf((
+                PrfInput {
+                    first: [].as_slice(),
+                    second: Some([].as_slice()),
+                },
+                ExtensionReq::Require,
+            )),
+            PrfUvOptions::Prf((
+                PrfInput {
+                    first: [].as_slice(),
+                    second: Some([].as_slice()),
+                },
+                ExtensionReq::Allow,
+            )),
         ];
         for cred_protect in ALL_CRED_PROTECT_OPTIONS {
             for prf in ALL_PRF_CRED_OPTIONS {
@@ -2286,11 +2284,13 @@ mod tests {
         let mut opts = TestOptions {
             request: TestRequestOptions {
                 error_unsolicited: false,
-                prf_uv: PrfUvOptions::Prf(PrfInput {
-                    first: [].as_slice(),
-                    second: None,
-                    ext_info: ExtensionReq::Allow,
-                }),
+                prf_uv: PrfUvOptions::Prf((
+                    PrfInput {
+                        first: [].as_slice(),
+                        second: None,
+                    },
+                    ExtensionReq::Allow,
+                )),
             },
             response: TestResponseOptions {
                 user_verified: true,
@@ -2302,19 +2302,23 @@ mod tests {
             },
         };
         validate(opts)?;
-        opts.request.prf_uv = PrfUvOptions::Prf(PrfInput {
-            first: [].as_slice(),
-            second: None,
-            ext_info: ExtensionReq::Require,
-        });
+        opts.request.prf_uv = PrfUvOptions::Prf((
+            PrfInput {
+                first: [].as_slice(),
+                second: None,
+            },
+            ExtensionReq::Require,
+        ));
         opts.cred.prf = PrfCredOptions::TrueHmacTrue;
         assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::MissingHmacSecret))), |_| false));
         opts.response.hmac = HmacSecret::One;
-        opts.request.prf_uv = PrfUvOptions::Prf(PrfInput {
-            first: [].as_slice(),
-            second: None,
-            ext_info: ExtensionReq::Allow,
-        });
+        opts.request.prf_uv = PrfUvOptions::Prf((
+            PrfInput {
+                first: [].as_slice(),
+                second: None,
+            },
+            ExtensionReq::Allow,
+        ));
         opts.cred.prf = PrfCredOptions::TrueNoHmac;
         validate(opts)?;
         opts.response.hmac = HmacSecret::Two;

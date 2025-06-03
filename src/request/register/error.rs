@@ -1,6 +1,6 @@
 #[cfg(doc)]
 use super::{
-    AuthenticatorSelectionCriteria, CredProtect, Extension, Nickname,
+    AuthenticatorSelectionCriteria, CredProtect, CredentialCreationOptions, Extension, Nickname,
     PublicKeyCredentialCreationOptions, USER_HANDLE_MAX_LEN, USER_HANDLE_MIN_LEN, UserHandle,
     UserVerificationRequirement, Username,
 };
@@ -50,7 +50,7 @@ impl Display for UsernameErr {
     }
 }
 impl Error for UsernameErr {}
-/// Error returned by [`PublicKeyCredentialCreationOptions::start_ceremony`].
+/// Error returned by [`CredentialCreationOptions::start_ceremony`].
 #[derive(Clone, Copy, Debug)]
 pub enum CreationOptionsErr {
     /// Error when [`Extension::prf`] is [`Some`] but [`AuthenticatorSelectionCriteria::user_verification`] is not

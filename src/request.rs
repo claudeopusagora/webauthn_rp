@@ -8,7 +8,7 @@ use super::{
             NonDiscoverableAuthenticationServerState, NonDiscoverableCredentialRequestOptions,
             PublicKeyCredentialRequestOptions,
         },
-        register::{PublicKeyCredentialCreationOptions, RegistrationServerState},
+        register::{CredentialCreationOptions, RegistrationServerState},
     },
     response::register::ClientExtensionsOutputs,
 };
@@ -108,7 +108,7 @@ pub mod error;
 /// #     hash::hash_set::FixedCapHashSet,
 /// #     request::{
 /// #         register::{
-/// #             PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
+/// #             CredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
 /// #         },
 /// #         AsciiDomain, PublicKeyCredentialDescriptor, RpId
 /// #     },
@@ -125,7 +125,7 @@ pub mod error;
 /// # #[cfg(feature = "custom")]
 /// let creds = get_registered_credentials(&user_handle)?;
 /// # #[cfg(feature = "custom")]
-/// let (server, client) = PublicKeyCredentialCreationOptions::passkey(&rp_id, user.clone(), creds)
+/// let (server, client) = CredentialCreationOptions::passkey(&rp_id, user.clone(), creds)
 ///     .start_ceremony()?;
 /// # #[cfg(feature = "custom")]
 /// assert!(
@@ -137,7 +137,7 @@ pub mod error;
 /// let creds_2 = get_registered_credentials(&user_handle)?;
 /// # #[cfg(feature = "custom")]
 /// let (server_2, client_2) =
-///     PublicKeyCredentialCreationOptions::second_factor(&rp_id, user, creds_2).start_ceremony()?;
+///     CredentialCreationOptions::second_factor(&rp_id, user, creds_2).start_ceremony()?;
 /// # #[cfg(feature = "custom")]
 /// assert!(
 ///     ceremonies.insert_remove_all_expired(server_2).map_or(false, convert::identity)
@@ -1071,19 +1071,20 @@ impl Display for ExtensionInfo {
     }
 }
 /// [`CredentialMediationRequirement`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum CredentialMediationRequirement {
     /// [`silent`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-silent).
     Silent,
-    /// [`optional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-optional)
+    /// [`optional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-optional).
+    #[default]
     Optional,
-    /// [`conditional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-conditional)
+    /// [`conditional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-conditional).
     ///
-    /// Note that when registering a new credential with [`PublicKeyCredentialCreationOptions::mediation`] set to
+    /// Note that when registering a new credential with [`CredentialCreationOptions::mediation`] set to
     /// `Self::Conditional`, [`UserVerificationRequirement::Discouraged`] MUST be used unless user verification
     /// can be explicitly performed during the ceremony.
     Conditional,
-    /// [`required`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-required)
+    /// [`required`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-required).
     Required,
 }
 #[cfg(test)]
@@ -1100,15 +1101,18 @@ impl PartialEq for CredentialMediationRequirement {
 /// Backup requirements for the credential.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum BackupReq {
-    #[default]
     /// No requirements (i.e., any [`Backup`] is allowed).
+    #[default]
     None,
     /// Credential must not be eligible for backup.
     NotEligible,
     /// Credential must be eligible for backup.
     ///
-    /// Note the existence of a backup is ignored. If a backup must exist, then use [`Self::Exists`].
+    /// Note the existence of a backup is ignored. If a backup must exist, then use [`Self::Exists`]; if a
+    /// backup must not exist, then use [`Self::EligibleNotExists`].
     Eligible,
+    /// Credential must be eligible for backup, but a backup must not exist.
+    EligibleNotExists,
     /// Credential must be backed up.
     Exists,
 }
@@ -1465,6 +1469,13 @@ trait Ceremony<const USER_LEN: usize, const DISCOVERABLE: bool> {
                                                         Ok(())
                                                     }
                                                 }
+                                                BackupReq::EligibleNotExists => {
+                                                    if matches!(flag.backup, Backup::Eligible) {
+                                                        Ok(())
+                                                    } else {
+                                                        Err(CeremonyErr::BackupExists)
+                                                    }
+                                                }
                                                 BackupReq::Exists => {
                                                     if matches!(flag.backup, Backup::Exists) {
                                                         Ok(())
@@ -1506,6 +1517,20 @@ pub trait TimedCeremony {
     #[cfg(all(not(doc), feature = "serializable_server_state"))]
     fn expiration(&self) -> SystemTime;
 }
+/// [`AuthenticationExtensionsPRFValues`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfvalues).
+#[derive(Clone, Copy, Debug)]
+pub struct PrfInput<'first, 'second> {
+    /// [`first`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-first).
+    pub first: &'first [u8],
+    /// [`second`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-second).
+    pub second: Option<&'second [u8]>,
+}
+#[cfg(test)]
+impl PartialEq for PrfInput<'_, '_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.first == other.first && self.second == other.second
+    }
+}
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "custom")]
@@ -1527,7 +1552,7 @@ mod tests {
                 },
             },
         },
-        AsciiDomain, Challenge, Credentials, ExtensionInfo, ExtensionReq,
+        AsciiDomain, Challenge, Credentials, ExtensionInfo, ExtensionReq, PrfInput,
         PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
         auth::{
             AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
@@ -1535,7 +1560,7 @@ mod tests {
             Extension as AuthExt, NonDiscoverableCredentialRequestOptions, PrfInputOwned,
         },
         register::{
-            CredProtect, Extension as RegExt, FourToSixtyThree, PublicKeyCredentialCreationOptions,
+            CredProtect, CredentialCreationOptions, Extension as RegExt, FourToSixtyThree,
             PublicKeyCredentialUserEntity, RegistrationVerificationOptions, UserHandle,
         },
     };
@@ -1575,7 +1600,7 @@ mod tests {
     fn eddsa_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
-        let mut opts = PublicKeyCredentialCreationOptions::passkey(
+        let mut opts = CredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
@@ -1584,8 +1609,8 @@ mod tests {
             },
             Vec::new(),
         );
-        opts.challenge = Challenge(0);
-        opts.extensions = RegExt {
+        opts.public_key.challenge = Challenge(0);
+        opts.public_key.extensions = RegExt {
             cred_props: None,
             cred_protect: CredProtect::UserVerificationRequired(
                 false,
@@ -1596,7 +1621,13 @@ mod tests {
                     .unwrap_or_else(|| unreachable!("bug in FourToSixyThree::new")),
                 ExtensionInfo::RequireEnforceValue,
             )),
-            prf: Some(ExtensionInfo::RequireEnforceValue),
+            prf: Some((
+                PrfInput {
+                    first: [0].as_slice(),
+                    second: None,
+                },
+                ExtensionInfo::RequireEnforceValue,
+            )),
         };
         let client_data_json = br#"{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAttestation::new`] for more information.
@@ -1934,7 +1965,7 @@ mod tests {
                 prf: Some(PrfInputOwned {
                     first: Vec::new(),
                     second: Some(Vec::new()),
-                    ext_info: ExtensionReq::Require,
+                    ext_req: ExtensionReq::Require,
                 }),
             },
         });
@@ -2140,7 +2171,7 @@ mod tests {
     fn es256_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
-        let mut opts = PublicKeyCredentialCreationOptions::passkey(
+        let mut opts = CredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
@@ -2149,7 +2180,7 @@ mod tests {
             },
             Vec::new(),
         );
-        opts.challenge = Challenge(0);
+        opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAttestation::new`] for more information.
         let mut attestation_object = Vec::with_capacity(210);
@@ -2398,7 +2429,7 @@ mod tests {
     fn es256_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
-        opts.0.challenge = Challenge(0);
+        opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(69);
@@ -2509,7 +2540,7 @@ mod tests {
     fn es384_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
-        let mut opts = PublicKeyCredentialCreationOptions::passkey(
+        let mut opts = CredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
@@ -2518,7 +2549,7 @@ mod tests {
             },
             Vec::new(),
         );
-        opts.challenge = Challenge(0);
+        opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAttestation::new`] for more information.
         let mut attestation_object = Vec::with_capacity(243);
@@ -2802,7 +2833,7 @@ mod tests {
     fn es384_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
-        opts.0.challenge = Challenge(0);
+        opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(69);
@@ -2914,7 +2945,7 @@ mod tests {
     fn rs256_reg() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
-        let mut opts = PublicKeyCredentialCreationOptions::passkey(
+        let mut opts = CredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
@@ -2923,7 +2954,7 @@ mod tests {
             },
             Vec::new(),
         );
-        opts.challenge = Challenge(0);
+        opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAttestation::new`] for more information.
         let mut attestation_object = Vec::with_capacity(406);
@@ -3416,7 +3447,7 @@ mod tests {
     fn rs256_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
-        opts.0.challenge = Challenge(0);
+        opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(69);

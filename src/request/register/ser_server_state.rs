@@ -3,9 +3,9 @@ use super::{
         Decode, DecodeBuffer, EncDecErr, Encode, EncodeBuffer, EncodeBufferFallible as _,
     },
     AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, CoseAlgorithmIdentifiers,
-    CredProtect, CredentialMediationRequirement, CrossPlatformHint, Extension, ExtensionInfo, Hint,
-    PlatformHint, RegistrationServerState, ResidentKeyRequirement, SentChallenge, UserHandle,
-    UserVerificationRequirement,
+    CredProtect, CredentialMediationRequirement, CrossPlatformHint, ExtensionInfo, Hint,
+    PlatformHint, RegistrationServerState, ResidentKeyRequirement, SentChallenge,
+    ServerExtensionInfo, ServerPrfInfo, UserHandle, UserVerificationRequirement,
 };
 use core::{
     error::Error,
@@ -168,7 +168,33 @@ impl<'a> DecodeBuffer<'a> for CredProtect {
         })
     }
 }
-impl EncodeBuffer for Extension {
+impl EncodeBuffer for ServerPrfInfo {
+    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
+        match *self {
+            Self::None => 0u8.encode_into_buffer(buffer),
+            Self::One(info) => {
+                1u8.encode_into_buffer(buffer);
+                info.encode_into_buffer(buffer);
+            }
+            Self::Two(info) => {
+                2u8.encode_into_buffer(buffer);
+                info.encode_into_buffer(buffer);
+            }
+        }
+    }
+}
+impl<'a> DecodeBuffer<'a> for ServerPrfInfo {
+    type Err = EncDecErr;
+    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        u8::decode_from_buffer(data).and_then(|val| match val {
+            0 => Ok(Self::None),
+            1 => ExtensionInfo::decode_from_buffer(data).map(Self::One),
+            2 => ExtensionInfo::decode_from_buffer(data).map(Self::Two),
+            _ => Err(EncDecErr),
+        })
+    }
+}
+impl EncodeBuffer for ServerExtensionInfo {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         self.cred_props.encode_into_buffer(buffer);
         self.cred_protect.encode_into_buffer(buffer);
@@ -176,13 +202,13 @@ impl EncodeBuffer for Extension {
         self.prf.encode_into_buffer(buffer);
     }
 }
-impl<'a> DecodeBuffer<'a> for Extension {
+impl<'a> DecodeBuffer<'a> for ServerExtensionInfo {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         Option::decode_from_buffer(data).and_then(|cred_props| {
             CredProtect::decode_from_buffer(data).and_then(|cred_protect| {
                 Option::decode_from_buffer(data).and_then(|min_pin_length| {
-                    Option::decode_from_buffer(data).map(|prf| Self {
+                    ServerPrfInfo::decode_from_buffer(data).map(|prf| Self {
                         cred_props,
                         cred_protect,
                         min_pin_length,
@@ -273,7 +299,7 @@ where
                 CoseAlgorithmIdentifiers::decode_from_buffer(&mut input).map_err(|_e| DecodeRegistrationServerStateErr::Other).and_then(|pub_key_cred_params| {
                     AuthenticatorSelectionCriteria::decode_from_buffer(&mut input).map_err(|_e| DecodeRegistrationServerStateErr::Other).and_then(
                         |authenticator_selection| {
-                            Extension::decode_from_buffer(&mut input).map_err(|_e| DecodeRegistrationServerStateErr::Other).and_then(|extensions| {
+                            ServerExtensionInfo::decode_from_buffer(&mut input).map_err(|_e| DecodeRegistrationServerStateErr::Other).and_then(|extensions| {
                                 super::validate_options_helper(authenticator_selection, extensions)
                                     .map_err(|_e| DecodeRegistrationServerStateErr::Other)
                                     .and_then(|()| {

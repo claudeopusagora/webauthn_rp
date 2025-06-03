@@ -20,7 +20,8 @@ use super::{
     super::{UserHandle, request::register::USER_HANDLE_MAX_LEN},
     AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthenticatorAttachment,
     CborSuccess, ClientDataJsonParser as _, CollectedClientData, CredentialId, Flag, FromCbor,
-    LimitedVerificationParser, ParsedAuthData, Response, SentChallenge,
+    HmacSecretGet, HmacSecretGetErr, LimitedVerificationParser, ParsedAuthData, Response,
+    SentChallenge,
     auth::error::{AuthenticatorDataErr, AuthenticatorExtensionOutputErr, MissingUserHandleErr},
     cbor,
     error::CollectedClientDataErr,
@@ -78,74 +79,6 @@ pub enum HmacSecret {
     /// extension.
     Two,
 }
-impl FromCbor<'_> for HmacSecret {
-    type Err = AuthenticatorExtensionOutputErr;
-    fn from_cbor(cbor: &[u8]) -> Result<CborSuccess<'_, Self>, Self::Err> {
-        /// AES block size.
-        const AES_BLOCK_SIZE: usize = 16;
-        /// HMAC-SHA-256 output length.
-        const HMAC_SHA_256_LEN: usize = 32;
-        /// Length of two HMAC-SHA-256 outputs concatenated together.
-        const TWO_HMAC_SHA_256_LEN: usize = HMAC_SHA_256_LEN << 1;
-        // We need the smallest multiple of `AES_BLOCK_SIZE` that
-        // is strictly greater than `HMAC_SHA_256_LEN`.
-        /// AES-256 output length on a 32-byte input.
-        #[expect(
-            clippy::integer_division_remainder_used,
-            reason = "doesn't need to be constant time"
-        )]
-        const ONE_SECRET_LEN: usize =
-            HMAC_SHA_256_LEN + (AES_BLOCK_SIZE - (HMAC_SHA_256_LEN % AES_BLOCK_SIZE));
-        // We need the smallest multiple of `AES_BLOCK_SIZE` that
-        // is strictly greater than `TWO_HMAC_SHA_256_LEN`.
-        /// AES-256 output length on a 64-byte input.
-        #[expect(
-            clippy::integer_division_remainder_used,
-            reason = "doesn't need to be constant time"
-        )]
-        const TWO_SECRET_LEN: usize =
-            TWO_HMAC_SHA_256_LEN + (AES_BLOCK_SIZE - (TWO_HMAC_SHA_256_LEN % AES_BLOCK_SIZE));
-        cbor.split_at_checked(cbor::HMAC_SECRET.len())
-            .ok_or(AuthenticatorExtensionOutputErr::Len)
-            .and_then(|(key, key_rem)| {
-                if key == cbor::HMAC_SECRET {
-                    key_rem
-                        .split_first()
-                        .ok_or(AuthenticatorExtensionOutputErr::Len)
-                        .and_then(|(bytes, bytes_rem)| {
-                            if *bytes == cbor::BYTES_INFO_24 {
-                                bytes_rem
-                                    .split_first()
-                                    .ok_or(AuthenticatorExtensionOutputErr::Len)
-                                    .and_then(|(&len, len_rem)| {
-                                        len_rem.split_at_checked(usize::from(len)).ok_or(AuthenticatorExtensionOutputErr::Len).and_then(|(_, remaining)| {
-                                            match usize::from(len) {
-                                                ONE_SECRET_LEN => {
-                                                    Ok(CborSuccess {
-                                                        value: Self::One,
-                                                        remaining,
-                                                    })
-                                                }
-                                                TWO_SECRET_LEN => {
-                                                    Ok(CborSuccess {
-                                                        value: Self::Two,
-                                                        remaining,
-                                                    })
-                                                }
-                                                _ => Err(AuthenticatorExtensionOutputErr::HmacSecretValue),
-                                            }
-                                        })
-                                    })
-                            } else {
-                                Err(AuthenticatorExtensionOutputErr::HmacSecretType)
-                            }
-                        })
-                } else {
-                    Err(AuthenticatorExtensionOutputErr::Unsupported)
-                }
-            })
-    }
-}
 /// [Authenticator extension output](https://www.w3.org/TR/webauthn-3/#authenticator-extension-output).
 #[derive(Clone, Copy, Debug)]
 pub struct AuthenticatorExtensionOutput {
@@ -155,6 +88,26 @@ pub struct AuthenticatorExtensionOutput {
 impl AuthExtOutput for AuthenticatorExtensionOutput {
     fn missing(self) -> bool {
         matches!(self.hmac_secret, HmacSecret::None)
+    }
+}
+impl From<HmacSecretGetErr> for AuthenticatorExtensionOutputErr {
+    #[inline]
+    fn from(value: HmacSecretGetErr) -> Self {
+        match value {
+            HmacSecretGetErr::Len => Self::Len,
+            HmacSecretGetErr::Type => Self::HmacSecretType,
+            HmacSecretGetErr::Value => Self::HmacSecretValue,
+        }
+    }
+}
+impl From<HmacSecretGet<false>> for HmacSecret {
+    #[inline]
+    fn from(value: HmacSecretGet<false>) -> Self {
+        match value {
+            HmacSecretGet::None => Self::None,
+            HmacSecretGet::One => Self::One,
+            HmacSecretGet::Two => Self::Two,
+        }
     }
 }
 impl FromCbor<'_> for AuthenticatorExtensionOutput {
@@ -173,12 +126,14 @@ impl FromCbor<'_> for AuthenticatorExtensionOutput {
             },
             |(map, map_rem)| {
                 if *map == cbor::MAP_1 {
-                    HmacSecret::from_cbor(map_rem).map(|success| CborSuccess {
-                        value: Self {
-                            hmac_secret: success.value,
-                        },
-                        remaining: success.remaining,
-                    })
+                    HmacSecretGet::from_cbor(map_rem)
+                        .map_err(AuthenticatorExtensionOutputErr::from)
+                        .map(|success| CborSuccess {
+                            value: Self {
+                                hmac_secret: success.value.into(),
+                            },
+                            remaining: success.remaining,
+                        })
                 } else {
                     Err(AuthenticatorExtensionOutputErr::CborHeader)
                 }

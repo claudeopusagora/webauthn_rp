@@ -235,6 +235,8 @@ pub enum AuthCeremonyErr {
     BackupEligible,
     /// [`Backup::NotEligible`] was sent back despite [`BackupReq::Eligible`].
     BackupNotEligible,
+    /// [`Backup::Eligible`] was not sent back despite [`BackupReq::EligibleNotExists`].
+    BackupExists,
     /// [`Backup::Exists`] was not sent back despite [`BackupReq::Exists`].
     BackupDoesNotExist,
     /// [`AuthenticatorAttachment`] was not sent back despite being required.
@@ -278,6 +280,7 @@ impl Display for AuthCeremonyErr {
             Self::TopOriginMismatch => CeremonyErr::<AuthenticatorDataErr>::TopOriginMismatch.fmt(f),
             Self::BackupEligible => CeremonyErr::<AuthenticatorDataErr>::BackupEligible.fmt(f),
             Self::BackupNotEligible => CeremonyErr::<AuthenticatorDataErr>::BackupNotEligible.fmt(f),
+            Self::BackupExists => CeremonyErr::<AuthenticatorDataErr>::BackupExists.fmt(f),
             Self::BackupDoesNotExist => CeremonyErr::<AuthenticatorDataErr>::BackupDoesNotExist.fmt(f),
             Self::ChallengeMismatch => CeremonyErr::<AuthenticatorDataErr>::ChallengeMismatch.fmt(f),
             Self::RpIdHashMismatch => CeremonyErr::<AuthenticatorDataErr>::RpIdHashMismatch.fmt(f),

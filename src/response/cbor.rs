@@ -50,6 +50,8 @@ pub(super) const TEXT_8: u8 = TEXT | 8;
 pub(super) const TEXT_11: u8 = TEXT | 11;
 /// [`TEXT`] length `12`.
 pub(super) const TEXT_12: u8 = TEXT | 12;
+/// [`TEXT`] length `14`.
+pub(super) const TEXT_14: u8 = TEXT | 14;
 /// [`MAP`] length `0`.
 pub(super) const MAP_0: u8 = MAP;
 /// [`MAP`] length `1`.

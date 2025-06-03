@@ -1,9 +1,49 @@
 use super::{
-    Challenge, CredentialId, Hint, PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
+    Challenge, CredentialId, CredentialMediationRequirement, Hint, PrfInput,
+    PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
 };
 use core::str;
 use data_encoding::BASE64URL_NOPAD;
 use serde::ser::{Serialize, SerializeSeq as _, SerializeStruct as _, Serializer};
+impl Serialize for CredentialMediationRequirement {
+    /// Serializes `self` to conform with
+    /// [`CredentialMediationRequirement`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::CredentialMediationRequirement;
+    /// assert_eq!(
+    ///     serde_json::to_string(&CredentialMediationRequirement::Silent)?,
+    ///     r#""silent""#
+    /// );
+    /// assert_eq!(
+    ///     serde_json::to_string(&CredentialMediationRequirement::Optional)?,
+    ///     r#""optional""#
+    /// );
+    /// assert_eq!(
+    ///     serde_json::to_string(&CredentialMediationRequirement::Conditional)?,
+    ///     r#""conditional""#
+    /// );
+    /// assert_eq!(
+    ///     serde_json::to_string(&CredentialMediationRequirement::Required)?,
+    ///     r#""required""#
+    /// );
+    /// # Ok::<_, serde_json::Error>(())
+    /// ```
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(match *self {
+            Self::Silent => "silent",
+            Self::Optional => "optional",
+            Self::Conditional => "conditional",
+            Self::Required => "required",
+        })
+    }
+}
 impl Serialize for Challenge {
     /// Serializes `self` to conform with
     /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptionsjson-challenge).
@@ -311,5 +351,50 @@ impl Serialize for Hint {
             }
             .and_then(|()| ser.end())
         })
+    }
+}
+impl Serialize for PrfInput<'_, '_> {
+    /// Serializes `self` to conform with
+    /// [`AuthenticationExtensionsPRFValues`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfvalues).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::{PrfInput, ExtensionReq};
+    /// assert_eq!(
+    ///     serde_json::to_string(&PrfInput {
+    ///         first: [0; 4].as_slice(),
+    ///         second: Some([2; 1].as_slice()),
+    ///     })?,
+    ///     r#"{"first":"AAAAAA","second":"Ag"}"#
+    /// );
+    /// # Ok::<_, serde_json::Error>(())
+    /// ```
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "comment justifies how overflow is not possible"
+    )]
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer
+            // The max value is 1 + 1 = 2, so overflow is not an issue.
+            .serialize_struct("PrfInput", 1 + usize::from(self.second.is_some()))
+            .and_then(|mut ser| {
+                ser.serialize_field("first", BASE64URL_NOPAD.encode(self.first).as_str())
+                    .and_then(|()| {
+                        self.second
+                            .as_ref()
+                            .map_or(Ok(()), |second| {
+                                ser.serialize_field(
+                                    "second",
+                                    BASE64URL_NOPAD.encode(second).as_str(),
+                                )
+                            })
+                            .and_then(|()| ser.end())
+                    })
+            })
     }
 }

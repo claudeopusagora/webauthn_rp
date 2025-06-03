@@ -7,9 +7,9 @@ use super::{
         request::{
             BackupReq, CredentialMediationRequirement, UserVerificationRequirement,
             register::{
-                AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, Extension,
-                PublicKeyCredentialCreationOptions, RegistrationServerState,
-                RegistrationVerificationOptions,
+                AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
+                CredentialCreationOptions, Extension, PublicKeyCredentialCreationOptions,
+                RegistrationServerState, RegistrationVerificationOptions,
             },
         },
     },
@@ -178,6 +178,10 @@ pub enum AuthenticatorExtensionOutputErr {
     HmacSecretValue,
     /// `minPinLength` had an invalid value.
     MinPinLengthValue,
+    /// `hmac-secret-mc` was not a byte string with additional info 24.
+    HmacSecretMcType,
+    /// `hmac-secret-mc` was not a byte string of length 48 or 80.
+    HmacSecretMcValue,
     /// Fewer extensions existed than expected.
     Missing,
 }
@@ -190,6 +194,8 @@ impl Display for AuthenticatorExtensionOutputErr {
             Self::CredProtectValue => "CBOR authenticator extension 'credProtect' had an invalid value",
             Self::HmacSecretValue => "CBOR authenticator extension 'hmac-secret' had an invalid value",
             Self::MinPinLengthValue => "CBOR authenticator extension 'minPinLength' had an invalid value",
+            Self::HmacSecretMcType => "CBOR authenticator extension 'hmac-secret-mc' was not a byte string with additional info 24",
+            Self::HmacSecretMcValue => "CBOR authenticator extension 'hmac-secret-mc' was not a byte string of length 48 or 80",
             Self::Missing => "CBOR authenticator extensions had fewer extensions than expected",
         })
     }
@@ -562,7 +568,7 @@ pub enum RegCeremonyErr {
     ChallengeMismatch,
     /// The SHA-256 hash of [`PublicKeyCredentialCreationOptions::rp_id`] does not match [`AuthenticatorData::rp_id_hash`].
     RpIdHashMismatch,
-    /// [`Flag::user_present`] was `false` despite [`PublicKeyCredentialCreationOptions::mediation`]
+    /// [`Flag::user_present`] was `false` despite [`CredentialCreationOptions::mediation`]
     /// being something other than [`CredentialMediationRequirement::Conditional`].
     UserNotPresent,
     /// [`AuthenticatorSelectionCriteria::user_verification`] was set to [`UserVerificationRequirement::Required`],
@@ -572,6 +578,8 @@ pub enum RegCeremonyErr {
     BackupEligible,
     /// [`Backup::NotEligible`] was sent back despite [`BackupReq::Eligible`].
     BackupNotEligible,
+    /// [`Backup::Eligible`] was not sent back despite [`BackupReq::EligibleNotExists`].
+    BackupExists,
     /// [`Backup::Exists`] was not sent back despite [`BackupReq::Exists`].
     BackupDoesNotExist,
     /// [`AuthenticatorAttachment`] was not sent back despite being required.
@@ -603,6 +611,7 @@ impl Display for RegCeremonyErr {
             Self::TopOriginMismatch => CeremonyErr::<AttestationObjectErr>::TopOriginMismatch.fmt(f),
             Self::BackupEligible => CeremonyErr::<AttestationObjectErr>::BackupEligible.fmt(f),
             Self::BackupNotEligible => CeremonyErr::<AttestationObjectErr>::BackupNotEligible.fmt(f),
+            Self::BackupExists => CeremonyErr::<AttestationObjectErr>::BackupExists.fmt(f),
             Self::BackupDoesNotExist => CeremonyErr::<AttestationObjectErr>::BackupDoesNotExist.fmt(f),
             Self::ChallengeMismatch => CeremonyErr::<AttestationObjectErr>::ChallengeMismatch.fmt(f),
             Self::RpIdHashMismatch => CeremonyErr::<AttestationObjectErr>::RpIdHashMismatch.fmt(f),

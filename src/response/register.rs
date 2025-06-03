@@ -11,8 +11,8 @@ use super::{
     super::request::register::{FourToSixtyThree, ResidentKeyRequirement},
     AuthData, AuthDataContainer, AuthExtOutput, AuthRespErr, AuthResponse, AuthTransports,
     AuthenticatorAttachment, Backup, CborSuccess, ClientDataJsonParser as _, CollectedClientData,
-    CredentialId, Flag, FromCbor, LimitedVerificationParser, ParsedAuthData, Response,
-    SentChallenge, cbor,
+    CredentialId, Flag, FromCbor, HmacSecretGet, HmacSecretGetErr, LimitedVerificationParser,
+    ParsedAuthData, Response, SentChallenge, cbor,
     error::CollectedClientDataErr,
     register::error::{
         AaguidErr, AttestationErr, AttestationObjectErr, AttestedCredentialDataErr,
@@ -95,20 +95,41 @@ impl Display for CredentialProtectionPolicy {
         })
     }
 }
+#[expect(clippy::too_long_first_doc_paragraph, reason = "false positive")]
+/// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
+/// and
+/// [`hmac-secret-mc`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-make-cred-extension).
+///
+/// Note `hmac-secret-mc` can only exist if `hmac-secret` exists with a value of `true`.
+#[derive(Clone, Copy, Debug)]
+pub enum HmacSecret {
+    /// No `hmac-secret` extension.
+    None,
+    /// `hmac-secret` extension with a value of `false`.
+    NotEnabled,
+    /// `hmac-secret` extension with a value of `true`.
+    Enabled,
+    /// `hmac-secret` extension with a value of `true` and `hmac-secret-mc` contained one encrypted PRF output.
+    One,
+    /// `hmac-secret` extension with a value of `true` and `hmac-secret-mc` contained two encrypted PRF outputs.
+    Two,
+}
 /// [Authenticator extension output](https://www.w3.org/TR/webauthn-3/#authenticator-extension-output).
 #[derive(Clone, Copy, Debug)]
 pub struct AuthenticatorExtensionOutput {
     /// [`credProtect`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-credProtect-extension).
     pub cred_protect: CredentialProtectionPolicy,
-    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension).
-    pub hmac_secret: Option<bool>,
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
+    /// and
+    /// [`hmac-secret-mc`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-make-cred-extension).
+    pub hmac_secret: HmacSecret,
     /// [`minPinLength`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-minpinlength-extension).
     pub min_pin_length: Option<FourToSixtyThree>,
 }
 impl AuthExtOutput for AuthenticatorExtensionOutput {
     fn missing(self) -> bool {
         matches!(self.cred_protect, CredentialProtectionPolicy::None)
-            && self.hmac_secret.is_none()
+            && matches!(self.hmac_secret, HmacSecret::None)
             && self.min_pin_length.is_none()
     }
 }
@@ -119,6 +140,9 @@ pub struct AuthenticatorExtensionOutputStaticState {
     /// [`AuthenticatorExtensionOutput::cred_protect`].
     pub cred_protect: CredentialProtectionPolicy,
     /// [`AuthenticatorExtensionOutput::hmac_secret`].
+    ///
+    /// Note we only care about whether or not it has been enabled. Specifcally this is `None` iff
+    /// [`HmacSecret::None`], `Some(false)` iff [`HmacSecret::NotEnabled`]; otherwise `Some(true)`.
     pub hmac_secret: Option<bool>,
 }
 /// [`AuthenticatorExtensionOutput`] extensions that are saved in [`Metadata`] because they are purely informative
@@ -141,7 +165,11 @@ impl From<AuthenticatorExtensionOutput> for AuthenticatorExtensionOutputStaticSt
     fn from(value: AuthenticatorExtensionOutput) -> Self {
         Self {
             cred_protect: value.cred_protect,
-            hmac_secret: value.hmac_secret,
+            hmac_secret: match value.hmac_secret {
+                HmacSecret::None => None,
+                HmacSecret::NotEnabled => Some(false),
+                HmacSecret::Enabled | HmacSecret::One | HmacSecret::Two => Some(true),
+            },
         }
     }
 }
@@ -201,13 +229,13 @@ impl FromCbor<'_> for CredentialProtectionPolicy {
     }
 }
 /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension).
-enum HmacSecret {
+enum HmacSecretEnabled {
     /// No `hmac-secret` extension.
     None,
     /// `hmac-secret` set to the contained `bool`.
     Val(bool),
 }
-impl FromCbor<'_> for HmacSecret {
+impl FromCbor<'_> for HmacSecretEnabled {
     type Err = AuthenticatorExtensionOutputErr;
     fn from_cbor(cbor: &[u8]) -> Result<CborSuccess<'_, Self>, Self::Err> {
         cbor.split_at_checked(cbor::HMAC_SECRET.len()).map_or(
@@ -312,6 +340,16 @@ impl FromCbor<'_> for MinPinLength {
         )
     }
 }
+impl From<HmacSecretGetErr> for AuthenticatorExtensionOutputErr {
+    #[inline]
+    fn from(value: HmacSecretGetErr) -> Self {
+        match value {
+            HmacSecretGetErr::Len => Self::Len,
+            HmacSecretGetErr::Type => Self::HmacSecretMcType,
+            HmacSecretGetErr::Value => Self::HmacSecretMcValue,
+        }
+    }
+}
 impl FromCbor<'_> for AuthenticatorExtensionOutput {
     type Err = AuthenticatorExtensionOutputErr;
     #[expect(
@@ -320,16 +358,18 @@ impl FromCbor<'_> for AuthenticatorExtensionOutput {
     )]
     fn from_cbor(cbor: &[u8]) -> Result<CborSuccess<'_, Self>, Self::Err> {
         // We don't allow unsupported extensions; thus the only possibilities is any ordered element of
-        // the power set of {"credProtect":<1, 2, or 3>, "hmac-secret":<true or false>, "minPinLength":<0-255>}.
+        // the power set of {"credProtect":<1, 2, or 3>, "hmac-secret":<true or false>, "minPinLength":<0-255>, "hmac-secret-mc":<48|80 bytes>}.
         // Since the keys are the same type (text), order is first done based on length; and then
         // byte-wise lexical order is followed; thus `credProtect` must come before `hmac-secret` which
-        // must come before `minPinLength`.
+        // must come before `minPinLength` which comes before `hmac-secret-mc`.
+        //
+        // Note `hmac-secret-mc` can only exist if `hmac-secret` exists with a value of `true`.
         cbor.split_first().map_or_else(
             || {
                 Ok(CborSuccess {
                     value: Self {
                         cred_protect: CredentialProtectionPolicy::None,
-                        hmac_secret: None,
+                        hmac_secret: HmacSecret::None,
                         min_pin_length: None,
                     },
                     remaining: cbor,
@@ -339,39 +379,46 @@ impl FromCbor<'_> for AuthenticatorExtensionOutput {
                 cbor::MAP_1 => {
                     CredentialProtectionPolicy::from_cbor(map_rem).and_then(|cred_success| {
                         if matches!(cred_success.value, CredentialProtectionPolicy::None) {
-                            HmacSecret::from_cbor(cred_success.remaining).and_then(|hmac_success| {
-                                match hmac_success.value {
-                                    HmacSecret::None => MinPinLength::from_cbor(
+                            HmacSecretEnabled::from_cbor(cred_success.remaining).and_then(
+                                |hmac_success| match hmac_success.value {
+                                    HmacSecretEnabled::None => MinPinLength::from_cbor(
                                         hmac_success.remaining,
                                     )
                                     .and_then(|pin_success| match pin_success.value {
                                         MinPinLength::None => {
+                                            // We don't even bother checking for `HmacSecretGet` since
+                                            // it's only valid when `HmacSecretEnabled` exists with a value
+                                            // of `true`.
                                             Err(AuthenticatorExtensionOutputErr::Missing)
                                         }
                                         MinPinLength::Val(min_pin_len) => Ok(CborSuccess {
                                             value: Self {
                                                 cred_protect: cred_success.value,
-                                                hmac_secret: None,
+                                                hmac_secret: HmacSecret::None,
                                                 min_pin_length: Some(min_pin_len),
                                             },
                                             remaining: pin_success.remaining,
                                         }),
                                     }),
-                                    HmacSecret::Val(hmac) => Ok(CborSuccess {
+                                    HmacSecretEnabled::Val(hmac) => Ok(CborSuccess {
                                         value: Self {
                                             cred_protect: cred_success.value,
-                                            hmac_secret: Some(hmac),
+                                            hmac_secret: if hmac {
+                                                HmacSecret::Enabled
+                                            } else {
+                                                HmacSecret::NotEnabled
+                                            },
                                             min_pin_length: None,
                                         },
                                         remaining: hmac_success.remaining,
                                     }),
-                                }
-                            })
+                                },
+                            )
                         } else {
                             Ok(CborSuccess {
                                 value: Self {
                                     cred_protect: cred_success.value,
-                                    hmac_secret: None,
+                                    hmac_secret: HmacSecret::None,
                                     min_pin_length: None,
                                 },
                                 remaining: cred_success.remaining,
@@ -382,89 +429,275 @@ impl FromCbor<'_> for AuthenticatorExtensionOutput {
                 cbor::MAP_2 => {
                     CredentialProtectionPolicy::from_cbor(map_rem).and_then(|cred_success| {
                         if matches!(cred_success.value, CredentialProtectionPolicy::None) {
-                            HmacSecret::from_cbor(cred_success.remaining).and_then(|hmac_success| {
-                                match hmac_success.value {
-                                    HmacSecret::None => {
+                            HmacSecretEnabled::from_cbor(cred_success.remaining).and_then(
+                                |hmac_success| match hmac_success.value {
+                                    HmacSecretEnabled::None => {
+                                        // We don't even bother checking for `HmacSecretGet` since
+                                        // it's only valid when `HmacSecretEnabled` exists with a value
+                                        // of `true`.
                                         Err(AuthenticatorExtensionOutputErr::Missing)
                                     }
-                                    HmacSecret::Val(hmac) => MinPinLength::from_cbor(
+                                    HmacSecretEnabled::Val(hmac) => MinPinLength::from_cbor(
                                         hmac_success.remaining,
                                     )
                                     .and_then(|pin_success| match pin_success.value {
                                         MinPinLength::None => {
-                                            Err(AuthenticatorExtensionOutputErr::Missing)
+                                            if hmac {
+                                                HmacSecretGet::<true>::from_cbor(
+                                                    pin_success.remaining,
+                                                )
+                                                .map_err(AuthenticatorExtensionOutputErr::from)
+                                                .and_then(|hmac_get| match hmac_get.value {
+                                                    HmacSecretGet::None => Err(
+                                                        AuthenticatorExtensionOutputErr::Missing,
+                                                    ),
+                                                    HmacSecretGet::One => Ok(CborSuccess {
+                                                        value: Self {
+                                                            cred_protect: cred_success.value,
+                                                            hmac_secret: HmacSecret::One,
+                                                            min_pin_length: None,
+                                                        },
+                                                        remaining: hmac_get.remaining,
+                                                    }),
+                                                    HmacSecretGet::Two => Ok(CborSuccess {
+                                                        value: Self {
+                                                            cred_protect: cred_success.value,
+                                                            hmac_secret: HmacSecret::Two,
+                                                            min_pin_length: None,
+                                                        },
+                                                        remaining: hmac_get.remaining,
+                                                    }),
+                                                })
+                                            } else {
+                                                // We don't even bother checking for `HmacSecretGet` since
+                                                // it's only valid when `HmacSecretEnabled` exists with a value
+                                                // of `true`.
+                                                Err(AuthenticatorExtensionOutputErr::Missing)
+                                            }
                                         }
                                         MinPinLength::Val(min_pin_len) => Ok(CborSuccess {
                                             value: Self {
                                                 cred_protect: cred_success.value,
-                                                hmac_secret: Some(hmac),
+                                                hmac_secret: if hmac {
+                                                    HmacSecret::Enabled
+                                                } else {
+                                                    HmacSecret::NotEnabled
+                                                },
                                                 min_pin_length: Some(min_pin_len),
                                             },
                                             remaining: pin_success.remaining,
                                         }),
                                     }),
-                                }
-                            })
+                                },
+                            )
                         } else {
-                            HmacSecret::from_cbor(cred_success.remaining).and_then(|hmac_success| {
-                                match hmac_success.value {
-                                    HmacSecret::None => MinPinLength::from_cbor(
+                            HmacSecretEnabled::from_cbor(cred_success.remaining).and_then(
+                                |hmac_success| match hmac_success.value {
+                                    HmacSecretEnabled::None => MinPinLength::from_cbor(
                                         hmac_success.remaining,
                                     )
                                     .and_then(|pin_success| match pin_success.value {
                                         MinPinLength::None => {
+                                            // We don't even bother checking for `HmacSecretGet` since
+                                            // it's only valid when `HmacSecretEnabled` exists with a value
+                                            // of `true`.
                                             Err(AuthenticatorExtensionOutputErr::Missing)
                                         }
                                         MinPinLength::Val(min_pin_len) => Ok(CborSuccess {
                                             value: Self {
                                                 cred_protect: cred_success.value,
-                                                hmac_secret: None,
+                                                hmac_secret: HmacSecret::None,
                                                 min_pin_length: Some(min_pin_len),
                                             },
                                             remaining: pin_success.remaining,
                                         }),
                                     }),
-                                    HmacSecret::Val(hmac) => Ok(CborSuccess {
+                                    // We don't even bother checking for `HmacSecretGet` since
+                                    // it's only valid when `HmacSecretEnabled` exists with a value
+                                    // of `true`.
+                                    HmacSecretEnabled::Val(hmac) => Ok(CborSuccess {
                                         value: Self {
                                             cred_protect: cred_success.value,
-                                            hmac_secret: Some(hmac),
+                                            hmac_secret: if hmac {
+                                                HmacSecret::Enabled
+                                            } else {
+                                                HmacSecret::NotEnabled
+                                            },
                                             min_pin_length: None,
                                         },
                                         remaining: hmac_success.remaining,
                                     }),
-                                }
-                            })
+                                },
+                            )
                         }
                     })
                 }
                 cbor::MAP_3 => {
                     CredentialProtectionPolicy::from_cbor(map_rem).and_then(|cred_success| {
                         if matches!(cred_success.value, CredentialProtectionPolicy::None) {
-                            Err(AuthenticatorExtensionOutputErr::Missing)
-                        } else {
-                            HmacSecret::from_cbor(cred_success.remaining).and_then(|hmac_success| {
-                                match hmac_success.value {
-                                    HmacSecret::None => {
+                            HmacSecretEnabled::from_cbor(cred_success.remaining).and_then(
+                                |hmac_success| match hmac_success.value {
+                                    HmacSecretEnabled::None => {
                                         Err(AuthenticatorExtensionOutputErr::Missing)
                                     }
-                                    HmacSecret::Val(hmac) => MinPinLength::from_cbor(
-                                        hmac_success.remaining,
-                                    )
-                                    .and_then(|pin_success| match pin_success.value {
-                                        MinPinLength::None => {
+                                    HmacSecretEnabled::Val(hmac) => {
+                                        if hmac {
+                                            MinPinLength::from_cbor(
+                                                hmac_success.remaining,
+                                            )
+                                            .and_then(|pin_success| match pin_success.value {
+                                                MinPinLength::None => Err(AuthenticatorExtensionOutputErr::Missing),
+                                                MinPinLength::Val(min_pin_len) => HmacSecretGet::<true>::from_cbor(pin_success.remaining).map_err(AuthenticatorExtensionOutputErr::from).and_then(|hmac_get| {
+                                                    match hmac_get.value {
+                                                        HmacSecretGet::None => Err(AuthenticatorExtensionOutputErr::Missing),
+                                                        HmacSecretGet::One => {
+                                                            Ok(CborSuccess {
+                                                                value: Self {
+                                                                    cred_protect: cred_success.value,
+                                                                    hmac_secret: HmacSecret::One,
+                                                                    min_pin_length: Some(min_pin_len),
+                                                                },
+                                                                remaining: hmac_get.remaining,
+                                                            })
+                                                        }
+                                                        HmacSecretGet::Two => {
+                                                            Ok(CborSuccess {
+                                                                value: Self {
+                                                                    cred_protect: cred_success.value,
+                                                                    hmac_secret: HmacSecret::Two,
+                                                                    min_pin_length: Some(min_pin_len),
+                                                                },
+                                                                remaining: hmac_get.remaining,
+                                                            })
+                                                        }
+                                                    }
+                                                })
+                                            })
+                                        } else {
+                                            // We don't even bother checking for `HmacSecretGet` since
+                                            // it's only valid when `HmacSecretEnabled` exists with a value
+                                            // of `true`.
                                             Err(AuthenticatorExtensionOutputErr::Missing)
                                         }
-                                        MinPinLength::Val(min_pin_len) => Ok(CborSuccess {
-                                            value: Self {
-                                                cred_protect: cred_success.value,
-                                                hmac_secret: Some(hmac),
-                                                min_pin_length: Some(min_pin_len),
-                                            },
-                                            remaining: pin_success.remaining,
-                                        }),
-                                    }),
+                                    }
+                                },
+                            )
+                        } else {
+                            HmacSecretEnabled::from_cbor(cred_success.remaining).and_then(
+                                |hmac_success| match hmac_success.value {
+                                    // We don't even bother checking for `HmacSecretGet` since
+                                    // it's only valid when `HmacSecretEnabled` exists with a value
+                                    // of `true`.
+                                    HmacSecretEnabled::None => Err(AuthenticatorExtensionOutputErr::Missing),
+                                    HmacSecretEnabled::Val(hmac) => {
+                                        MinPinLength::from_cbor(hmac_success.remaining).and_then(|pin_success| {
+                                            match pin_success.value {
+                                                MinPinLength::None => {
+                                                    if hmac {
+                                                        HmacSecretGet::<true>::from_cbor(pin_success.remaining).map_err(AuthenticatorExtensionOutputErr::from).and_then(|hmac_get| {
+                                                            match hmac_get.value {
+                                                                HmacSecretGet::None => Err(AuthenticatorExtensionOutputErr::Missing),
+                                                                HmacSecretGet::One => {
+                                                                    Ok(CborSuccess {
+                                                                        value: Self {
+                                                                            cred_protect: cred_success.value,
+                                                                            hmac_secret: HmacSecret::One,
+                                                                            min_pin_length: None,
+                                                                        },
+                                                                        remaining: hmac_get.remaining,
+                                                                    })
+                                                                }
+                                                                HmacSecretGet::Two => {
+                                                                    Ok(CborSuccess {
+                                                                        value: Self {
+                                                                            cred_protect: cred_success.value,
+                                                                            hmac_secret: HmacSecret::Two,
+                                                                            min_pin_length: None,
+                                                                        },
+                                                                        remaining: hmac_get.remaining,
+                                                                    })
+                                                                }
+                                                            }
+                                                        })
+                                                    } else {
+                                                        // We don't even bother checking for `HmacSecretGet` since
+                                                        // it's only valid when `HmacSecretEnabled` exists with a value
+                                                        // of `true`.
+                                                        Err(AuthenticatorExtensionOutputErr::Missing)
+                                                    }
+                                                }
+                                                MinPinLength::Val(min_pin_len) => {
+                                                    Ok(CborSuccess {
+                                                        value: Self {
+                                                            cred_protect: cred_success.value,
+                                                            hmac_secret: if hmac { HmacSecret::Enabled } else { HmacSecret::NotEnabled },
+                                                            min_pin_length: Some(min_pin_len),
+                                                        },
+                                                        remaining: pin_success.remaining,
+                                                    })
+                                                }
+                                            }
+                                        })
+                                    }
                                 }
-                            })
+                            )
+                        }
+                    })
+                }
+                cbor::MAP_4 => {
+                    CredentialProtectionPolicy::from_cbor(map_rem).and_then(|cred_success| {
+                        if matches!(cred_success.value, CredentialProtectionPolicy::None) {
+                            Err(AuthenticatorExtensionOutputErr::Missing)
+                        } else {
+                            HmacSecretEnabled::from_cbor(cred_success.remaining).and_then(
+                                |hmac_success| match hmac_success.value {
+                                    HmacSecretEnabled::None => {
+                                        Err(AuthenticatorExtensionOutputErr::Missing)
+                                    }
+                                    HmacSecretEnabled::Val(hmac) => {
+                                        if hmac {
+                                            MinPinLength::from_cbor(
+                                                hmac_success.remaining,
+                                            )
+                                            .and_then(|pin_success| match pin_success.value {
+                                                MinPinLength::None => {
+                                                    Err(AuthenticatorExtensionOutputErr::Missing)
+                                                }
+                                                MinPinLength::Val(min_pin_len) => HmacSecretGet::<true>::from_cbor(pin_success.remaining).map_err(AuthenticatorExtensionOutputErr::from).and_then(|hmac_get| {
+                                                    match hmac_get.value {
+                                                        HmacSecretGet::None => Err(AuthenticatorExtensionOutputErr::Missing),
+                                                        HmacSecretGet::One => {
+                                                            Ok(CborSuccess {
+                                                                value: Self {
+                                                                    cred_protect: cred_success.value,
+                                                                    hmac_secret: HmacSecret::One,
+                                                                    min_pin_length: Some(min_pin_len),
+                                                                },
+                                                                remaining: hmac_get.remaining,
+                                                            })
+                                                        }
+                                                        HmacSecretGet::Two => {
+                                                            Ok(CborSuccess {
+                                                                value: Self {
+                                                                    cred_protect: cred_success.value,
+                                                                    hmac_secret: HmacSecret::Two,
+                                                                    min_pin_length: Some(min_pin_len),
+                                                                },
+                                                                remaining: hmac_get.remaining,
+                                                            })
+                                                        }
+                                                    }
+                                                })
+                                            })
+                                        } else {
+                                            // We don't even bother checking for `HmacSecretGet` since
+                                            // it's only valid when `HmacSecretEnabled` exists with a value
+                                            // of `true`.
+                                            Err(AuthenticatorExtensionOutputErr::Missing)
+                                        }
+                                    }
+                                },
+                            )
                         }
                     })
                 }
@@ -3214,8 +3447,14 @@ mod tests {
             },
             auth::{AuthenticatorData, NonDiscoverableAuthenticatorAssertion},
         },
-        AttestationFormat, AttestationObject, AuthDataContainer as _, AuthTransports,
-        AuthenticatorAttestation, Backup, Sig, UncompressedPubKey,
+        AttestationFormat, AttestationObject, AuthDataContainer as _, AuthExtOutput as _,
+        AuthTransports, AuthenticatorAttestation, AuthenticatorExtensionOutput,
+        AuthenticatorExtensionOutputErr, Backup, CborSuccess, CredentialProtectionPolicy,
+        FromCbor as _, HmacSecret, Sig, UncompressedPubKey,
+        cbor::{
+            BYTES, BYTES_INFO_24, MAP_1, MAP_2, MAP_3, MAP_4, SIMPLE_FALSE, SIMPLE_TRUE, TEXT_11,
+            TEXT_12, TEXT_14,
+        },
     };
     use data_encoding::HEXLOWER;
     use ed25519_dalek::Verifier as _;
@@ -3376,6 +3615,195 @@ mod tests {
         let mut msg = auth_assertion.authenticator_data().to_owned();
         msg.extend_from_slice(Sha256::digest(auth_assertion.client_data_json()).as_slice());
         assert!(key.verify(msg.as_slice(), &sig).is_ok());
+        Ok(())
+    }
+    struct AuthExtOptions<'a> {
+        cred_protect: Option<u8>,
+        hmac_secret: Option<bool>,
+        min_pin_length: Option<u8>,
+        hmac_secret_mc: Option<&'a [u8]>,
+    }
+    fn generate_auth_extensions(opts: AuthExtOptions<'_>) -> Vec<u8> {
+        let map_len = u8::from(opts.cred_protect.is_some())
+            + u8::from(opts.hmac_secret.is_some())
+            + u8::from(opts.min_pin_length.is_some())
+            + u8::from(opts.hmac_secret_mc.is_some());
+        let header = match map_len {
+            0 => return Vec::new(),
+            1 => MAP_1,
+            2 => MAP_2,
+            3 => MAP_3,
+            4 => MAP_4,
+            _ => unreachable!("bug"),
+        };
+        let mut cbor = Vec::with_capacity(128);
+        cbor.push(header);
+        if let Some(protect) = opts.cred_protect {
+            cbor.push(TEXT_11);
+            cbor.extend_from_slice(b"credProtect".as_slice());
+            if protect >= 24 {
+                cbor.push(24);
+            }
+            cbor.push(protect);
+        }
+        if let Some(hmac) = opts.hmac_secret {
+            cbor.push(TEXT_11);
+            cbor.extend_from_slice(b"hmac-secret".as_slice());
+            cbor.push(if hmac { SIMPLE_TRUE } else { SIMPLE_FALSE });
+        }
+        if let Some(pin) = opts.min_pin_length {
+            cbor.push(TEXT_12);
+            cbor.extend_from_slice(b"minPinLength".as_slice());
+            if pin >= 24 {
+                cbor.push(24);
+            }
+            cbor.push(pin);
+        }
+        if let Some(mc) = opts.hmac_secret_mc {
+            cbor.push(TEXT_14);
+            cbor.extend_from_slice(b"hmac-secret-mc".as_slice());
+            match mc.len() {
+                len @ ..=23 => {
+                    cbor.push(BYTES | len as u8);
+                }
+                len @ 24..=255 => {
+                    cbor.push(BYTES_INFO_24);
+                    cbor.push(len as u8);
+                }
+                _ => panic!(
+                    "AuthExtOptions does not allow hmac_secret_mc to have length greater than 255"
+                ),
+            }
+            cbor.extend_from_slice(mc);
+        }
+        cbor
+    }
+    #[test]
+    fn test_auth_ext() -> Result<(), AuthenticatorExtensionOutputErr> {
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: None,
+            hmac_secret: None,
+            min_pin_length: None,
+            hmac_secret_mc: None,
+        });
+        let CborSuccess { value, remaining } =
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice())?;
+        assert!(remaining.is_empty());
+        assert!(value.missing());
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: None,
+            hmac_secret: None,
+            min_pin_length: None,
+            hmac_secret_mc: Some([0; 48].as_slice()),
+        });
+        assert!(
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice()).map_or_else(
+                |e| matches!(e, AuthenticatorExtensionOutputErr::Missing),
+                |_| false,
+            )
+        );
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: None,
+            hmac_secret: Some(true),
+            min_pin_length: None,
+            hmac_secret_mc: Some([0; 48].as_slice()),
+        });
+        let CborSuccess { value, remaining } =
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice())?;
+        assert!(remaining.is_empty());
+        assert!(
+            matches!(value.cred_protect, CredentialProtectionPolicy::None)
+                && matches!(value.hmac_secret, HmacSecret::One)
+                && value.min_pin_length.is_none()
+        );
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: None,
+            hmac_secret: Some(false),
+            min_pin_length: None,
+            hmac_secret_mc: Some([0; 48].as_slice()),
+        });
+        assert!(
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice()).map_or_else(
+                |e| matches!(e, AuthenticatorExtensionOutputErr::Missing),
+                |_| false,
+            )
+        );
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: None,
+            hmac_secret: Some(true),
+            min_pin_length: None,
+            hmac_secret_mc: Some([0; 49].as_slice()),
+        });
+        assert!(
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice()).map_or_else(
+                |e| matches!(e, AuthenticatorExtensionOutputErr::HmacSecretMcValue),
+                |_| false,
+            )
+        );
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: None,
+            hmac_secret: Some(true),
+            min_pin_length: None,
+            hmac_secret_mc: Some([0; 23].as_slice()),
+        });
+        assert!(
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice()).map_or_else(
+                |e| matches!(e, AuthenticatorExtensionOutputErr::HmacSecretMcType),
+                |_| false,
+            )
+        );
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: Some(1),
+            hmac_secret: Some(true),
+            min_pin_length: Some(5),
+            hmac_secret_mc: Some([0; 48].as_slice()),
+        });
+        let CborSuccess { value, remaining } =
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice())?;
+        assert!(remaining.is_empty());
+        assert!(
+            matches!(
+                value.cred_protect,
+                CredentialProtectionPolicy::UserVerificationOptional
+            ) && matches!(value.hmac_secret, HmacSecret::One)
+                && value.min_pin_length.is_some_and(|pin| pin.value() == 5)
+        );
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: Some(0),
+            hmac_secret: None,
+            min_pin_length: None,
+            hmac_secret_mc: None,
+        });
+        assert!(
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice()).map_or_else(
+                |e| matches!(e, AuthenticatorExtensionOutputErr::CredProtectValue),
+                |_| false,
+            )
+        );
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: None,
+            hmac_secret: None,
+            min_pin_length: Some(3),
+            hmac_secret_mc: None,
+        });
+        assert!(
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice()).map_or_else(
+                |e| matches!(e, AuthenticatorExtensionOutputErr::MinPinLengthValue),
+                |_| false,
+            )
+        );
+        let opts = generate_auth_extensions(AuthExtOptions {
+            cred_protect: None,
+            hmac_secret: None,
+            min_pin_length: Some(64),
+            hmac_secret_mc: None,
+        });
+        assert!(
+            AuthenticatorExtensionOutput::from_cbor(opts.as_slice()).map_or_else(
+                |e| matches!(e, AuthenticatorExtensionOutputErr::MinPinLengthValue),
+                |_| false,
+            )
+        );
         Ok(())
     }
 }

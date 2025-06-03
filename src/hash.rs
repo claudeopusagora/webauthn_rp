@@ -7,7 +7,7 @@ use super::{
             DiscoverableAuthenticationServerState, DiscoverableCredentialRequestOptions,
             NonDiscoverableAuthenticationServerState, NonDiscoverableCredentialRequestOptions,
         },
-        register::{PublicKeyCredentialCreationOptions, RegistrationServerState},
+        register::{CredentialCreationOptions, RegistrationServerState},
     },
 };
 use core::hash::{BuildHasher, Hasher};
@@ -29,7 +29,7 @@ pub mod hash_set;
 /// optimize without fear by using this `Hasher` since `Challenge`s are immutable and can only ever be created on
 /// the server via [`Challenge::new`] (and equivalently [`Challenge::default`]). `RegistrationServerState`,
 /// `DiscoverableAuthenticationServerState`, and `NonDiscoverableAuthenticationServerState` are also immutable and
-/// only constructable via [`PublicKeyCredentialCreationOptions::start_ceremony`],
+/// only constructable via [`CredentialCreationOptions::start_ceremony`],
 /// [`DiscoverableCredentialRequestOptions::start_ceremony`], and
 /// [`NonDiscoverableCredentialRequestOptions::start_ceremony`] respectively. Since `Challenge` is already based on
 /// a random `u128`, other `Hasher`s will be slower and likely produce lower-quality hashes (and never

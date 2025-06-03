@@ -20,7 +20,7 @@
 //! use core::convert;
 //! use webauthn_rp::{
 //!     AuthenticatedCredential64, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
-//!     DiscoverableCredentialRequestOptions, PublicKeyCredentialCreationOptions64, RegisteredCredential64,
+//!     DiscoverableCredentialRequestOptions, CredentialCreationOptions64, RegisteredCredential64,
 //!     Registration, RegistrationServerState64,
 //!     hash::hash_set::FixedCapHashSet,
 //!     request::{
@@ -114,7 +114,7 @@
 //!     );
 //!     let user_id = UserHandle64::new();
 //!     let (server, client) =
-//!         PublicKeyCredentialCreationOptions64::first_passkey_with_blank_user_info(
+//!         CredentialCreationOptions64::first_passkey_with_blank_user_info(
 //!             &rp_id, &user_id,
 //!         )
 //!         .start_ceremony()
@@ -175,7 +175,7 @@
 //!             .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
 //!     );
 //!     let (entity, creds) = select_user_info(user_id)?.ok_or_else(|| AppErr::NoAccount)?;
-//!     let (server, client) = PublicKeyCredentialCreationOptions64::passkey(&rp_id, entity, creds)
+//!     let (server, client) = CredentialCreationOptions64::passkey(&rp_id, entity, creds)
 //!         .start_ceremony()
 //!         .unwrap_or_else(|_e| {
 //!             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
@@ -534,8 +534,8 @@ use crate::{
         TimedCeremony, Url,
         auth::{AllowedCredential, AllowedCredentials, PublicKeyCredentialRequestOptions},
         register::{
-            CoseAlgorithmIdentifier, Nickname, PublicKeyCredentialUserEntity, UserHandle16,
-            UserHandle64, Username,
+            CoseAlgorithmIdentifier, Nickname, PublicKeyCredentialCreationOptions,
+            PublicKeyCredentialUserEntity, UserHandle16, UserHandle64, Username,
         },
     },
     response::{
@@ -644,11 +644,11 @@ pub mod hash;
 ///   if encrypted is not desirable though.
 /// * [`Label 4`](#label4) is ideal as a single-factor flow incorporated within a wider multi-factor authentication (MFA)
 ///   setup. The easiest way to register such a credential is with
-///   [`PublicKeyCredentialCreationOptions::second_factor`].
+///   [`CredentialCreationOptions::second_factor`].
 /// * [`Label 13`](#label13) is ideal for passkey setups as it allows for pleasant UX where a user does not have to type a
 ///   username nor password while still being secured with MFA with one of the factors being based on public-key
 ///   cryptography which for many is the most secure form of single-factor authentication. The easiest way to register
-///   such a credential is with [`PublicKeyCredentialCreationOptions::passkey`].
+///   such a credential is with [`CredentialCreationOptions::passkey`].
 ///
 /// Two other reasons one may prefer to construct client-side credentials is richer support for extensions (e.g.,
 /// [`largeBlobKey`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-largeBlobKey-extension)
@@ -658,8 +658,8 @@ pub mod hash;
 /// seamlessly transition from a username and password scheme to a userless and passwordless one in the future.
 ///
 /// Note the table is purely informative. While helper functions
-/// (e.g., [`PublicKeyCredentialCreationOptions::passkey`]) only exist for [`Label 4`](#label4) and
-/// [`Label 13`](#label13), one can create any credential since all fields in [`PublicKeyCredentialCreationOptions`]
+/// (e.g., [`CredentialCreationOptions::passkey`]) only exist for [`Label 4`](#label4) and
+/// [`Label 13`](#label13), one can create any credential since all fields in [`CredentialCreationOptions`]
 /// and [`PublicKeyCredentialRequestOptions`] are accessible.
 pub mod request;
 /// Functionality for completing ceremonies.
@@ -675,10 +675,9 @@ pub use crate::{
             NonDiscoverableAuthenticationServerState, NonDiscoverableCredentialRequestOptions,
         },
         register::{
-            PublicKeyCredentialCreationOptions, PublicKeyCredentialCreationOptions16,
-            PublicKeyCredentialCreationOptions64, RegistrationClientState,
-            RegistrationClientState16, RegistrationClientState64, RegistrationServerState,
-            RegistrationServerState16, RegistrationServerState64,
+            CredentialCreationOptions, CredentialCreationOptions16, CredentialCreationOptions64,
+            RegistrationClientState, RegistrationClientState16, RegistrationClientState64,
+            RegistrationServerState, RegistrationServerState16, RegistrationServerState64,
         },
     },
     response::{
@@ -834,7 +833,7 @@ fn verify_static_and_dynamic_state<T>(
 /// When registering a credential, [`AttestedCredentialData::aaguid`], [`AttestedCredentialData::credential_id`],
 /// and [`AttestedCredentialData::credential_public_key`] will be the sources for [`Metadata::aaguid`],
 /// [`Self::id`], and [`StaticState::credential_public_key`] respectively. The [`PublicKeyCredentialUserEntity::id`]
-/// associated with the [`PublicKeyCredentialCreationOptions`] used to create the `RegisteredCredential` via
+/// associated with the [`CredentialCreationOptions`] used to create the `RegisteredCredential` via
 /// [`RegistrationServerState::verify`] will be the source for [`Self::user_id`].
 ///
 /// The only way to create this is via `RegistrationServerState::verify`.
@@ -1131,7 +1130,7 @@ pub enum AggErr {
     RequestOptions(RequestOptionsErr),
     /// Variant when [`NonDiscoverableCredentialRequestOptions::second_factor`] errors.
     SecondFactor(SecondFactorErr),
-    /// Variant when [`PublicKeyCredentialCreationOptions::start_ceremony`] errors.
+    /// Variant when [`CredentialCreationOptions::start_ceremony`] errors.
     CreationOptions(CreationOptionsErr),
     /// Variant when [`Nickname::try_from`] errors.
     Nickname(NicknameErr),

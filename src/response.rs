@@ -99,12 +99,12 @@ use ser_relaxed::SerdeJsonErr;
 /// }
 /// /// Send `DiscoverableAuthenticationClientState` and receive `DiscoverableAuthentication64` JSON from client.
 /// # #[cfg(feature = "serde")]
-/// fn get_authentication_json(client: DiscoverableAuthenticationClientState<'_, '_>) -> String {
+/// fn get_authentication_json(client: DiscoverableAuthenticationClientState<'_, '_, '_>) -> String {
 ///     // ⋮
 /// #     let client_data_json = BASE64URL_NOPAD.encode(serde_json::json!({
 /// #         "type": "webauthn.get",
-/// #         "challenge": client.options().0.challenge,
-/// #         "origin": format!("https://{}", client.options().0.rp_id.as_ref()),
+/// #         "challenge": client.options().public_key.challenge,
+/// #         "origin": format!("https://{}", client.options().public_key.rp_id.as_ref()),
 /// #         "crossOrigin": false
 /// #     }).to_string().as_bytes());
 /// #     serde_json::json!({
@@ -156,7 +156,7 @@ pub mod error;
 /// # use data_encoding::BASE64URL_NOPAD;
 /// # use webauthn_rp::{
 /// #     hash::hash_set::FixedCapHashSet,
-/// #     request::{register::{error::CreationOptionsErr, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomain, PublicKeyCredentialDescriptor, RpId},
+/// #     request::{register::{error::CreationOptionsErr, CredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomain, PublicKeyCredentialDescriptor, RpId},
 /// #     response::{register::{error::RegCeremonyErr, Registration}, error::CollectedClientDataErr, CollectedClientData},
 /// #     RegisteredCredential
 /// # };
@@ -204,7 +204,7 @@ pub mod error;
 /// # #[cfg(feature = "custom")]
 /// let creds = get_registered_credentials(user_handle);
 /// # #[cfg(feature = "custom")]
-/// let (server, client) = PublicKeyCredentialCreationOptions::passkey(&rp_id, user, creds).start_ceremony()?;
+/// let (server, client) = CredentialCreationOptions::passkey(&rp_id, user, creds).start_ceremony()?;
 /// # #[cfg(feature = "custom")]
 /// assert!(
 ///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
@@ -237,12 +237,12 @@ pub mod error;
 /// }
 /// /// Send `RegistrationClientState` and receive `Registration` JSON from client.
 /// # #[cfg(feature = "serde")]
-/// fn get_registration_json(client: RegistrationClientState<'_, '_, '_, '_, USER_HANDLE_MAX_LEN>) -> String {
+/// fn get_registration_json(client: RegistrationClientState<'_, '_, '_, '_, '_, '_, USER_HANDLE_MAX_LEN>) -> String {
 ///     // ⋮
 /// #     let client_data_json = BASE64URL_NOPAD.encode(serde_json::json!({
 /// #         "type": "webauthn.create",
-/// #         "challenge": client.options().challenge,
-/// #         "origin": format!("https://{}", client.options().rp_id.as_ref()),
+/// #         "challenge": client.options().public_key.challenge,
+/// #         "origin": format!("https://{}", client.options().public_key.rp_id.as_ref()),
 /// #         "crossOrigin": false
 /// #     }).to_string().as_bytes());
 /// #     serde_json::json!({
@@ -1531,6 +1531,8 @@ pub(super) enum CeremonyErr<AuthDataErr> {
     BackupEligible,
     /// [`Backup::NotEligible`] was sent back despite [`BackupReq::Eligible`].
     BackupNotEligible,
+    /// [`Backup::Eligible`] was not sent back despite [`BackupReq::EligibleNoteExists`].
+    BackupExists,
     /// [`Backup::Exists`] was not sent back despite [`BackupReq::Exists`].
     BackupDoesNotExist,
 }
@@ -1557,6 +1559,7 @@ impl<A: Display> Display for CeremonyErr<A> {
             Self::UserNotVerified => f.write_str("user was not verified despite being required to"),
             Self::BackupEligible => f.write_str("credential is eligible to be backed up despite requiring that it not be"),
             Self::BackupNotEligible => f.write_str("credential is not eligible to be backed up despite requiring that it be"),
+            Self::BackupExists => f.write_str("credential backup exists despite requiring that a backup not exist"),
             Self::BackupDoesNotExist => f.write_str("credential backup does not exist despite requiring that a backup exist"),
         }
     }
@@ -1575,6 +1578,7 @@ impl From<CeremonyErr<AttestationObjectErr>> for RegCeremonyErr {
             CeremonyErr::UserNotVerified => Self::UserNotVerified,
             CeremonyErr::BackupEligible => Self::BackupEligible,
             CeremonyErr::BackupNotEligible => Self::BackupNotEligible,
+            CeremonyErr::BackupExists => Self::BackupExists,
             CeremonyErr::BackupDoesNotExist => Self::BackupDoesNotExist,
         }
     }
@@ -1593,6 +1597,7 @@ impl From<CeremonyErr<AuthAuthDataErr>> for AuthCeremonyErr {
             CeremonyErr::UserNotVerified => Self::UserNotVerified,
             CeremonyErr::BackupEligible => Self::BackupEligible,
             CeremonyErr::BackupNotEligible => Self::BackupNotEligible,
+            CeremonyErr::BackupExists => Self::BackupExists,
             CeremonyErr::BackupDoesNotExist => Self::BackupDoesNotExist,
         }
     }
@@ -1625,6 +1630,145 @@ pub struct CurrentUserDetailsOptions<'rp_id, 'name, 'display_name, 'id, const LE
     /// [`name`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions-name), and
     /// [`displayName`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions-displayname).
     pub user: PublicKeyCredentialUserEntity<'name, 'display_name, 'id, LEN>,
+}
+/// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
+/// during authentication and
+/// [`hmac-secret-mc`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-make-cred-extension)
+/// during registration.
+///
+/// `REG` iff `hmac-secret-mc`.
+enum HmacSecretGet<const REG: bool> {
+    /// No `hmac-secret` response.
+    None,
+    /// One encrypted `hmac-secret`.
+    One,
+    /// Two encrypted `hmac-secret`s.
+    Two,
+}
+/// Error returned by [`HmacSecretGet::from_cbor`]
+enum HmacSecretGetErr {
+    /// Error related to the length of the CBOR input.
+    Len,
+    /// Error related to the type of the CBOR key.
+    Type,
+    /// Error related to the value of the CBOR value.
+    Value,
+}
+impl<const REG: bool> FromCbor<'_> for HmacSecretGet<REG> {
+    type Err = HmacSecretGetErr;
+    fn from_cbor(cbor: &[u8]) -> Result<CborSuccess<'_, Self>, Self::Err> {
+        /// AES block size.
+        const AES_BLOCK_SIZE: usize = 16;
+        /// HMAC-SHA-256 output length.
+        const HMAC_SHA_256_LEN: usize = 32;
+        /// Length of two HMAC-SHA-256 outputs concatenated together.
+        const TWO_HMAC_SHA_256_LEN: usize = HMAC_SHA_256_LEN << 1;
+        // We need the smallest multiple of `AES_BLOCK_SIZE` that
+        // is strictly greater than `HMAC_SHA_256_LEN`.
+        /// AES-256 output length on a 32-byte input.
+        #[expect(
+            clippy::integer_division_remainder_used,
+            reason = "doesn't need to be constant time"
+        )]
+        const ONE_SECRET_LEN: usize =
+            HMAC_SHA_256_LEN + (AES_BLOCK_SIZE - (HMAC_SHA_256_LEN % AES_BLOCK_SIZE));
+        // We need the smallest multiple of `AES_BLOCK_SIZE` that
+        // is strictly greater than `TWO_HMAC_SHA_256_LEN`.
+        /// AES-256 output length on a 64-byte input.
+        #[expect(
+            clippy::integer_division_remainder_used,
+            reason = "doesn't need to be constant time"
+        )]
+        const TWO_SECRET_LEN: usize =
+            TWO_HMAC_SHA_256_LEN + (AES_BLOCK_SIZE - (TWO_HMAC_SHA_256_LEN % AES_BLOCK_SIZE));
+        /// `hmac-secret-mc`.
+        ///
+        /// This is the key iff `REG`.
+        const KEY: [u8; 15] = [
+            cbor::TEXT_14,
+            b'h',
+            b'm',
+            b'a',
+            b'c',
+            b'-',
+            b's',
+            b'e',
+            b'c',
+            b'r',
+            b'e',
+            b't',
+            b'-',
+            b'm',
+            b'c',
+        ];
+        /// Helper that unifies `HmacSecretGet`.
+        enum CborVal<'a> {
+            /// Extension does not exist with remaining payload
+            Success,
+            /// Extension exists with remaining payload.
+            Continue(&'a [u8]),
+        }
+        if REG {
+            cbor.split_at_checked(KEY.len()).map_or(
+                Ok(CborVal::Success),
+                |(key, key_rem)| {
+                    if key == KEY {
+                        Ok(CborVal::Continue(key_rem))
+                    } else {
+                        Ok(CborVal::Success)
+                    }
+                }
+            )
+        } else {
+            cbor.split_at_checked(cbor::HMAC_SECRET.len()).map_or(
+                Ok(CborVal::Success),
+                |(key, key_rem)| {
+                    if key == cbor::HMAC_SECRET {
+                        Ok(CborVal::Continue(key_rem))
+                    } else {
+                        Ok(CborVal::Success)
+                    }
+                }
+            )
+        }.and_then(|cbor_val| {
+            match cbor_val {
+                CborVal::Success => Ok(CborSuccess { value: Self::None, remaining: cbor, }),
+                CborVal::Continue(key_rem) => {
+                    key_rem
+                        .split_first()
+                        .ok_or(HmacSecretGetErr::Len)
+                        .and_then(|(bytes, bytes_rem)| {
+                            if *bytes == cbor::BYTES_INFO_24 {
+                                bytes_rem
+                                    .split_first()
+                                    .ok_or(HmacSecretGetErr::Len)
+                                    .and_then(|(&len, len_rem)| {
+                                        len_rem.split_at_checked(usize::from(len)).ok_or(HmacSecretGetErr::Len).and_then(|(_, remaining)| {
+                                            match usize::from(len) {
+                                                ONE_SECRET_LEN => {
+                                                    Ok(CborSuccess {
+                                                        value: Self::One,
+                                                        remaining,
+                                                    })
+                                                }
+                                                TWO_SECRET_LEN => {
+                                                    Ok(CborSuccess {
+                                                        value: Self::Two,
+                                                        remaining,
+                                                    })
+                                                }
+                                                _ => Err(HmacSecretGetErr::Value),
+                                            }
+                                        })
+                                    })
+                            } else {
+                                Err(HmacSecretGetErr::Type)
+                            }
+                        })
+                }
+            }
+        })
+    }
 }
 #[cfg(test)]
 mod tests {
