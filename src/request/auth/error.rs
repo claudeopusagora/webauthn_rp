@@ -22,25 +22,16 @@ impl Display for SecondFactorErr {
 }
 impl Error for SecondFactorErr {}
 /// Error returned by [`DiscoverableCredentialRequestOptions::start_ceremony`]
-/// and [`NonDiscoverableCredentialRequestOptions::start_ceremony`]
+/// and [`NonDiscoverableCredentialRequestOptions::start_ceremony`].
+///
+/// This happens when [`PublicKeyCredentialRequestOptions::timeout`] could not be added to [`Instant::now`] or
+/// [`SystemTime::now`].
 #[derive(Clone, Copy, Debug)]
-pub enum RequestOptionsErr {
-    /// Error when [`Extension::prf`] or [`CredentialSpecificExtension::prf`] is [`Some`] but
-    /// [`PublicKeyCredentialRequestOptions::user_verification`] is not
-    /// [`UserVerificationRequirement::Required`].
-    PrfWithoutUserVerification,
-    /// [`PublicKeyCredentialRequestOptions::timeout`] could not be added to [`Instant::now`] or [`SystemTime::now`].
-    InvalidTimeout,
-}
-impl Display for RequestOptionsErr {
+pub struct InvalidTimeout;
+impl Display for InvalidTimeout {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::PrfWithoutUserVerification => {
-                "prf extension was requested without requiring user verification"
-            }
-            Self::InvalidTimeout => "the timeout could not be added to the current Instant",
-        })
+        f.write_str("the timeout could not be added to the current Instant")
     }
 }
-impl Error for RequestOptionsErr {}
+impl Error for InvalidTimeout {}

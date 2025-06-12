@@ -510,6 +510,10 @@
 //!
 //! [^note]: `panic`s related to memory allocations or stack overflow are possible since such issues are not
 //!          formally guarded against.
+#![expect(
+    clippy::multiple_crate_versions,
+    reason = "RustCrypto hasn't updated rand yet"
+)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #[cfg(not(any(feature = "custom", all(feature = "bin", feature = "serde"))))]
 compile_error!("'custom' must be enabled or both 'bin' and 'serde' must be enabled");
@@ -558,7 +562,7 @@ use crate::{
 };
 use crate::{
     request::{
-        auth::error::{RequestOptionsErr, SecondFactorErr},
+        auth::error::{InvalidTimeout, SecondFactorErr},
         error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
         register::{
             ResidentKeyRequirement, USER_HANDLE_MAX_LEN, UserHandle,
@@ -695,10 +699,9 @@ pub enum CredentialErr {
     /// Variant when [`CredentialProtectionPolicy::UserVerificationRequired`], but
     /// [`DynamicState::user_verified`] is `false`.
     CredProtectUserVerificationRequiredWithoutUserVerified,
-    /// Variant when [`ClientExtensionsOutputs::prf`] is
-    /// `Some(AuthenticationExtensionsPRFOutputs { enabled: true })` and
+    /// Variant when [`AuthenticatorExtensionOutput::hmac_secret`] is `Some(true)` and
     /// [`DynamicState::user_verified`] is `false`.
-    PrfWithoutUserVerified,
+    HmacSecretWithoutUserVerified,
     /// Variant when [`AuthenticatorExtensionOutput::hmac_secret`] is `Some(true)`, but
     /// [`ClientExtensionsOutputs::prf`] is `Some(AuthenticationExtensionsPRFOutputs { enabled: false })`
     /// or `AuthenticatorExtensionOutput::hmac_secret` is `Some`, but
@@ -719,7 +722,9 @@ impl Display for CredentialErr {
             Self::CredProtectUserVerificationRequiredWithoutUserVerified => {
                 "credProtect requires user verification, but the user is not verified"
             }
-            Self::PrfWithoutUserVerified => "prf is enabled, but the user is not verified",
+            Self::HmacSecretWithoutUserVerified => {
+                "hmac-secret was enabled, but the user is not verified"
+            }
             Self::HmacSecretWithoutPrf => "hmac-secret was enabled but prf was not",
             Self::PrfWithoutHmacSecret => "prf was enabled, but hmac-secret was not",
             Self::ResidentKeyRequiredServerCredentialCreated => {
@@ -746,11 +751,11 @@ fn verify_static_and_dynamic_state<T>(
     ) {
         Err(CredentialErr::CredProtectUserVerificationRequiredWithoutUserVerified)
     } else if static_state
-        .client_extension_results
-        .prf
-        .is_some_and(|prf| prf.enabled)
+        .extensions
+        .hmac_secret
+        .is_some_and(convert::identity)
     {
-        Err(CredentialErr::PrfWithoutUserVerified)
+        Err(CredentialErr::HmacSecretWithoutUserVerified)
     } else {
         Ok(())
     }
@@ -1127,7 +1132,7 @@ pub enum AggErr {
     /// Variant when [`DiscoverableCredentialRequestOptions::start_ceremony`] or
     /// [`NonDiscoverableCredentialRequestOptions::start_ceremony`]
     /// error.
-    RequestOptions(RequestOptionsErr),
+    InvalidTimeout(InvalidTimeout),
     /// Variant when [`NonDiscoverableCredentialRequestOptions::second_factor`] errors.
     SecondFactor(SecondFactorErr),
     /// Variant when [`CredentialCreationOptions::start_ceremony`] errors.
@@ -1243,10 +1248,10 @@ impl From<PortParseErr> for AggErr {
         Self::Port(value)
     }
 }
-impl From<RequestOptionsErr> for AggErr {
+impl From<InvalidTimeout> for AggErr {
     #[inline]
-    fn from(value: RequestOptionsErr) -> Self {
-        Self::RequestOptions(value)
+    fn from(value: InvalidTimeout) -> Self {
+        Self::InvalidTimeout(value)
     }
 }
 impl From<SecondFactorErr> for AggErr {
@@ -1420,7 +1425,7 @@ impl Display for AggErr {
             Self::Scheme(err) => err.fmt(f),
             Self::DomainOrigin(ref err) => err.fmt(f),
             Self::Port(ref err) => err.fmt(f),
-            Self::RequestOptions(err) => err.fmt(f),
+            Self::InvalidTimeout(err) => err.fmt(f),
             Self::SecondFactor(err) => err.fmt(f),
             Self::CreationOptions(err) => err.fmt(f),
             Self::Nickname(err) => err.fmt(f),

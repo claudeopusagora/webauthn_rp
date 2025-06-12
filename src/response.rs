@@ -33,7 +33,7 @@ use ser_relaxed::SerdeJsonErr;
 /// # use data_encoding::BASE64URL_NOPAD;
 /// # use webauthn_rp::{
 /// #     hash::hash_set::FixedCapHashSet,
-/// #     request::{auth::{error::RequestOptionsErr, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, AsciiDomain, BackupReq, RpId},
+/// #     request::{auth::{error::InvalidTimeout, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, AsciiDomain, BackupReq, RpId},
 /// #     response::{auth::{error::AuthCeremonyErr, DiscoverableAuthentication64}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputsStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKey, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
 /// #     AuthenticatedCredential, CredentialErr
 /// # };
@@ -41,7 +41,7 @@ use ser_relaxed::SerdeJsonErr;
 /// # enum E {
 /// #     CollectedClientData(CollectedClientDataErr),
 /// #     RpId(AsciiDomainErr),
-/// #     RequestOptions(RequestOptionsErr),
+/// #     InvalidTimeout(InvalidTimeout),
 /// #     SerdeJson(serde_json::Error),
 /// #     MissingUserHandle,
 /// #     MissingCeremony,
@@ -59,9 +59,9 @@ use ser_relaxed::SerdeJsonErr;
 /// #         Self::CollectedClientData(value)
 /// #     }
 /// # }
-/// # impl From<RequestOptionsErr> for E {
-/// #     fn from(value: RequestOptionsErr) -> Self {
-/// #         Self::RequestOptions(value)
+/// # impl From<InvalidTimeout> for E {
+/// #     fn from(value: InvalidTimeout) -> Self {
+/// #         Self::InvalidTimeout(value)
 /// #     }
 /// # }
 /// # impl From<serde_json::Error> for E {

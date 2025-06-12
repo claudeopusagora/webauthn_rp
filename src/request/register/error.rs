@@ -53,9 +53,6 @@ impl Error for UsernameErr {}
 /// Error returned by [`CredentialCreationOptions::start_ceremony`].
 #[derive(Clone, Copy, Debug)]
 pub enum CreationOptionsErr {
-    /// Error when [`Extension::prf`] is [`Some`] but [`AuthenticatorSelectionCriteria::user_verification`] is not
-    /// [`UserVerificationRequirement::Required`].
-    PrfWithoutUserVerification,
     /// Error when [`Extension::cred_protect`] is [`CredProtect::UserVerificationRequired`] but [`AuthenticatorSelectionCriteria::user_verification`] is not
     /// [`UserVerificationRequirement::Required`].
     CredProtectRequiredWithoutUserVerification,
@@ -66,7 +63,6 @@ impl Display for CreationOptionsErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match *self {
-            Self::PrfWithoutUserVerification => "prf extension was requested without requiring user verification",
             Self::CredProtectRequiredWithoutUserVerification => "credProtect extension with a value of user verification required was requested without requiring user verification",
             Self::InvalidTimeout => "the timeout could not be added to the current Instant",
         })

@@ -27,7 +27,7 @@ use super::{
     BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, CredentialMediationRequirement,
     Credentials, ExtensionReq, Hint, Origin, PrfInput, PublicKeyCredentialDescriptor, RpId,
     SentChallenge, THREE_HUNDRED_THOUSAND, TimedCeremony, UserVerificationRequirement,
-    auth::error::{RequestOptionsErr, SecondFactorErr},
+    auth::error::{InvalidTimeout, SecondFactorErr},
 };
 use core::{
     borrow::Borrow,
@@ -288,38 +288,6 @@ impl From<Vec<PublicKeyCredentialDescriptor<Vec<u8>>>> for AllowedCredentials {
         creds
     }
 }
-/// Helper that verifies the overlap of [`DiscoverableCredentialRequestOptions::start_ceremony`] and
-/// [`DiscoverableAuthenticationServerState::decode`].
-const fn validate_discoverable_options_helper(
-    ext: ServerExtensionInfo,
-    uv: UserVerificationRequirement,
-) -> Result<(), RequestOptionsErr> {
-    // If PRF is set, the user has to verify themselves.
-    if matches!(ext.prf, ServerPrfInfo::One(_) | ServerPrfInfo::Two(_))
-        && !matches!(uv, UserVerificationRequirement::Required)
-    {
-        Err(RequestOptionsErr::PrfWithoutUserVerification)
-    } else {
-        Ok(())
-    }
-}
-/// Helper that verifies the overlap of [`NonDiscoverableCredentialRequestOptions::start_ceremony`] and
-/// [`NonDiscoverableAuthenticationServerState::decode`].
-fn validate_non_discoverable_options_helper(
-    uv: UserVerificationRequirement,
-    creds: &[CredInfo],
-) -> Result<(), RequestOptionsErr> {
-    creds.iter().try_fold((), |(), cred| {
-        // If PRF is set, the user has to verify themselves.
-        if matches!(cred.ext.prf, ServerPrfInfo::One(_) | ServerPrfInfo::Two(_))
-            && !matches!(uv, UserVerificationRequirement::Required)
-        {
-            Err(RequestOptionsErr::PrfWithoutUserVerification)
-        } else {
-            Ok(())
-        }
-    })
-}
 /// The [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions)
 /// to send to the client when authenticating a discoverable credentential.
 ///
@@ -374,31 +342,27 @@ impl<'rp_id, 'prf_first, 'prf_second>
             DiscoverableAuthenticationServerState,
             DiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>,
         ),
-        RequestOptionsErr,
+        InvalidTimeout,
     > {
-        let extensions = self.public_key.extensions.into();
-        validate_discoverable_options_helper(extensions, self.public_key.user_verification)
-            .and_then(|()| {
-                #[cfg(not(feature = "serializable_server_state"))]
-                let res = Instant::now();
-                #[cfg(feature = "serializable_server_state")]
-                let res = SystemTime::now();
-                res.checked_add(Duration::from_millis(
-                    NonZeroU64::from(self.public_key.timeout).get(),
-                ))
-                .ok_or(RequestOptionsErr::InvalidTimeout)
-                .map(|expiration| {
-                    (
-                        DiscoverableAuthenticationServerState(AuthenticationServerState {
-                            challenge: SentChallenge(self.public_key.challenge.0),
-                            user_verification: self.public_key.user_verification,
-                            extensions,
-                            expiration,
-                        }),
-                        DiscoverableAuthenticationClientState(self),
-                    )
-                })
-            })
+        #[cfg(not(feature = "serializable_server_state"))]
+        let res = Instant::now();
+        #[cfg(feature = "serializable_server_state")]
+        let res = SystemTime::now();
+        res.checked_add(Duration::from_millis(
+            NonZeroU64::from(self.public_key.timeout).get(),
+        ))
+        .ok_or(InvalidTimeout)
+        .map(|expiration| {
+            (
+                DiscoverableAuthenticationServerState(AuthenticationServerState {
+                    challenge: SentChallenge(self.public_key.challenge.0),
+                    user_verification: self.public_key.user_verification,
+                    extensions: self.public_key.extensions.into(),
+                    expiration,
+                }),
+                DiscoverableAuthenticationClientState(self),
+            )
+        })
     }
 }
 /// The [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions)
@@ -516,42 +480,30 @@ impl<'rp_id, 'prf_first, 'prf_second>
             NonDiscoverableAuthenticationServerState,
             NonDiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>,
         ),
-        RequestOptionsErr,
+        InvalidTimeout,
     > {
-        let extensions = self.options.extensions.into();
-        validate_discoverable_options_helper(extensions, self.options.user_verification).and_then(
-            |()| {
-                let allow_credentials = Vec::from(&self.allow_credentials);
-                validate_non_discoverable_options_helper(
-                    self.options.user_verification,
-                    allow_credentials.as_slice(),
-                )
-                .and_then(|()| {
-                    #[cfg(not(feature = "serializable_server_state"))]
-                    let res = Instant::now();
-                    #[cfg(feature = "serializable_server_state")]
-                    let res = SystemTime::now();
-                    res.checked_add(Duration::from_millis(
-                        NonZeroU64::from(self.options.timeout).get(),
-                    ))
-                    .ok_or(RequestOptionsErr::InvalidTimeout)
-                    .map(|expiration| {
-                        (
-                            NonDiscoverableAuthenticationServerState {
-                                state: AuthenticationServerState {
-                                    challenge: SentChallenge(self.options.challenge.0),
-                                    user_verification: self.options.user_verification,
-                                    extensions,
-                                    expiration,
-                                },
-                                allow_credentials,
-                            },
-                            NonDiscoverableAuthenticationClientState(self),
-                        )
-                    })
-                })
-            },
-        )
+        #[cfg(not(feature = "serializable_server_state"))]
+        let res = Instant::now();
+        #[cfg(feature = "serializable_server_state")]
+        let res = SystemTime::now();
+        res.checked_add(Duration::from_millis(
+            NonZeroU64::from(self.options.timeout).get(),
+        ))
+        .ok_or(InvalidTimeout)
+        .map(|expiration| {
+            (
+                NonDiscoverableAuthenticationServerState {
+                    state: AuthenticationServerState {
+                        challenge: SentChallenge(self.options.challenge.0),
+                        user_verification: self.options.user_verification,
+                        extensions: self.options.extensions.into(),
+                        expiration,
+                    },
+                    allow_credentials: Vec::from(&self.allow_credentials),
+                },
+                NonDiscoverableAuthenticationClientState(self),
+            )
+        })
     }
 }
 /// The [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions)

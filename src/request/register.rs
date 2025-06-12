@@ -1282,8 +1282,6 @@ const fn validate_options_helper(
         UserVerificationRequirement::Required
     ) {
         Ok(())
-    } else if !matches!(extensions.prf, ServerPrfInfo::None) {
-        Err(CreationOptionsErr::PrfWithoutUserVerification)
     } else if matches!(
         extensions.cred_protect,
         CredProtect::UserVerificationRequired(_, _)
@@ -3656,10 +3654,11 @@ mod tests {
         validate(opts)?;
         opts.request.prf_uv = PrfUvOptions::None(false);
         opts.response.user_verified = false;
-        opts.response.hmac = HmacSecret::None;
+        opts.response.hmac = HmacSecret::Enabled;
         opts.response.prf = Some(true);
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::PrfWithoutUserVerified))), |_| false));
+        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::HmacSecretWithoutUserVerified))), |_| false));
         opts.response.prf = None;
+        opts.response.hmac = HmacSecret::None;
         validate(opts)?;
         Ok(())
     }

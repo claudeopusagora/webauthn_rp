@@ -213,16 +213,12 @@ impl<'a> DecodeBuffer<'a> for AuthenticationServerState {
         SentChallenge::decode_from_buffer(data).and_then(|challenge| {
             UserVerificationRequirement::decode_from_buffer(data).and_then(|user_verification| {
                 ServerExtensionInfo::decode_from_buffer(data).and_then(|extensions| {
-                    super::validate_discoverable_options_helper(extensions, user_verification)
-                        .map_err(|_e| EncDecErr)
-                        .and_then(|()| {
-                            SystemTime::decode_from_buffer(data).map(|expiration| Self {
-                                challenge,
-                                user_verification,
-                                extensions,
-                                expiration,
-                            })
-                        })
+                    SystemTime::decode_from_buffer(data).map(|expiration| Self {
+                        challenge,
+                        user_verification,
+                        extensions,
+                        expiration,
+                    })
                 })
             })
         })
@@ -295,21 +291,14 @@ impl Decode for NonDiscoverableAuthenticationServerState {
                 Vec::decode_from_buffer(&mut input)
                     .map_err(|_e| DecodeNonDiscoverableAuthenticationServerStateErr::Other)
                     .and_then(|allow_credentials| {
-                        super::validate_non_discoverable_options_helper(
-                            state.user_verification,
-                            allow_credentials.as_slice(),
-                        )
-                        .map_err(|_e| DecodeNonDiscoverableAuthenticationServerStateErr::Other)
-                        .and({
-                            if input.is_empty() {
-                                Ok(Self {
-                                    state,
-                                    allow_credentials,
-                                })
-                            } else {
-                                Err(DecodeNonDiscoverableAuthenticationServerStateErr::TrailingData)
-                            }
-                        })
+                        if input.is_empty() {
+                            Ok(Self {
+                                state,
+                                allow_credentials,
+                            })
+                        } else {
+                            Err(DecodeNonDiscoverableAuthenticationServerStateErr::TrailingData)
+                        }
                     })
             })
     }
