@@ -169,16 +169,8 @@ impl<'a> DecodeBuffer<'a> for RsaPubKey<Vec<u8>> {
     // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         Vec::decode_from_buffer(data).and_then(|n| {
-            // [`Self::try_from`] allows leading 0s; thus we ensure
-            // there are none since it's cheap. `Self::try_from` enforces
-            // that the length is at least 256, so we don't have to worry
-            // about the case when `n` is empty here.
-            if n.first() == Some(&0) {
-                Err(EncDecErr)
-            } else {
-                u32::decode_from_buffer(data)
-                    .and_then(|e| Self::try_from((n, e)).map_err(|_e| EncDecErr))
-            }
+            u32::decode_from_buffer(data)
+                .and_then(|e| Self::try_from((n, e)).map_err(|_e| EncDecErr))
         })
     }
 }

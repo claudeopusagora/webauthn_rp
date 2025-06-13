@@ -16,7 +16,7 @@ use super::{
     Aaguid, Attestation, AttestationObject, AttestedCredentialData, AuthenticatorAttachment,
     AuthenticatorAttestation, AuthenticatorData, AuthenticatorExtensionOutput, Backup,
     ClientExtensionsOutputs, CollectedClientData, CompressedP256PubKey, CompressedP384PubKey,
-    Ed25519PubKey, Ed25519Signature, Flag, MAX_RSA_N_BYTES, MIN_RSA_E, MIN_RSA_N_BYTES, Metadata,
+    Ed25519PubKey, Ed25519Signature, Flag, MAX_RSA_N_BITS, MIN_RSA_E, MIN_RSA_N_BITS, Metadata,
     PackedAttestation, RsaPubKey, UncompressedP256PubKey, UncompressedP384PubKey,
     UncompressedPubKey,
 };
@@ -104,8 +104,10 @@ impl Error for CompressedP384PubKeyErr {}
 /// Error returned from [`RsaPubKey::try_from`].
 #[derive(Clone, Copy, Debug)]
 pub enum RsaPubKeyErr {
-    /// Variant returned when the modulus has length less than [`MIN_RSA_N_BYTES`] or greater than
-    /// [`MAX_RSA_N_BYTES`].
+    /// Variant returned when the modulus has a leading 0.
+    NLeading0,
+    /// Variant returned when the modulus has fewer than [`MIN_RSA_N_BITS`] or more than
+    /// [`MAX_RSA_N_BITS`].
     N,
     /// Variant returned when the exponent is less than [`MIN_RSA_E`].
     E,
@@ -114,7 +116,8 @@ impl Display for RsaPubKeyErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match *self {
-            Self::N => "the RSA public key modulus had length less than 256 or greater than 2048",
+            Self::NLeading0 => "the RSA public key modulus had a leading 0",
+            Self::N => "the RSA public key modulus was less than 2048 bits or greater than 16384",
             Self::E => "the RSA public key exponent was less than 3",
         })
     }

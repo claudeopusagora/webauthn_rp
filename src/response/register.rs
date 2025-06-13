@@ -1376,16 +1376,12 @@ pub const MIN_RSA_E: u32 = 3;
 ///
 /// [RFC 8230 § 6.1](https://www.rfc-editor.org/rfc/rfc8230#section-6.1) recommends allowing moduli up to 16K bits.
 pub const MAX_RSA_N_BITS: usize = 0x4000;
-/// [`MAX_RSA_N_BITS`] as bytes.
-pub const MAX_RSA_N_BYTES: usize = MAX_RSA_N_BITS >> 3;
 /// The fewest bits an RSA public key modulus is allowed to consist of per [`RsaPubKey`].
 ///
 /// [RFC 8230 § 6.1](https://www.rfc-editor.org/rfc/rfc8230#section-6.1) requires the modulus to be at least 2048
 /// bits.
 pub const MIN_RSA_N_BITS: usize = 0x800;
-/// [`MIN_RSA_N_BITS`] as bytes.
-pub const MIN_RSA_N_BYTES: usize = MIN_RSA_N_BITS >> 3;
-/// [`MIN_RSA_N_BYTES`]–[`MAX_RSA_N_BYTES`] bytes representing the big-endian modulus and a `u32` `>=`
+/// [`MIN_RSA_N_BITS`]–[`MAX_RSA_N_BITS`] bits representing the big-endian modulus and a `u32` `>=`
 /// [`MIN_RSA_E`] representing the exponent of an alleged RSA public key.
 #[derive(Clone, Copy, Debug)]
 pub struct RsaPubKey<T>(T, u32);
@@ -1423,13 +1419,11 @@ impl<T: AsRef<[u8]>> RsaPubKey<T> {
     }
     /// Converts `self` into [`RsaVerKey`].
     pub(super) fn as_ver_key(&self) -> Result<RsaVerKey<Sha256>, PubKeyErr> {
-        RsaPublicKey::new_with_max_size(
-            BigUint::from_bytes_be(self.0.as_ref()),
-            self.1.into(),
-            MAX_RSA_N_BITS,
-        )
-        .map_err(|_e| PubKeyErr::Rsa)
-        .map(RsaVerKey::new)
+        let n = BigUint::from_bytes_be(self.0.as_ref());
+        let bits = n.bits();
+        RsaPublicKey::new_with_max_size(n, self.1.into(), bits)
+            .map_err(|_e| PubKeyErr::Rsa)
+            .map(RsaVerKey::new)
     }
 }
 impl RsaPubKey<&[u8]> {
@@ -1444,21 +1438,36 @@ impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
     type Error = RsaPubKeyErr;
     /// The first item is the big-endian modulus, and the second item is the exponent.
     ///
-    /// Note `n` is _not_ checked for leading 0s before its length is checked to be within [`MIN_RSA_N_BYTES`]
-    /// and [`MAX_RSA_N_BYTES`] inclusively. If this is not desired, then calling code must remove leading 0s
-    /// before calling. Several encodings require leading 0s to not exist so one would likely already be
-    /// verifying there are no leading 0s.
+    /// Note the first byte of `n` must not be `0`.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        clippy::as_conversions,
+        reason = "comment justifies correctness"
+    )]
     #[inline]
     fn try_from((n, e): (&'a [u8], u32)) -> Result<Self, Self::Error> {
-        if (MIN_RSA_N_BYTES..=MAX_RSA_N_BYTES).contains(&n.len()) {
-            if e >= MIN_RSA_E {
-                Ok(Self(n, e))
+        n.first().map_or(Err(RsaPubKeyErr::N), |fst| {
+            if *fst == 0 {
+                Err(RsaPubKeyErr::NLeading0)
+            } else if let Some(bits) = n.len().checked_mul(8) {
+                if (MIN_RSA_N_BITS..=MAX_RSA_N_BITS)
+                    // `fst.leading_zeros()` is inclusively between `0` and `8`, so it's safe to convert to a
+                    // `usize`.
+                    // `bits` is at least 8 since `n.len()` is at least 1; thus underflow cannot occur.
+                    .contains(&(bits - fst.leading_zeros() as usize))
+                {
+                    if e >= MIN_RSA_E {
+                        Ok(Self(n, e))
+                    } else {
+                        Err(RsaPubKeyErr::E)
+                    }
+                } else {
+                    Err(RsaPubKeyErr::N)
+                }
             } else {
-                Err(RsaPubKeyErr::E)
+                Err(RsaPubKeyErr::N)
             }
-        } else {
-            Err(RsaPubKeyErr::N)
-        }
+        })
     }
 }
 impl TryFrom<(Vec<u8>, u32)> for RsaPubKey<Vec<u8>> {
@@ -1829,48 +1838,41 @@ impl<'a> FromCbor<'a> for RsaPubKey<&'a [u8]> {
                     let n_len = usize::from(u16::from_be_bytes(len));
                     if n_len > 255 {
                         n_len_rem.split_at_checked(n_len).ok_or(CoseKeyErr::Len).and_then(|(n, n_rem)| {
-                            // `n` has length at least 256, so this is fine.
-                            // We ensure the leading byte is not 0; otherwise the modulus is not properly
-                            // encoded. Note the modulus can never be 0.
-                            if n[0] > 0 {
-                                n_rem.split_at_checked(2).ok_or(CoseKeyErr::RsaCoseEncoding).and_then(|(e_meta, e_meta_rem)| {
+                            n_rem.split_at_checked(2).ok_or(CoseKeyErr::RsaCoseEncoding).and_then(|(e_meta, e_meta_rem)| {
+                                // `e_meta.len() == 2`, so this is fine.
+                                if e_meta[0] == E {
                                     // `e_meta.len() == 2`, so this is fine.
-                                    if e_meta[0] == E {
-                                        // `e_meta.len() == 2`, so this is fine.
-                                        let e_meta_len = e_meta[1];
-                                        if e_meta_len & cbor::BYTES == cbor::BYTES {
-                                            let e_len = usize::from(e_meta_len ^ cbor::BYTES);
-                                            if e_len < 5 {
-                                                e_meta_rem.split_at_checked(e_len).ok_or(CoseKeyErr::Len).and_then(|(e_slice, remaining)| {
-                                                    e_slice.first().ok_or(CoseKeyErr::Len).and_then(|e_first| {
-                                                        // We ensure the leading byte is not 0; otherwise the
-                                                        // exponent is not properly encoded. Note the exponent
-                                                        //  can never be 0.
-                                                        if *e_first > 0 {
-                                                            let mut e = [0; 4];
-                                                            // `e_slice.len()` is `e_len` which is less than 5.
-                                                            // We also know it is greater than 0 since `e_slice.first()` did not err.
-                                                            // Thus this won't `panic`.
-                                                            e[4 - e_len..].copy_from_slice(e_slice);
-                                                            Self::try_from((n, u32::from_be_bytes(e))).map_err(CoseKeyErr::RsaPubKey).map(|value| CborSuccess { value, remaining, } )
-                                                        } else {
-                                                            Err(CoseKeyErr::RsaCoseEncoding)
-                                                        }
-                                                    })
+                                    let e_meta_len = e_meta[1];
+                                    if e_meta_len & cbor::BYTES == cbor::BYTES {
+                                        let e_len = usize::from(e_meta_len ^ cbor::BYTES);
+                                        if e_len < 5 {
+                                            e_meta_rem.split_at_checked(e_len).ok_or(CoseKeyErr::Len).and_then(|(e_slice, remaining)| {
+                                                e_slice.first().ok_or(CoseKeyErr::Len).and_then(|e_first| {
+                                                    // We ensure the leading byte is not 0; otherwise the
+                                                    // exponent is not properly encoded. Note the exponent
+                                                    //  can never be 0.
+                                                    if *e_first > 0 {
+                                                        let mut e = [0; 4];
+                                                        // `e_slice.len()` is `e_len` which is less than 5.
+                                                        // We also know it is greater than 0 since `e_slice.first()` did not err.
+                                                        // Thus this won't `panic`.
+                                                        e[4 - e_len..].copy_from_slice(e_slice);
+                                                        Self::try_from((n, u32::from_be_bytes(e))).map_err(CoseKeyErr::RsaPubKey).map(|value| CborSuccess { value, remaining, } )
+                                                    } else {
+                                                        Err(CoseKeyErr::RsaCoseEncoding)
+                                                    }
                                                 })
-                                            } else {
-                                                Err(CoseKeyErr::RsaExponentTooLarge)
-                                            }
+                                            })
                                         } else {
-                                            Err(CoseKeyErr::RsaCoseEncoding)
+                                            Err(CoseKeyErr::RsaExponentTooLarge)
                                         }
                                     } else {
                                         Err(CoseKeyErr::RsaCoseEncoding)
                                     }
-                                })
-                            } else {
-                                Err(CoseKeyErr::RsaCoseEncoding)
-                            }
+                                } else {
+                                    Err(CoseKeyErr::RsaCoseEncoding)
+                                }
+                            })
                         })
                     } else {
                         Err(CoseKeyErr::RsaCoseEncoding)
