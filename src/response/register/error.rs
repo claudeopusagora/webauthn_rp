@@ -108,7 +108,9 @@ pub enum RsaPubKeyErr {
     NLeading0,
     /// Variant returned when the modulus has fewer than [`MIN_RSA_N_BITS`] or more than
     /// [`MAX_RSA_N_BITS`].
-    N,
+    NSize,
+    /// Variant returned when the modulus is even.
+    NEven,
     /// Variant returned when the exponent is less than [`MIN_RSA_E`].
     E,
 }
@@ -117,7 +119,10 @@ impl Display for RsaPubKeyErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match *self {
             Self::NLeading0 => "the RSA public key modulus had a leading 0",
-            Self::N => "the RSA public key modulus was less than 2048 bits or greater than 16384",
+            Self::NSize => {
+                "the RSA public key modulus was less than 2048 bits or greater than 16384"
+            }
+            Self::NEven => "the RSA public key modulus was even",
             Self::E => "the RSA public key exponent was less than 3",
         })
     }
@@ -132,8 +137,6 @@ pub enum PubKeyErr {
     P256,
     /// Error when [`UncompressedP384PubKey`] or [`CompressedP384PubKey`] is not valid.
     P384,
-    /// Error when [`RsaPubKey`] is not valid.
-    Rsa,
 }
 impl Display for PubKeyErr {
     #[inline]
@@ -142,7 +145,6 @@ impl Display for PubKeyErr {
             Self::Ed25519 => "Ed25519 public key is invalid",
             Self::P256 => "P-256 public key is invalid",
             Self::P384 => "P-384 public key is invalid",
-            Self::Rsa => "RSA public key is invalid",
         })
     }
 }

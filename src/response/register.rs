@@ -1408,22 +1408,12 @@ impl<T> RsaPubKey<T> {
     }
 }
 impl<T: AsRef<[u8]>> RsaPubKey<T> {
-    /// Validates `self` is in fact a valid RSA public key.
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `self` is not a valid RSA public key.
-    #[inline]
-    pub fn validate(&self) -> Result<(), PubKeyErr> {
-        self.as_ver_key().map(|_| ())
-    }
     /// Converts `self` into [`RsaVerKey`].
-    pub(super) fn as_ver_key(&self) -> Result<RsaVerKey<Sha256>, PubKeyErr> {
-        let n = BigUint::from_bytes_be(self.0.as_ref());
-        let bits = n.bits();
-        RsaPublicKey::new_with_max_size(n, self.1.into(), bits)
-            .map_err(|_e| PubKeyErr::Rsa)
-            .map(RsaVerKey::new)
+    pub(super) fn as_ver_key(&self) -> RsaVerKey<Sha256> {
+        RsaVerKey::new(RsaPublicKey::new_unchecked(
+            BigUint::from_bytes_be(self.0.as_ref()),
+            self.1.into(),
+        ))
     }
 }
 impl RsaPubKey<&[u8]> {
@@ -1437,8 +1427,7 @@ impl RsaPubKey<&[u8]> {
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
     type Error = RsaPubKeyErr;
     /// The first item is the big-endian modulus, and the second item is the exponent.
-    ///
-    /// Note the first byte of `n` must not be `0`.
+    #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
     #[expect(
         clippy::arithmetic_side_effects,
         clippy::as_conversions,
@@ -1446,7 +1435,7 @@ impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
     )]
     #[inline]
     fn try_from((n, e): (&'a [u8], u32)) -> Result<Self, Self::Error> {
-        n.first().map_or(Err(RsaPubKeyErr::N), |fst| {
+        n.first().map_or(Err(RsaPubKeyErr::NSize), |fst| {
             if *fst == 0 {
                 Err(RsaPubKeyErr::NLeading0)
             } else if let Some(bits) = n.len().checked_mul(8) {
@@ -1456,16 +1445,23 @@ impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
                     // `bits` is at least 8 since `n.len()` is at least 1; thus underflow cannot occur.
                     .contains(&(bits - fst.leading_zeros() as usize))
                 {
-                    if e >= MIN_RSA_E {
+                    // We know `n` is not `empty`, so this won't `panic`.
+                    if n.last()
+                        .unwrap_or_else(|| unreachable!("there is a bug in RsaPubKey::try_from"))
+                        & 1
+                        == 0
+                    {
+                        Err(RsaPubKeyErr::NEven)
+                    } else if e >= MIN_RSA_E {
                         Ok(Self(n, e))
                     } else {
                         Err(RsaPubKeyErr::E)
                     }
                 } else {
-                    Err(RsaPubKeyErr::N)
+                    Err(RsaPubKeyErr::NSize)
                 }
             } else {
-                Err(RsaPubKeyErr::N)
+                Err(RsaPubKeyErr::NSize)
             }
         })
     }
@@ -1910,7 +1906,7 @@ impl UncompressedPubKey<'_> {
             Self::Ed25519(k) => k.validate(),
             Self::P256(k) => k.validate(),
             Self::P384(k) => k.validate(),
-            Self::Rsa(k) => k.validate(),
+            Self::Rsa(_) => Ok(()),
         }
     }
     /// Transforms `self` into the compressed version that owns the data.
@@ -1982,7 +1978,7 @@ impl CompressedPubKey<&[u8], &[u8], &[u8], &[u8]> {
             Self::Ed25519(k) => k.validate(),
             Self::P256(k) => k.validate(),
             Self::P384(k) => k.validate(),
-            Self::Rsa(k) => k.validate(),
+            Self::Rsa(_) => Ok(()),
         }
     }
 }
@@ -2967,15 +2963,13 @@ impl AuthResponse for AuthenticatorAttestation {
                                 }
                             }
                         }),
-                        UncompressedPubKey::Rsa(key) => key.as_ver_key().map_err(AuthRespErr::PubKey).and_then(|ver_key| {
-                            match val.data.attestation {
-                                AttestationFormat::None => Ok(()),
-                                AttestationFormat::Packed(packed) => match packed.signature {
-                                    Sig::Rs256(sig) => pkcs1v15::Signature::try_from(sig).map_err(|_e| AuthRespErr::Signature).and_then(|s| ver_key.verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
-                                    Sig::Ed25519(_) | Sig::P256(_) | Sig::P384(_) => unreachable!("there is a bug in AttestationObject::from_data"),
-                                }
+                        UncompressedPubKey::Rsa(key) => match val.data.attestation {
+                            AttestationFormat::None => Ok(()),
+                            AttestationFormat::Packed(packed) => match packed.signature {
+                                Sig::Rs256(sig) => pkcs1v15::Signature::try_from(sig).map_err(|_e| AuthRespErr::Signature).and_then(|s| key.as_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
+                                Sig::Ed25519(_) | Sig::P256(_) | Sig::P384(_) => unreachable!("there is a bug in AttestationObject::from_data"),
                             }
-                        }),
+                        },
                     }.map(|()| (client_data_json, val.data))
                 })
         })

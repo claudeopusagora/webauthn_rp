@@ -484,19 +484,16 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> AuthResponse
                                     })
                                     .map_err(|_e| AuthRespErr::Signature)
                             }),
-                        CompressedPubKey::Rsa(k) => k
-                            .as_ver_key()
-                            .map_err(AuthRespErr::PubKey)
-                            .and_then(|ver_key| {
-                                pkcs1v15::Signature::try_from(self.signature.as_slice())
-                                    .and_then(|sig| {
-                                        ver_key.verify(
-                                            self.authenticator_data_and_c_data_hash.as_slice(),
-                                            &sig,
-                                        )
-                                    })
-                                    .map_err(|_e| AuthRespErr::Signature)
-                            }),
+                        CompressedPubKey::Rsa(k) => {
+                            pkcs1v15::Signature::try_from(self.signature.as_slice())
+                                .and_then(|sig| {
+                                    k.as_ver_key().verify(
+                                        self.authenticator_data_and_c_data_hash.as_slice(),
+                                        &sig,
+                                    )
+                                })
+                                .map_err(|_e| AuthRespErr::Signature)
+                        }
                     }
                     .map(|()| (client_data_json, val.data))
                 })
