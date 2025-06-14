@@ -1383,6 +1383,8 @@ pub const MAX_RSA_N_BITS: usize = 0x4000;
 pub const MIN_RSA_N_BITS: usize = 0x800;
 /// [`MIN_RSA_N_BITS`]–[`MAX_RSA_N_BITS`] bits representing the big-endian modulus and a `u32` `>=`
 /// [`MIN_RSA_E`] representing the exponent of an alleged RSA public key.
+///
+/// Note the modulus and exponent are always odd.
 #[derive(Clone, Copy, Debug)]
 pub struct RsaPubKey<T>(T, u32);
 impl<T> RsaPubKey<T> {
@@ -1436,26 +1438,29 @@ impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
     #[inline]
     fn try_from((n, e): (&'a [u8], u32)) -> Result<Self, Self::Error> {
         n.first().map_or(Err(RsaPubKeyErr::NSize), |fst| {
-            if *fst == 0 {
+            // `fst.leading_zeros()` is inclusively between `0` and `8`, so it's safe to convert to a
+            // `usize`.
+            let zeros = fst.leading_zeros() as usize;
+            if zeros == 8 {
                 Err(RsaPubKeyErr::NLeading0)
             } else if let Some(bits) = n.len().checked_mul(8) {
                 if (MIN_RSA_N_BITS..=MAX_RSA_N_BITS)
-                    // `fst.leading_zeros()` is inclusively between `0` and `8`, so it's safe to convert to a
-                    // `usize`.
                     // `bits` is at least 8 since `n.len()` is at least 1; thus underflow cannot occur.
-                    .contains(&(bits - fst.leading_zeros() as usize))
+                    .contains(&(bits - zeros))
                 {
-                    // We know `n` is not `empty`, so this won't `panic`.
+                    // We know `n` is not empty, so this won't `panic`.
                     if n.last()
                         .unwrap_or_else(|| unreachable!("there is a bug in RsaPubKey::try_from"))
                         & 1
                         == 0
                     {
                         Err(RsaPubKeyErr::NEven)
-                    } else if e >= MIN_RSA_E {
-                        Ok(Self(n, e))
+                    } else if e < MIN_RSA_E {
+                        Err(RsaPubKeyErr::ESize)
+                    } else if e & 1 == 0 {
+                        Err(RsaPubKeyErr::EEven)
                     } else {
-                        Err(RsaPubKeyErr::E)
+                        Ok(Self(n, e))
                     }
                 } else {
                     Err(RsaPubKeyErr::NSize)

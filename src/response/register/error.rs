@@ -112,7 +112,9 @@ pub enum RsaPubKeyErr {
     /// Variant returned when the modulus is even.
     NEven,
     /// Variant returned when the exponent is less than [`MIN_RSA_E`].
-    E,
+    ESize,
+    /// Variant returned when the exponent is even.
+    EEven,
 }
 impl Display for RsaPubKeyErr {
     #[inline]
@@ -123,7 +125,8 @@ impl Display for RsaPubKeyErr {
                 "the RSA public key modulus was less than 2048 bits or greater than 16384"
             }
             Self::NEven => "the RSA public key modulus was even",
-            Self::E => "the RSA public key exponent was less than 3",
+            Self::ESize => "the RSA public key exponent was less than 3",
+            Self::EEven => "the RSA public key exponent was even",
         })
     }
 }
