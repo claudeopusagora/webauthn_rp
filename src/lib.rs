@@ -515,8 +515,8 @@
     reason = "RustCrypto hasn't updated rand yet"
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-//#[cfg(not(any(feature = "custom", all(feature = "bin", feature = "serde"))))]
-//compile_error!("'custom' must be enabled or both 'bin' and 'serde' must be enabled");
+#[cfg(not(any(feature = "custom", all(feature = "bin", feature = "serde"))))]
+compile_error!("'custom' must be enabled or both 'bin' and 'serde' must be enabled");
 #[cfg(feature = "serializable_server_state")]
 use crate::request::{
     auth::ser_server_state::{
