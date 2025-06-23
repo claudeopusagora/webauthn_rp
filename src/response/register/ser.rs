@@ -72,7 +72,7 @@ mod spki {
     /// for an uncompressed ECDSA public key based on secp256r1/P-256.
     const P256_HEADER_LEN: usize = 27;
     /// Number of bytes the x-coordinate takes in an uncompressed P-256 public key.
-    pub const P256_X_LEN: usize = <NistP256 as Curve>::FieldBytesSize::INT;
+    const P256_X_LEN: usize = <NistP256 as Curve>::FieldBytesSize::INT;
     /// Number of bytes the y-coordinate takes in an uncompressed P-256 public key.
     const P256_Y_LEN: usize = <NistP256 as Curve>::FieldBytesSize::INT;
     /// Number of bytes the x and y coordinates take in an uncompressed P-256 public key when concatenated together.
@@ -92,7 +92,7 @@ mod spki {
     /// for an uncompressed ECDSA public key based on secp384r1/P-384.
     const P384_HEADER_LEN: usize = 24;
     /// Number of bytes the x-coordinate takes in an uncompressed P-384 public key.
-    pub const P384_X_LEN: usize = <NistP384 as Curve>::FieldBytesSize::INT;
+    const P384_X_LEN: usize = <NistP384 as Curve>::FieldBytesSize::INT;
     /// Number of bytes the y-coordinate takes in an uncompressed P-384 public key.
     const P384_Y_LEN: usize = <NistP384 as Curve>::FieldBytesSize::INT;
     /// Number of bytes the x and y coordinates take in an uncompressed P-384 public key when concatenated together.
@@ -109,7 +109,7 @@ mod spki {
     )]
     const P384_LEN_U8: u8 = P384_LEN as u8;
     /// Error returned from [`SubjectPublicKeyInfo::from_der`].
-    pub enum SubjectPublicKeyInfoErr {
+    pub(super) enum SubjectPublicKeyInfoErr {
         /// The DER-encoded `SubjectPublicKeyInfo` had an invalid length.
         Len,
         /// The length of the DER-encoded Ed25519 key was invalid.
@@ -165,16 +165,18 @@ mod spki {
     /// Types that can be deserialized from the DER-encoded ASN.1 `SubjectPublicKeyInfo` as defined in
     /// [RFC 5280](https://datatracker.ietf.org/doc/html/rfc5280#appendix-A.1) and other applicable RFCs
     /// and documents (e.g., [ITU-T X.690](https://www.itu.int/rec/T-REC-X.690-202102-I/en)).
-    pub trait SubjectPublicKeyInfo<'a>: Sized {
+    pub(super) trait SubjectPublicKeyInfo<'a>: Sized {
         /// Transforms the DER-encoded ASN.1 `SubjectPublicKeyInfo` into `Self`.
         ///
         /// # Errors
         ///
         /// Errors iff `der` does not conform.
+        #[expect(single_use_lifetimes, reason = "false positive")]
         fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr>;
     }
     impl<'a> SubjectPublicKeyInfo<'a> for Ed25519PubKey<&'a [u8]> {
-        fn from_der<'b: 'a>(der: &'a [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
+        #[expect(single_use_lifetimes, reason = "false positive")]
+        fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
             /// ```asn
             /// SubjectPublicKeyInfo ::= SEQUENCE {
             ///     algorithm           AlgorithmIdentifier,
@@ -230,6 +232,7 @@ mod spki {
         }
     }
     impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP256PubKey<'a> {
+        #[expect(single_use_lifetimes, reason = "false positive")]
         fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
             // ```asn
             // SubjectPublicKeyInfo ::= SEQUENCE {
@@ -321,6 +324,7 @@ mod spki {
         }
     }
     impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP384PubKey<'a> {
+        #[expect(single_use_lifetimes, reason = "false positive")]
         fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
             // ```asn
             // SubjectPublicKeyInfo ::= SEQUENCE {
@@ -409,6 +413,7 @@ mod spki {
         }
     }
     impl<'a> SubjectPublicKeyInfo<'a> for RsaPubKey<&'a [u8]> {
+        #[expect(single_use_lifetimes, reason = "false positive")]
         #[expect(
             clippy::arithmetic_side_effects,
             clippy::big_endian_bytes,
@@ -643,6 +648,7 @@ mod spki {
         }
     }
     impl<'a> SubjectPublicKeyInfo<'a> for UncompressedPubKey<'a> {
+        #[expect(single_use_lifetimes, reason = "false positive")]
         fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
             // The lengths of the three key types do not overlap.
             match der.len() {
@@ -744,7 +750,7 @@ impl<'e> Deserialize<'e> for AttObj {
         struct AttObjVisitor;
         impl Visitor<'_> for AttObjVisitor {
             type Value = AttObj;
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("base64url-encoded attestation object")
             }
             #[expect(

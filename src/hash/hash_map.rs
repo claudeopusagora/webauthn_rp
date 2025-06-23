@@ -170,7 +170,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> FixedCapHashMap<K, V, S> {
                 if full {
                     None
                 } else {
-                    ent.insert(v);
+                    _ = ent.insert(v);
                     Some(None)
                 }
             }

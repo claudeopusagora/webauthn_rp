@@ -310,7 +310,7 @@ impl Error for AuthCeremonyErr {}
 /// This can be sent to the client when an authentication ceremony fails due to an unknown [`CredentialId`]. This
 /// can be due to the user deleting a credential on the RP's side but not deleting it on the authenticator. This
 /// response can be forwarded to the authenticator which can subsequently delete the credential.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct UnknownCredentialOptions<'rp, 'cred> {
     /// [`rpId`](https://www.w3.org/TR/webauthn-3/#dictdef-unknowncredentialoptions-rpid).
     pub rp_id: &'rp RpId,
@@ -318,7 +318,7 @@ pub struct UnknownCredentialOptions<'rp, 'cred> {
     pub credential_id: CredentialId<&'cred [u8]>,
 }
 /// Error when a [`UserHandle`] does not exist that is required to.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct MissingUserHandleErr;
 impl Display for MissingUserHandleErr {
     #[inline]

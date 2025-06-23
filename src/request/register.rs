@@ -233,6 +233,7 @@ impl<'a> Nickname<'a> {
     ///
     /// Errors iff `value` violates [RFC 8266 § 2.3](https://www.rfc-editor.org/rfc/rfc8266.html#section-2.3)
     /// or the resulting length exceeds [`Self::RECOMMENDED_MAX_LEN`].
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     pub fn with_recommended_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, NicknameErr> {
         precis_profiles::Nickname::new()
@@ -251,6 +252,7 @@ impl<'a> Nickname<'a> {
     ///
     /// Errors iff `value` violates [RFC 8266 § 2.3](https://www.rfc-editor.org/rfc/rfc8266.html#section-2.3)
     /// or the resulting length exceeds [`Self::MAX_LEN`].
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     pub fn with_max_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, NicknameErr> {
         Self::try_from(value)
@@ -399,6 +401,7 @@ impl<'a> Username<'a> {
     ///
     /// Errors iff `value` violates [RFC 8265 § 3.4.3](https://www.rfc-editor.org/rfc/rfc8265.html#section-3.4.3)
     /// or the resulting length exceeds [`Self::RECOMMENDED_MAX_LEN`].
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     pub fn with_recommended_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, UsernameErr> {
         UsernameCasePreserved::default()
@@ -417,6 +420,7 @@ impl<'a> Username<'a> {
     ///
     /// Errors iff `value` violates [RFC 8265 § 3.4.3](https://www.rfc-editor.org/rfc/rfc8265.html#section-3.4.3)
     /// or the resulting length exceeds [`Self::MAX_LEN`].
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     pub fn with_max_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, UsernameErr> {
         Self::try_from(value)
@@ -1341,6 +1345,7 @@ impl<
 {
     /// Sets [`Self::mediation`] to [`CredentialMediationRequirement::default`] and
     /// [`Self::public_key`] to [`PublicKeyCredentialCreationOptions::passkey`].
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1360,6 +1365,7 @@ impl<
     /// Convenience function for [`Self::passkey`] passing an empty `Vec`.
     ///
     /// This MUST only be used when this is the first credential for a user.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn first_passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1376,6 +1382,7 @@ impl<
     ///
     /// Because user information is likely known for existing accounts, this will often only be called during
     /// greenfield deployments.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn first_passkey_with_blank_user_info<'a: 'rp_id, 'b: 'user_id>(
@@ -1386,6 +1393,7 @@ impl<
     }
     /// Sets [`Self::mediation`] to [`CredentialMediationRequirement::default`] and
     /// [`Self::public_key`] to [`PublicKeyCredentialCreationOptions::second_factor`].
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1406,6 +1414,7 @@ impl<
     /// Convenience function for [`Self::second_factor`] passing an empty `Vec`.
     ///
     /// This MUST only be used when this is the first credential for a user.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn first_second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1614,6 +1623,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1643,6 +1653,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     /// Convenience function for [`Self::passkey`] passing an empty `Vec`.
     ///
     /// This MUST only be used when this is the first credential for a user.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn first_passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1659,6 +1670,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     ///
     /// Because user information is likely known for existing accounts, this will often only be called during
     /// greenfield deployments.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn first_passkey_with_blank_user_info<'a: 'rp_id, 'b: 'user_id>(
@@ -1712,6 +1724,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     /// );
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1731,6 +1744,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     /// Convenience function for [`Self::second_factor`] passing an empty `Vec`.
     ///
     /// This MUST only be used when this is the first credential for a user.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn first_second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -3234,7 +3248,7 @@ mod tests {
                 .as_slice(),
             );
         }
-        options.min_pin.map(|p| {
+        _ = options.min_pin.map(|p| {
             assert!(p.value() <= 23, "bug");
             attestation_object.extend_from_slice(
                 [

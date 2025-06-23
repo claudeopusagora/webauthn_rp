@@ -519,6 +519,7 @@ impl<T> CredentialId<T> {
 }
 impl<'a> CredentialId<&'a [u8]> {
     /// Creates a `CredentialId` from a `slice`.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     fn from_slice<'b: 'a>(value: &'b [u8]) -> Result<Self, CredentialIdErr> {
         if (CRED_ID_MIN_LEN..=CRED_ID_MAX_LEN).contains(&value.len()) {
             Ok(Self(value))
@@ -790,6 +791,7 @@ impl<'a> CollectedClientData<'a> {
     /// assert!(!CollectedClientData::from_client_data_json::<false>(br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.as_slice())?.cross_origin);
     /// # Ok::<_, CollectedClientDataErr>(())
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     pub fn from_client_data_json<'b: 'a, const REGISTRATION: bool>(json: &'b [u8]) -> Result<Self, CollectedClientDataErr> {
         LimitedVerificationParser::<REGISTRATION>::parse(json)
@@ -837,6 +839,7 @@ impl<'a> CollectedClientData<'a> {
     /// }")?.cross_origin);
     /// # Ok::<_, SerdeJsonErr>(())
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     #[inline]

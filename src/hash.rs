@@ -34,7 +34,7 @@ pub mod hash_set;
 /// [`NonDiscoverableCredentialRequestOptions::start_ceremony`] respectively. Since `Challenge` is already based on
 /// a random `u128`, other `Hasher`s will be slower and likely produce lower-quality hashes (and never
 /// higher quality).
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct IdentityHasher(u64);
 // Note it is _not_ required for `write_*` methods to do the same thing as other `write_*` methods
 // (e.g., `Self::write_u64` may not be the same thing as 8 calls to `Self::write_u8`).

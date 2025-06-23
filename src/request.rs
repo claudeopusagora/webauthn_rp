@@ -193,6 +193,10 @@ pub(super) mod ser_server_state;
 // `SentChallenge` since it is used during ceremony validation; thus we must keep `Challenge` and `SentChallenge`
 // as separate types.
 /// [Cryptographic challenge](https://www.w3.org/TR/webauthn-3/#sctn-cryptographic-challenges).
+#[expect(
+    missing_copy_implementations,
+    reason = "want to enforce randomly-generated challenges"
+)]
 #[derive(Debug)]
 pub struct Challenge(u128);
 impl Challenge {
@@ -277,7 +281,7 @@ impl AsciiDomain {
             .unwrap_or_else(|| unreachable!("there is a bug in AsciiDomain::try_from"))
             == b'.'
         {
-            self.0.pop();
+            _ = self.0.pop();
         }
     }
 }
@@ -761,6 +765,7 @@ impl<'b> DomainOrigin<'_, 'b> {
     ///     Origin(Cow::Borrowed("https://www.example.com:443"))
     /// );
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[must_use]
     #[inline]
     pub const fn new<'c: 'b>(host: &'c str) -> Self {
@@ -790,6 +795,7 @@ impl<'b> DomainOrigin<'_, 'b> {
     ///     Origin(Cow::Borrowed("https://www.example.com"))
     /// );
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[must_use]
     #[inline]
     pub const fn new_ignore_port<'c: 'b>(host: &'c str) -> Self {
@@ -1581,6 +1587,7 @@ mod tests {
         signature::{Keypair, SignatureEncoding},
         traits::PublicKeyParts,
     };
+    use serde_json as _;
     #[cfg(feature = "custom")]
     const CBOR_UINT: u8 = 0b000_00000;
     #[cfg(feature = "custom")]
@@ -1956,7 +1963,7 @@ mod tests {
     fn eddsa_auth() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut creds = AllowedCredentials::with_capacity(1);
-        creds.push(AllowedCredential {
+        _ = creds.push(AllowedCredential {
             credential: PublicKeyCredentialDescriptor {
                 id: CredentialId::try_from(vec![0; 16])?,
                 transports: AuthTransports::NONE,

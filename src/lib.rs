@@ -1062,12 +1062,13 @@ impl<'cred, 'user, const USER_LEN: usize, PublicKey>
     ///
     /// Errors iff the passed arguments are invalid. Read [`CredentialErr`]
     /// for more information.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[cfg_attr(docsrs, doc(cfg(any(feature = "bin", feature = "custom"))))]
     #[cfg(any(feature = "bin", feature = "custom"))]
     #[inline]
     pub fn new<'a: 'cred, 'b: 'user>(
         id: CredentialId<&'a [u8]>,
-        user_id: &'user UserHandle<USER_LEN>,
+        user_id: &'b UserHandle<USER_LEN>,
         static_state: StaticState<PublicKey>,
         dynamic_state: DynamicState,
     ) -> Result<Self, CredentialErr> {

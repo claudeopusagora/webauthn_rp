@@ -22,7 +22,7 @@ use core::{
 };
 use serde::de::{Deserialize, Deserializer, Error, MapAccess, Unexpected, Visitor};
 /// `newtype` around `CredentialPropertiesOutput` with a "relaxed" [`Self::deserialize`] implementation.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct CredentialPropertiesOutputRelaxed(pub CredentialPropertiesOutput);
 impl From<CredentialPropertiesOutputRelaxed> for CredentialPropertiesOutput {
     #[inline]
@@ -49,7 +49,7 @@ impl<'de> Deserialize<'de> for CredentialPropertiesOutputRelaxed {
     }
 }
 /// `newtype` around `AuthenticationExtensionsPrfOutputs` with a "relaxed" [`Self::deserialize`] implementation.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct AuthenticationExtensionsPrfOutputsRelaxed(AuthenticationExtensionsPrfOutputs);
 impl From<AuthenticationExtensionsPrfOutputsRelaxed> for AuthenticationExtensionsPrfOutputs {
     #[inline]
@@ -94,7 +94,7 @@ impl<'de> Deserialize<'de> for AuthenticationExtensionsPrfOutputsRelaxed {
     }
 }
 /// `newtype` around `ClientExtensionsOutputs` with a "relaxed" [`Self::deserialize`] implementation.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct ClientExtensionsOutputsRelaxed(pub ClientExtensionsOutputs);
 impl ClientExtensions for ClientExtensionsOutputsRelaxed {
     fn empty() -> Self {

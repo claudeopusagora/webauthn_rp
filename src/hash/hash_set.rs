@@ -127,7 +127,7 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
             if full {
                 None
             } else {
-                ent.insert();
+                _ = ent.insert();
                 Some(true)
             }
         } else {
@@ -147,7 +147,7 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
         } else if self.0.len() == self.0.capacity() {
             None
         } else {
-            self.0.insert(value);
+            _ = self.0.insert(value);
             Some(None)
         }
     }

@@ -368,7 +368,7 @@ impl Encode for Metadata<'_> {
     }
 }
 /// Owned version of [`Metadata`] that exists to [`Self::decode`] the output of [`Metadata::encode`].
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct MetadataOwned {
     /// [`Metadata::attestation`].
     pub attestation: Attestation,

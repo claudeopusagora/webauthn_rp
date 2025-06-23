@@ -280,7 +280,7 @@ impl From<Vec<PublicKeyCredentialDescriptor<Vec<u8>>>> for AllowedCredentials {
     fn from(value: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>) -> Self {
         let mut creds = Self::with_capacity(value.len());
         value.into_iter().fold((), |(), credential| {
-            creds.push(AllowedCredential {
+            _ = creds.push(AllowedCredential {
                 credential,
                 extension: CredentialSpecificExtension { prf: None },
             });
@@ -317,6 +317,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
@@ -448,6 +449,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
     /// );
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     pub fn second_factor<'a: 'rp_id>(
         rp_id: &'a RpId,
@@ -548,6 +550,7 @@ impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
@@ -576,6 +579,7 @@ impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
     #[must_use]
     pub fn second_factor<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
@@ -1069,8 +1073,6 @@ impl DiscoverableAuthenticationServerState {
     #[inline]
     pub fn verify<
         'a,
-        'cred_id,
-        'user,
         const USER_LEN: usize,
         O: PartialEq<Origin<'a>>,
         T: PartialEq<Origin<'a>>,
@@ -1083,8 +1085,8 @@ impl DiscoverableAuthenticationServerState {
         rp_id: &RpId,
         response: &'a DiscoverableAuthentication<USER_LEN>,
         cred: &mut AuthenticatedCredential<
-            'cred_id,
-            'user,
+            '_,
+            '_,
             USER_LEN,
             CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
         >,
@@ -1145,8 +1147,6 @@ impl NonDiscoverableAuthenticationServerState {
     #[inline]
     pub fn verify<
         'a,
-        'cred_id,
-        'user,
         const USER_LEN: usize,
         O: PartialEq<Origin<'a>>,
         T: PartialEq<Origin<'a>>,
@@ -1159,8 +1159,8 @@ impl NonDiscoverableAuthenticationServerState {
         rp_id: &RpId,
         response: &'a NonDiscoverableAuthentication<USER_LEN>,
         cred: &mut AuthenticatedCredential<
-            'cred_id,
-            'user,
+            '_,
+            '_,
             USER_LEN,
             CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
         >,
@@ -1243,8 +1243,6 @@ impl AuthenticationServerState {
     /// of the settings in `options`.
     fn verify<
         'a,
-        'cred_id,
-        'user,
         const USER_LEN: usize,
         const DISCOVERABLE: bool,
         O: PartialEq<Origin<'a>>,
@@ -1259,8 +1257,8 @@ impl AuthenticationServerState {
         rp_id: &RpId,
         response: &'a Authentication<USER_LEN, DISCOVERABLE>,
         cred: &mut AuthenticatedCredential<
-            'cred_id,
-            'user,
+            '_,
+            '_,
             USER_LEN,
             CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
         >,
@@ -1662,7 +1660,7 @@ mod tests {
     fn eddsa_auth_ser() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut creds = AllowedCredentials::with_capacity(1);
-        creds.push(AllowedCredential {
+        _ = creds.push(AllowedCredential {
             credential: PublicKeyCredentialDescriptor {
                 id: CredentialId::try_from(vec![0; 16])?,
                 transports: AuthTransports::NONE,

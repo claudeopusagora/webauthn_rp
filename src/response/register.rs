@@ -2738,6 +2738,7 @@ impl<'a> AttestationObject<'a> {
     /// [attestation object layout](https://www.w3.org/TR/webauthn-3/#attestation-object)
     /// returning [`Self`] and the index within `data` that the authenticator data portion
     /// begins.
+    #[expect(single_use_lifetimes, reason = "false positive")]
     #[expect(
         clippy::panic_in_result_fn,
         reason = "we want to crash when there is a bug"
