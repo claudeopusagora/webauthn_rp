@@ -135,6 +135,9 @@ impl Error for RsaPubKeyErr {}
 #[derive(Clone, Copy, Debug)]
 pub enum PubKeyErr {
     /// Error when [`Ed25519PubKey`] is not valid.
+    ///
+    /// Note this means the underlying point is either not on the curve or is an element
+    /// of the small-order subgroup.
     Ed25519,
     /// Error when [`UncompressedP256PubKey`] or [`CompressedP256PubKey`] is not valid.
     P256,

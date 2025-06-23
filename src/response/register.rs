@@ -740,14 +740,8 @@ impl Ed25519PubKey<&[u8]> {
         self.into_ver_key().map(|_| ())
     }
     /// Converts `self` into [`VerifyingKey`].
-    #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
     pub(super) fn into_ver_key(self) -> Result<VerifyingKey, PubKeyErr> {
-        VerifyingKey::from_bytes(
-            self.0
-                .try_into()
-                .unwrap_or_else(|_e| unreachable!("&Array::try_from has a bug")),
-        )
-        .map_err(|_e| PubKeyErr::Ed25519)
+        self.into_owned().into_ver_key()
     }
     /// Transforms `self` into an "owned" version.
     #[inline]
@@ -768,7 +762,36 @@ impl Ed25519PubKey<[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]> {
     }
     /// Converts `self` into [`VerifyingKey`].
     fn into_ver_key(self) -> Result<VerifyingKey, PubKeyErr> {
-        VerifyingKey::from_bytes(&self.0).map_err(|_e| PubKeyErr::Ed25519)
+        // ["Taming the many EdDSAs"](https://eprint.iacr.org/2020/1244.pdf) goes over
+        // and proves varying levels of signature security. The only property that is
+        // important for WebAuthn is existential unforgeability under chosen message
+        // attacks (EUF-CMA). No matter how `ed25519-dalek` is used this is met.
+        // Additional properties that may be of importance are strong unforgeability
+        // under chosen message attacks (SUF-CMA), binding signature (BS), and
+        // strongly binding signature (SBS).
+        // No matter how `ed25519-dalek` is used, SUF-CMA is achieved. Because
+        // we always achieve SUF-CMA, we elect—despite no benefit in WebAuthn—to also
+        // achieve SBS. One can achieve SBS-secure by simply rejecting small-order
+        // keys which is precisely what `VerifyingKey::is_weak` does.
+        // Note this means we _don't_ conform to [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032)
+        // nor [NIST SP 800-186](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-186.pdf).
+        // As stated, there is no additional security by conforming to the above specs though;
+        // furthermore, RFC 8032 does not require rejecting small-order points despite requiring
+        // canonical encoding of points; thus it does not achieve SBS-security.
+        // NIST SP 800-186 does achieve SUF-CMA and SBS-security but requires additional properties
+        // that have no cryptographic importance. Specifically it mandates canonicity of encodings
+        // for both public keys and signatures and requires not only that points not be small-order
+        // but more strictly that points are in the prime-order subgroup (excluding the identity).
+        // This is more work for no benefit, so we elect to stay within the confines of the exposed API.
+        VerifyingKey::from_bytes(&self.0)
+            .map_err(|_e| PubKeyErr::Ed25519)
+            .and_then(|key| {
+                if key.is_weak() {
+                    Err(PubKeyErr::Ed25519)
+                } else {
+                    Ok(key)
+                }
+            })
     }
 }
 impl<'a: 'b, 'b> TryFrom<&'a [u8]> for Ed25519PubKey<&'b [u8]> {
@@ -2945,6 +2968,12 @@ impl AuthResponse for AuthenticatorAttestation {
                             match val.data.attestation {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
+                                    // We don't need to use `VerifyingKey::verify_strict` since
+                                    // `Ed25519PubKey::into_ver_key` verifies the public key is not
+                                    // in the small-order subgroup. `VerifyingKey::verify_strict` additionally
+                                    // ensures _R_ of the signature is not in the small-order subgroup, but this
+                                    // doesn't provide additional benefits and is still not enough to comply
+                                    // with standards like RFC 8032 or NIST SP 800-186.
                                     Sig::Ed25519(sig) => ver_key.verify(val.auth_data_and_32_trailing_bytes, &sig.into_sig()).map_err(|_e| AuthRespErr::Signature),
                                     Sig::P256(_) | Sig::P384(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
                                 }

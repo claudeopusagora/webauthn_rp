@@ -451,6 +451,12 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> AuthResponse
                             .and_then(|ver_key| {
                                 Signature::from_slice(self.signature.as_slice())
                                     .and_then(|sig| {
+                                        // We don't need to use `VerifyingKey::verify_strict` since
+                                        // `Ed25519PubKey::into_ver_key` verifies the public key is not
+                                        // in the small-order subgroup. `VerifyingKey::verify_strict` additionally
+                                        // ensures _R_ of the signature is not in the small-order subgroup, but this
+                                        // doesn't provide additional benefits and is still not enough to comply
+                                        // with standards like RFC 8032 or NIST SP 800-186.
                                         ver_key.verify(
                                             self.authenticator_data_and_c_data_hash.as_slice(),
                                             &sig,

@@ -63,8 +63,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 data-encoding = { version = "2.9.0", default-features = false }
-ed25519-dalek = { version = "2.1.1", default-features = false, features = ["fast"] }
-hashbrown = { version = "0.15.3", default-features = false }
+ed25519-dalek = { version = "2.1.1", default-features = false }
+hashbrown = { version = "0.15.4", default-features = false }
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.13.1", default-features = false, features = ["ecdsa"] }
 precis-profiles = { version = "0.1.12", default-features = false }
