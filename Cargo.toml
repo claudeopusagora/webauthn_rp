@@ -9,25 +9,31 @@ license = "MIT OR Apache-2.0"
 name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
-rust-version = "1.87.0"
+rust-version = "1.88.0"
 version = "0.4.0"
 
 [lints.rust]
 ambiguous_negative_literals = { level = "deny", priority = -1 }
 closure_returning_async_block = { level = "deny", priority = -1 }
+deprecated_safe = { level = "deny", priority = -1 }
 deref_into_dyn_supertrait = { level = "deny", priority = -1 }
 ffi_unwind_calls = { level = "deny", priority = -1 }
 future_incompatible = { level = "deny", priority = -1 }
+#fuzzy_provenance_casts = { level = "deny", priority = -1 }
 impl_trait_redundant_captures = { level = "deny", priority = -1 }
-keyword-idents = { level = "deny", priority = -1 }
+keyword_idents = { level = "deny", priority = -1 }
 let_underscore = { level = "deny", priority = -1 }
 linker_messages = { level = "deny", priority = -1 }
+#lossy_provenance_casts = { level = "deny", priority = -1 }
 macro_use_extern_crate = { level = "deny", priority = -1 }
 meta_variable_misuse = { level = "deny", priority = -1 }
 missing_copy_implementations = { level = "deny", priority = -1 }
 missing_debug_implementations = { level = "deny", priority = -1 }
 missing_docs = { level = "deny", priority = -1 }
+#multiple_supertrait_upcastable = { level = "deny", priority = -1 }
+#must_not_suspend = { level = "deny", priority = -1 }
 non_ascii_idents = { level = "deny", priority = -1 }
+#non_exhaustive_omitted_patterns = { level = "deny", priority = -1 }
 nonstandard_style = { level = "deny", priority = -1 }
 redundant_imports = { level = "deny", priority = -1 }
 redundant_lifetimes = { level = "deny", priority = -1 }
@@ -36,12 +42,13 @@ rust_2018_compatibility = { level = "deny", priority = -1 }
 rust_2018_idioms = { level = "deny", priority = -1 }
 rust_2021_compatibility = { level = "deny", priority = -1 }
 rust_2024_compatibility = { level = "deny", priority = -1 }
-single-use-lifetimes = { level = "deny", priority = -1 }
+single_use_lifetimes = { level = "deny", priority = -1 }
+#supertrait_item_shadowing_definition = { level = "deny", priority = -1 }
 trivial_casts = { level = "deny", priority = -1 }
 trivial_numeric_casts = { level = "deny", priority = -1 }
 unit_bindings = { level = "deny", priority = -1 }
-unknown_lints = { level = "deny", priority = -1 }
 unnameable_types = { level = "deny", priority = -1 }
+#unqualified_local_imports = { level = "deny", priority = -1 }
 unreachable_pub = { level = "deny", priority = -1 }
 unsafe_code = { level = "deny", priority = -1 }
 unstable_features = { level = "deny", priority = -1 }
@@ -74,8 +81,8 @@ implicit_return = "allow"
 min_ident_chars = "allow"
 missing_trait_methods = "allow"
 module_name_repetitions = "allow"
-pub_with_shorthand = "allow"
 pub_use = "allow"
+pub_with_shorthand = "allow"
 question_mark_used = "allow"
 ref_patterns = "allow"
 return_and_then = "allow"

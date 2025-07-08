@@ -10,7 +10,7 @@ use hashbrown::{
 use std::time::Instant;
 #[cfg(feature = "serializable_server_state")]
 use std::time::SystemTime;
-/// `newtype` around [`HashSet`] that maximum [`HashSet::capacity`].
+/// `newtype` around [`HashSet`] that has maximum [`HashSet::capacity`].
 ///
 /// This is useful in situations when the underlying values are expected to be removed, and one wants to ensure the
 /// set does not grow unbounded. When `T` is a [`TimedCeremony`], helper methods (e.g.,
@@ -252,5 +252,85 @@ impl<T, S> From<HashSet<T, S>> for FixedCapHashSet<T, S> {
     #[inline]
     fn from(value: HashSet<T, S>) -> Self {
         Self(value)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::{Equivalent, FixedCapHashSet, TimedCeremony};
+    use core::hash::{Hash, Hasher};
+    #[cfg(not(feature = "serializable_server_state"))]
+    use std::time::Instant;
+    #[cfg(feature = "serializable_server_state")]
+    use std::time::SystemTime;
+    #[derive(Clone, Copy)]
+    struct Ceremony {
+        id: usize,
+        #[cfg(not(feature = "serializable_server_state"))]
+        exp: Instant,
+        #[cfg(feature = "serializable_server_state")]
+        exp: SystemTime,
+    }
+    impl Default for Ceremony {
+        fn default() -> Self {
+            Self {
+                id: 0,
+                #[cfg(not(feature = "serializable_server_state"))]
+                exp: Instant::now(),
+                #[cfg(feature = "serializable_server_state")]
+                exp: SystemTime::now(),
+            }
+        }
+    }
+    impl PartialEq for Ceremony {
+        fn eq(&self, other: &Self) -> bool {
+            self.id == other.id
+        }
+    }
+    impl Eq for Ceremony {}
+    impl Hash for Ceremony {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.id.hash(state);
+        }
+    }
+    impl TimedCeremony for Ceremony {
+        #[cfg(not(feature = "serializable_server_state"))]
+        fn expiration(&self) -> Instant {
+            self.exp
+        }
+        #[cfg(feature = "serializable_server_state")]
+        fn expiration(&self) -> SystemTime {
+            self.exp
+        }
+    }
+    impl Equivalent<Ceremony> for usize {
+        fn equivalent(&self, key: &Ceremony) -> bool {
+            *self == key.id
+        }
+    }
+    #[test]
+    fn hash_set_insert_removed() {
+        let mut set = FixedCapHashSet::new(8);
+        let cap = set.as_ref().capacity();
+        let mut cer = Ceremony::default();
+        for i in 0..cap {
+            assert_eq!(set.as_ref().capacity(), cap);
+            cer.id = i;
+            assert_eq!(set.insert(cer), Some(true));
+        }
+        assert_eq!(set.as_ref().capacity(), cap);
+        assert_eq!(set.as_ref().len(), cap);
+        for i in 0..cap {
+            assert!(set.as_ref().contains(&i));
+        }
+        cer.id = cap;
+        assert_eq!(set.insert_remove_expired(cer), Some(true));
+        assert_eq!(set.as_ref().capacity(), cap);
+        assert_eq!(set.as_ref().len(), cap);
+        let mut counter = 0;
+        for i in 0..cap {
+            counter += usize::from(set.as_ref().contains(&i));
+        }
+        assert_eq!(counter, cap - 1);
+        assert!(set.as_ref().contains(&cap));
     }
 }

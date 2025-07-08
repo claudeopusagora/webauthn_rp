@@ -46,14 +46,14 @@ use url::Url as Uri;
 /// #     request::{
 /// #         auth::{AllowedCredentials, DiscoverableCredentialRequestOptions, NonDiscoverableCredentialRequestOptions},
 /// #         register::UserHandle64,
-/// #         AsciiDomain, Credentials, PublicKeyCredentialDescriptor, RpId,
+/// #         AsciiDomainStatic, Credentials, PublicKeyCredentialDescriptor, RpId,
 /// #     },
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
 /// #     AggErr,
 /// # };
+/// const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
 /// let mut ceremonies = FixedCapHashSet::new(128);
-/// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-/// let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id).start_ceremony()?;
+/// let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID).start_ceremony()?;
 /// assert!(
 ///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
 /// );
@@ -66,7 +66,7 @@ use url::Url as Uri;
 /// let creds = get_registered_credentials(&user_handle)?;
 /// # #[cfg(feature = "custom")]
 /// let (server_2, client_2) =
-///     NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?.start_ceremony()?;
+///     NonDiscoverableCredentialRequestOptions::second_factor(RP_ID, creds)?.start_ceremony()?;
 /// # #[cfg(feature = "custom")]
 /// assert!(
 ///     ceremonies_2.insert_remove_all_expired(server_2).map_or(false, convert::identity)
@@ -110,14 +110,14 @@ pub mod error;
 /// #         register::{
 /// #             CredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
 /// #         },
-/// #         AsciiDomain, PublicKeyCredentialDescriptor, RpId
+/// #         AsciiDomainStatic, PublicKeyCredentialDescriptor, RpId
 /// #     },
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
 /// #     AggErr,
 /// # };
+/// const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
 /// # #[cfg(feature = "custom")]
 /// let mut ceremonies = FixedCapHashSet::new(128);
-/// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
 /// # #[cfg(feature = "custom")]
 /// let user_handle = get_user_handle();
 /// # #[cfg(feature = "custom")]
@@ -125,7 +125,7 @@ pub mod error;
 /// # #[cfg(feature = "custom")]
 /// let creds = get_registered_credentials(&user_handle)?;
 /// # #[cfg(feature = "custom")]
-/// let (server, client) = CredentialCreationOptions::passkey(&rp_id, user.clone(), creds)
+/// let (server, client) = CredentialCreationOptions::passkey(RP_ID, user.clone(), creds)
 ///     .start_ceremony()?;
 /// # #[cfg(feature = "custom")]
 /// assert!(
@@ -137,7 +137,7 @@ pub mod error;
 /// let creds_2 = get_registered_credentials(&user_handle)?;
 /// # #[cfg(feature = "custom")]
 /// let (server_2, client_2) =
-///     CredentialCreationOptions::second_factor(&rp_id, user, creds_2).start_ceremony()?;
+///     CredentialCreationOptions::second_factor(RP_ID, user, creds_2).start_ceremony()?;
 /// # #[cfg(feature = "custom")]
 /// assert!(
 ///     ceremonies.insert_remove_all_expired(server_2).map_or(false, convert::identity)
@@ -230,6 +230,22 @@ impl Challenge {
     pub const fn as_data(&self) -> u128 {
         self.0
     }
+    /// Returns the contained `u128` as a little-endian `array` consuming `self`.
+    #[inline]
+    #[must_use]
+    pub const fn into_array(self) -> [u8; 16] {
+        self.as_array()
+    }
+    /// Returns the contained `u128` as a little-endian `array`.
+    #[expect(
+        clippy::little_endian_bytes,
+        reason = "Challenge and SentChallenge need to be compatible, and we need to ensure the data is sent and received in the same order"
+    )]
+    #[inline]
+    #[must_use]
+    pub const fn as_array(&self) -> [u8; 16] {
+        self.0.to_le_bytes()
+    }
 }
 impl Default for Challenge {
     /// Same as [`Self::new`].
@@ -250,6 +266,18 @@ impl From<&Challenge> for u128 {
         value.0
     }
 }
+impl From<Challenge> for [u8; 16] {
+    #[inline]
+    fn from(value: Challenge) -> Self {
+        value.into_array()
+    }
+}
+impl From<&Challenge> for [u8; 16] {
+    #[inline]
+    fn from(value: &Challenge) -> Self {
+        value.as_array()
+    }
+}
 /// A [domain](https://url.spec.whatwg.org/#concept-domain) in representation format consisting of only and any
 /// ASCII.
 ///
@@ -257,6 +285,8 @@ impl From<&Challenge> for u128 {
 /// label must have length inclusively between 1 and 63, and the total length of the domain must be at most 253
 /// when a trailing `'.'` does not exist; otherwise the max length is 254. The root domain (i.e., `'.'`) is not
 /// allowed.
+///
+/// Note if the domain is a `&'static str`, then use [`AsciiDomainStatic`] instead.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AsciiDomain(String);
 impl AsciiDomain {
@@ -265,8 +295,11 @@ impl AsciiDomain {
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::{error::AsciiDomainErr, AsciiDomain};
+    /// # use webauthn_rp::request::{AsciiDomain, error::AsciiDomainErr};
     /// let mut dom = AsciiDomain::try_from("example.com.".to_owned())?;
+    /// assert_eq!(dom.as_ref(), "example.com.");
+    /// dom.remove_trailing_dot();
+    /// assert_eq!(dom.as_ref(), "example.com");
     /// dom.remove_trailing_dot();
     /// assert_eq!(dom.as_ref(), "example.com");
     /// # Ok::<_, AsciiDomainErr>(())
@@ -278,7 +311,7 @@ impl AsciiDomain {
             .0
             .as_bytes()
             .last()
-            .unwrap_or_else(|| unreachable!("there is a bug in AsciiDomain::try_from"))
+            .unwrap_or_else(|| unreachable!("there is a bug in AsciiDomain::from_slice"))
             == b'.'
         {
             _ = self.0.pop();
@@ -315,7 +348,7 @@ impl PartialEq<AsciiDomain> for &AsciiDomain {
         **self == *other
     }
 }
-impl TryFrom<String> for AsciiDomain {
+impl TryFrom<Vec<u8>> for AsciiDomain {
     type Error = AsciiDomainErr;
     /// Verifies `value` is an ASCII domain in representation format converting any uppercase ASCII into
     /// lowercase.
@@ -327,67 +360,71 @@ impl TryFrom<String> for AsciiDomain {
     /// (e.g., [`AsciiDomain::remove_trailing_dot`]). Because this allows any ASCII, one may want to ensure `value`
     /// is not an IP address.
     ///
+    /// # Errors
+    ///
+    /// Errors iff `value` is not a valid ASCII domain.
+    ///
     /// # Examples
     ///
     /// ```
     /// # use webauthn_rp::request::{error::AsciiDomainErr, AsciiDomain};
     /// // Root `'.'` is not removed if it exists.
-    /// assert_ne!("example.com", AsciiDomain::try_from("example.com.".to_owned())?.as_ref());
+    /// assert_ne!("example.com", AsciiDomain::try_from(b"example.com.".to_vec())?.as_ref());
     /// // Root domain (i.e., `'.'`) is not allowed.
-    /// assert!(AsciiDomain::try_from(".".to_owned()).is_err());
+    /// assert!(AsciiDomain::try_from(vec![b'.']).is_err());
     /// // Uppercase is transformed into lowercase.
-    /// assert_eq!("example.com", AsciiDomain::try_from("ExAmPle.CoM".to_owned())?.as_ref());
+    /// assert_eq!("example.com", AsciiDomain::try_from(b"ExAmPle.CoM".to_vec())?.as_ref());
     /// // The only ASCII character not allowed in a domain label is `'.'` as it is used exclusively to delimit
     /// // labels.
-    /// assert_eq!("\x00", AsciiDomain::try_from("\x00".to_owned())?.as_ref());
+    /// assert_eq!("\x00", AsciiDomain::try_from(b"\x00".to_vec())?.as_ref());
     /// // Empty labels are not allowed.
-    /// assert!(AsciiDomain::try_from("example..com".to_owned()).is_err());
+    /// assert!(AsciiDomain::try_from(b"example..com".to_vec()).is_err());
     /// // Labels cannot have length greater than 63.
     /// let mut long_label = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned();
     /// assert_eq!(long_label.len(), 64);
-    /// assert!(AsciiDomain::try_from(long_label.clone()).is_err());
+    /// assert!(AsciiDomain::try_from(long_label.clone().into_bytes()).is_err());
     /// long_label.pop();
-    /// assert_eq!(long_label, AsciiDomain::try_from(long_label.clone())?.as_ref());
+    /// assert_eq!(long_label, AsciiDomain::try_from(long_label.clone().into_bytes())?.as_ref());
     /// // The maximum length of a domain is 254 if a trailing `'.'` exists; otherwise the max length is 253.
     /// let mut long_domain = format!("{long_label}.{long_label}.{long_label}.{long_label}");
     /// long_domain.pop();
     /// long_domain.push('.');
     /// assert_eq!(long_domain.len(), 255);
-    /// assert!(AsciiDomain::try_from(long_domain.clone()).is_err());
+    /// assert!(AsciiDomain::try_from(long_domain.clone().into_bytes()).is_err());
     /// long_domain.pop();
     /// long_domain.pop();
     /// long_domain.push('.');
     /// assert_eq!(long_domain.len(), 254);
-    /// assert_eq!(long_domain, AsciiDomain::try_from(long_domain.clone())?.as_ref());
+    /// assert_eq!(long_domain, AsciiDomain::try_from(long_domain.clone().into_bytes())?.as_ref());
     /// long_domain.pop();
     /// long_domain.push('a');
     /// assert_eq!(long_domain.len(), 254);
-    /// assert!(AsciiDomain::try_from(long_domain.clone()).is_err());
+    /// assert!(AsciiDomain::try_from(long_domain.clone().into_bytes()).is_err());
     /// long_domain.pop();
     /// assert_eq!(long_domain.len(), 253);
-    /// assert_eq!(long_domain, AsciiDomain::try_from(long_domain.clone())?.as_ref());
+    /// assert_eq!(long_domain, AsciiDomain::try_from(long_domain.clone().into_bytes())?.as_ref());
     /// // Only ASCII is allowed; thus if a domain needs to be Punycode-encoded, then it must be _before_ calling
     /// // this function.
-    /// assert!(AsciiDomain::try_from("λ.com".to_owned()).is_err());
-    /// assert_eq!("xn--wxa.com", AsciiDomain::try_from("xn--wxa.com".to_owned())?.as_ref());
+    /// assert!(AsciiDomain::try_from("λ.com".to_owned().into_bytes()).is_err());
+    /// assert_eq!("xn--wxa.com", AsciiDomain::try_from(b"xn--wxa.com".to_vec())?.as_ref());
     /// # Ok::<_, AsciiDomainErr>(())
     /// ```
-    #[expect(
-        unsafe_code,
-        reason = "need to transform uppercase ASCII into lowercase"
-    )]
+    #[expect(unsafe_code, reason = "comment justifies correctness")]
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "comment justifies its correctness"
+        reason = "comments justify correctness"
     )]
     #[inline]
-    fn try_from(mut value: String) -> Result<Self, Self::Error> {
-        value
-            .as_bytes()
+    fn try_from(mut value: Vec<u8>) -> Result<Self, Self::Error> {
+        /// Value to add to an uppercase ASCII `u8` to get the lowercase version.
+        const DIFF: u8 = b'a' - b'A';
+        let bytes = value.as_slice();
+        bytes
+            .as_ref()
             .last()
             .ok_or(AsciiDomainErr::Empty)
             .and_then(|b| {
-                let len = value.len();
+                let len = bytes.len();
                 if *b == b'.' {
                     if len == 1 {
                         Err(AsciiDomainErr::RootDomain)
@@ -403,13 +440,9 @@ impl TryFrom<String> for AsciiDomain {
                 }
             })
             .and_then(|()| {
-                // SAFETY:
-                // The only possible mutation we perform is converting uppercase ASCII into lowercase which
-                // is entirely safe since ASCII is a subset of UTF-8, and ASCII characters are always encoded
-                // as a single UTF-8 code unit.
-                let utf8 = unsafe { value.as_bytes_mut() };
-                utf8.iter_mut()
-                    .try_fold(0u8, |label_len, byt| {
+                value
+                    .iter_mut()
+                    .try_fold(0u8, |mut label_len, byt| {
                         let b = *byt;
                         if b == b'.' {
                             if label_len == 0 {
@@ -419,16 +452,154 @@ impl TryFrom<String> for AsciiDomain {
                             }
                         } else if label_len == 63 {
                             Err(AsciiDomainErr::LabelLen)
-                        } else if b.is_ascii() {
-                            *byt = b.to_ascii_lowercase();
-                            // This won't overflow since `label_len < 63`.
-                            Ok(label_len + 1)
                         } else {
-                            Err(AsciiDomainErr::NotAscii)
+                            // We know `label_len` is less than 63, thus this won't overflow.
+                            label_len += 1;
+                            match *byt {
+                                // Non-uppercase ASCII is allowed and doesn't need to be converted.
+                                ..b'A' | b'['..=0x7F => Ok(label_len),
+                                // Uppercase ASCII is allowed but needs to be transformed into lowercase.
+                                b'A'..=b'Z' => {
+                                    // Lowercase ASCII is a contiguous block starting from `b'a'` as is uppercase
+                                    // ASCII which starts from `b'A'` with uppercase ASCII coming before; thus we
+                                    // simply need to shift by a fixed amount.
+                                    *byt += DIFF;
+                                    Ok(label_len)
+                                }
+                                // Non-ASCII is disallowed.
+                                0x80.. => Err(AsciiDomainErr::NotAscii),
+                            }
                         }
                     })
-                    .map(|_| Self(value))
+                    .map(|_| {
+                        // SAFETY:
+                        // We just verified `value` only contains ASCII; thus this is safe.
+                        let utf8 = unsafe { String::from_utf8_unchecked(value) };
+                        Self(utf8)
+                    })
             })
+    }
+}
+impl TryFrom<String> for AsciiDomain {
+    type Error = AsciiDomainErr;
+    /// Same as [`Self::try_from`] except `value` is a `String`.
+    #[inline]
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.into_bytes())
+    }
+}
+/// Similar to [`AsciiDomain`] except the contained data is a `&'static str`.
+///
+/// Since [`Self::new`] and [`Option::unwrap`] are `const fn`s, one can define a global `const` or `static`
+/// variable that represents the RP ID.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AsciiDomainStatic(&'static str);
+impl AsciiDomainStatic {
+    /// Returns the contained `str`.
+    #[inline]
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+    /// Verifies `domain` is a valid lowercase ASCII domain returning `None` when not valid or when
+    /// uppercase ASCII exists.
+    ///
+    /// Read [`AsciiDomain`] for more information about what constitutes a valid domain.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::{AsciiDomainStatic, RpId};
+    /// /// RP ID of our application.
+    /// const RP_IP: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+    /// ```
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "comment justifies correctness"
+    )]
+    #[expect(
+        clippy::else_if_without_else,
+        reason = "part of if branch and else branch are the same"
+    )]
+    #[inline]
+    #[must_use]
+    pub const fn new(domain: &'static str) -> Option<Self> {
+        let mut utf8 = domain.as_bytes();
+        if let Some(lst) = utf8.last() {
+            let len = utf8.len();
+            if *lst == b'.' {
+                if len == 1 || len > 254 {
+                    return None;
+                }
+            } else if len > 253 {
+                return None;
+            }
+            let mut label_len = 0;
+            while let [first, ref rest @ ..] = *utf8 {
+                if first == b'.' {
+                    if label_len == 0 {
+                        return None;
+                    }
+                    label_len = 0;
+                } else if label_len == 63 {
+                    return None;
+                } else {
+                    match first {
+                        // Any non-uppercase ASCII is allowed.
+                        // We know `label_len` is less than 63, so this won't overflow.
+                        ..b'A' | b'['..=0x7F => label_len += 1,
+                        // Uppercase ASCII and non-ASCII are disallowed.
+                        b'A'..=b'Z' | 0x80.. => return None,
+                    }
+                }
+                utf8 = rest;
+            }
+            Some(Self(domain))
+        } else {
+            None
+        }
+    }
+}
+impl AsRef<str> for AsciiDomainStatic {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+impl Borrow<str> for AsciiDomainStatic {
+    #[inline]
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+impl From<AsciiDomainStatic> for &'static str {
+    #[inline]
+    fn from(value: AsciiDomainStatic) -> Self {
+        value.0
+    }
+}
+impl From<AsciiDomainStatic> for String {
+    #[inline]
+    fn from(value: AsciiDomainStatic) -> Self {
+        value.0.to_owned()
+    }
+}
+impl From<AsciiDomainStatic> for AsciiDomain {
+    #[inline]
+    fn from(value: AsciiDomainStatic) -> Self {
+        Self(value.0.to_owned())
+    }
+}
+impl PartialEq<&Self> for AsciiDomainStatic {
+    #[inline]
+    fn eq(&self, other: &&Self) -> bool {
+        *self == **other
+    }
+}
+impl PartialEq<AsciiDomainStatic> for &AsciiDomainStatic {
+    #[inline]
+    fn eq(&self, other: &AsciiDomainStatic) -> bool {
+        **self == *other
     }
 }
 /// The output of the [URL serializer](https://url.spec.whatwg.org/#concept-url-serializer).
@@ -495,6 +666,11 @@ pub enum RpId {
     /// and will likely be relaxed in a [future version](https://github.com/w3c/webauthn/issues/2206); thus
     /// any ASCII domain is allowed.
     Domain(AsciiDomain),
+    /// Similar to [`Self::Domain`] except the ASCII domain is static.
+    ///
+    /// Since [`AsciiDomainStatic::new`] is a `const fn`, one can define a `const` or `static` global variable
+    /// the contains the RP ID.
+    StaticDomain(AsciiDomainStatic),
     /// A URL with only scheme and path.
     Url(Url),
 }
@@ -513,6 +689,7 @@ impl AsRef<str> for RpId {
     fn as_ref(&self) -> &str {
         match *self {
             Self::Domain(ref dom) => dom.as_ref(),
+            Self::StaticDomain(dom) => dom.as_str(),
             Self::Url(ref url) => url.as_ref(),
         }
     }
@@ -522,6 +699,7 @@ impl Borrow<str> for RpId {
     fn borrow(&self) -> &str {
         match *self {
             Self::Domain(ref dom) => dom.borrow(),
+            Self::StaticDomain(dom) => dom.as_str(),
             Self::Url(ref url) => url.borrow(),
         }
     }
@@ -531,6 +709,7 @@ impl From<RpId> for String {
     fn from(value: RpId) -> Self {
         match value {
             RpId::Domain(dom) => dom.into(),
+            RpId::StaticDomain(dom) => dom.into(),
             RpId::Url(url) => url.into(),
         }
     }
@@ -545,6 +724,24 @@ impl PartialEq<RpId> for &RpId {
     #[inline]
     fn eq(&self, other: &RpId) -> bool {
         **self == *other
+    }
+}
+impl From<AsciiDomain> for RpId {
+    #[inline]
+    fn from(value: AsciiDomain) -> Self {
+        Self::Domain(value)
+    }
+}
+impl From<AsciiDomainStatic> for RpId {
+    #[inline]
+    fn from(value: AsciiDomainStatic) -> Self {
+        Self::StaticDomain(value)
+    }
+}
+impl From<Url> for RpId {
+    #[inline]
+    fn from(value: Url) -> Self {
+        Self::Url(value)
     }
 }
 /// A URI scheme. This can be used to make
@@ -1402,6 +1599,9 @@ trait Ceremony<const USER_LEN: usize, const DISCOVERABLE: bool> {
                             // Steps 9 and 12 of the registration and authentication ceremonies
                             // respectively.
                             RpId::Url(ref url) => url == client_data_json.origin,
+                            RpId::StaticDomain(dom) => {
+                                DomainOrigin::new(dom.0) == client_data_json.origin
+                            }
                         } {
                             Ok(())
                         } else {
@@ -1539,6 +1739,7 @@ impl PartialEq for PrfInput<'_, '_> {
 }
 #[cfg(test)]
 mod tests {
+    use super::AsciiDomainStatic;
     #[cfg(feature = "custom")]
     use super::{
         super::{
@@ -1558,7 +1759,7 @@ mod tests {
                 },
             },
         },
-        AsciiDomain, Challenge, Credentials, ExtensionInfo, ExtensionReq, PrfInput,
+        Challenge, Credentials, ExtensionInfo, ExtensionReq, PrfInput,
         PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
         auth::{
             AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
@@ -1603,12 +1804,48 @@ mod tests {
     #[cfg(feature = "custom")]
     const CBOR_TRUE: u8 = CBOR_SIMPLE | 21;
     #[test]
+    fn ascii_domain_static() {
+        /// No trailing dot, max label length, max domain length.
+        const LONG: AsciiDomainStatic = AsciiDomainStatic::new(
+                "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
+            )
+            .unwrap();
+        /// Trailing dot, min label length, max domain length.
+        const LONG_TRAILING: AsciiDomainStatic = AsciiDomainStatic::new("w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.").unwrap();
+        /// Single character domain.
+        const SHORT: AsciiDomainStatic = AsciiDomainStatic::new("w").unwrap();
+        let long_label = "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww";
+        assert_eq!(long_label.len(), 63);
+        let mut long = format!("{long_label}.{long_label}.{long_label}.{long_label}");
+        _ = long.pop();
+        _ = long.pop();
+        assert_eq!(LONG.0.len(), 253);
+        assert_eq!(LONG.0, long.as_str());
+        let trailing = "w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.w.";
+        assert_eq!(LONG_TRAILING.0.len(), 254);
+        assert_eq!(LONG_TRAILING.0, trailing);
+        assert_eq!(SHORT.0.len(), 1);
+        assert_eq!(SHORT.0, "w");
+        assert!(AsciiDomainStatic::new("www.Example.com").is_none());
+        assert!(AsciiDomainStatic::new("").is_none());
+        assert!(AsciiDomainStatic::new(".").is_none());
+        assert!(AsciiDomainStatic::new("www..c").is_none());
+        let too_long_label = "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww";
+        assert_eq!(too_long_label.len(), 64);
+        assert!(AsciiDomainStatic::new(too_long_label).is_none());
+        let dom_254_no_trailing_dot = "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww";
+        assert_eq!(dom_254_no_trailing_dot.len(), 254);
+        assert!(AsciiDomainStatic::new(dom_254_no_trailing_dot).is_none());
+        assert!(AsciiDomainStatic::new("λ.com").is_none());
+    }
+    #[cfg(feature = "custom")]
+    const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+    #[test]
     #[cfg(feature = "custom")]
     fn eddsa_reg() -> Result<(), AggErr> {
-        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
         let mut opts = CredentialCreationOptions::passkey(
-            &rp_id,
+            RP_ID,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
@@ -1935,13 +2172,13 @@ mod tests {
         let ver_key = sig_key.verifying_key();
         let pub_key = ver_key.as_bytes();
         attestation_object[107..139]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
         attestation_object[188..220].copy_from_slice(pub_key);
         let sig = sig_key.sign(&attestation_object[107..]);
         attestation_object[32..96].copy_from_slice(sig.to_bytes().as_slice());
         attestation_object.truncate(261);
         assert!(matches!(opts.start_ceremony()?.0.verify(
-            &rp_id,
+            RP_ID,
             &Registration {
                 response: AuthenticatorAttestation::new(
                     client_data_json,
@@ -1961,7 +2198,6 @@ mod tests {
     #[test]
     #[cfg(feature = "custom")]
     fn eddsa_auth() -> Result<(), AggErr> {
-        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let mut creds = AllowedCredentials::with_capacity(1);
         _ = creds.push(AllowedCredential {
             credential: PublicKeyCredentialDescriptor {
@@ -1976,7 +2212,7 @@ mod tests {
                 }),
             },
         });
-        let mut opts = NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?;
+        let mut opts = NonDiscoverableCredentialRequestOptions::second_factor(RP_ID, creds)?;
         opts.options().user_verification = UserVerificationRequirement::Required;
         opts.options().challenge = Challenge(0);
         opts.options().extensions = AuthExt { prf: None };
@@ -2129,14 +2365,14 @@ mod tests {
             .as_slice(),
         );
         authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
         authenticator_data
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
         let ed_priv = SigningKey::from([0; 32]);
         let sig = ed_priv.sign(authenticator_data.as_slice()).to_vec();
         authenticator_data.truncate(132);
         assert!(!opts.start_ceremony()?.0.verify(
-            &rp_id,
+            RP_ID,
             &NonDiscoverableAuthentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
                 response: NonDiscoverableAuthenticatorAssertion::with_user(
@@ -2176,10 +2412,9 @@ mod tests {
     #[test]
     #[cfg(feature = "custom")]
     fn es256_reg() -> Result<(), AggErr> {
-        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
         let mut opts = CredentialCreationOptions::passkey(
-            &rp_id,
+            RP_ID,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
@@ -2398,7 +2633,7 @@ mod tests {
             .as_slice(),
         );
         attestation_object[30..62]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
         let p256_key = P256Key::from_bytes(
             &[
                 137, 133, 36, 206, 163, 47, 255, 5, 76, 144, 163, 141, 40, 109, 108, 240, 246, 115,
@@ -2414,7 +2649,7 @@ mod tests {
         attestation_object[111..143].copy_from_slice(x);
         attestation_object[146..].copy_from_slice(y);
         assert!(matches!(opts.start_ceremony()?.0.verify(
-            &rp_id,
+            RP_ID,
             &Registration {
                 response: AuthenticatorAttestation::new(
                     client_data_json,
@@ -2434,8 +2669,7 @@ mod tests {
     #[test]
     #[cfg(feature = "custom")]
     fn es256_auth() -> Result<(), AggErr> {
-        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+        let mut opts = DiscoverableCredentialRequestOptions::passkey(RP_ID);
         opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
@@ -2489,7 +2723,7 @@ mod tests {
             .as_slice(),
         );
         authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
         authenticator_data
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
         let p256_key = P256Key::from_bytes(
@@ -2504,7 +2738,7 @@ mod tests {
         let pub_key = p256_key.verifying_key().to_encoded_point(true);
         authenticator_data.truncate(37);
         assert!(!opts.start_ceremony()?.0.verify(
-            &rp_id,
+            RP_ID,
             &DiscoverableAuthentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
                 response: DiscoverableAuthenticatorAssertion::new(
@@ -2545,10 +2779,9 @@ mod tests {
     #[test]
     #[cfg(feature = "custom")]
     fn es384_reg() -> Result<(), AggErr> {
-        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
         let mut opts = CredentialCreationOptions::passkey(
-            &rp_id,
+            RP_ID,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
@@ -2801,7 +3034,7 @@ mod tests {
             .as_slice(),
         );
         attestation_object[30..62]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
         let p384_key = P384Key::from_bytes(
             &[
                 158, 99, 156, 49, 190, 211, 85, 167, 28, 2, 80, 57, 31, 22, 17, 38, 85, 78, 232,
@@ -2818,7 +3051,7 @@ mod tests {
         attestation_object[112..160].copy_from_slice(x);
         attestation_object[163..].copy_from_slice(y);
         assert!(matches!(opts.start_ceremony()?.0.verify(
-            &rp_id,
+            RP_ID,
             &Registration {
                 response: AuthenticatorAttestation::new(
                     client_data_json,
@@ -2838,8 +3071,7 @@ mod tests {
     #[test]
     #[cfg(feature = "custom")]
     fn es384_auth() -> Result<(), AggErr> {
-        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+        let mut opts = DiscoverableCredentialRequestOptions::passkey(RP_ID);
         opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
@@ -2893,7 +3125,7 @@ mod tests {
             .as_slice(),
         );
         authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
         authenticator_data
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
         let p384_key = P384Key::from_bytes(
@@ -2909,7 +3141,7 @@ mod tests {
         let pub_key = p384_key.verifying_key().to_encoded_point(true);
         authenticator_data.truncate(37);
         assert!(!opts.start_ceremony()?.0.verify(
-            &rp_id,
+            RP_ID,
             &DiscoverableAuthentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
                 response: DiscoverableAuthenticatorAssertion::new(
@@ -2950,10 +3182,9 @@ mod tests {
     #[test]
     #[cfg(feature = "custom")]
     fn rs256_reg() -> Result<(), AggErr> {
-        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
         let id = UserHandle::from([0]);
         let mut opts = CredentialCreationOptions::passkey(
-            &rp_id,
+            RP_ID,
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
@@ -3365,7 +3596,7 @@ mod tests {
             .as_slice(),
         );
         attestation_object[31..63]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
         let n = [
             111, 183, 124, 133, 38, 167, 70, 148, 44, 50, 30, 60, 121, 14, 38, 37, 96, 114, 107,
             195, 248, 64, 79, 36, 237, 140, 43, 27, 94, 74, 102, 152, 135, 102, 184, 150, 186, 206,
@@ -3438,7 +3669,7 @@ mod tests {
         let n = rsa_key.as_ref().n().to_bytes_be();
         attestation_object[113..369].copy_from_slice(n.as_slice());
         assert!(matches!(opts.start_ceremony()?.0.verify(
-            &rp_id,
+            RP_ID,
             &Registration {
                 response: AuthenticatorAttestation::new(
                     client_data_json,
@@ -3458,8 +3689,7 @@ mod tests {
     #[test]
     #[cfg(feature = "custom")]
     fn rs256_auth() -> Result<(), AggErr> {
-        let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-        let mut opts = DiscoverableCredentialRequestOptions::passkey(&rp_id);
+        let mut opts = DiscoverableCredentialRequestOptions::passkey(RP_ID);
         opts.public_key.challenge = Challenge(0);
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
@@ -3513,7 +3743,7 @@ mod tests {
             .as_slice(),
         );
         authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
+            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
         authenticator_data
             .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
         let n = [
@@ -3588,7 +3818,7 @@ mod tests {
         let sig = rsa_key.sign(authenticator_data.as_slice()).to_vec();
         authenticator_data.truncate(37);
         assert!(!opts.start_ceremony()?.0.verify(
-            &rp_id,
+            RP_ID,
             &DiscoverableAuthentication {
                 raw_id: CredentialId::try_from(vec![0; 16])?,
                 response: DiscoverableAuthenticatorAssertion::new(

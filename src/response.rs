@@ -33,8 +33,8 @@ use ser_relaxed::SerdeJsonErr;
 /// # use data_encoding::BASE64URL_NOPAD;
 /// # use webauthn_rp::{
 /// #     hash::hash_set::FixedCapHashSet,
-/// #     request::{auth::{error::InvalidTimeout, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, AsciiDomain, BackupReq, RpId},
-/// #     response::{auth::{error::AuthCeremonyErr, DiscoverableAuthentication64}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputsStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKey, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
+/// #     request::{auth::{error::InvalidTimeout, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, AsciiDomainStatic, BackupReq, RpId},
+/// #     response::{auth::{error::AuthCeremonyErr, DiscoverableAuthentication64}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputsStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKeyOwned, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
 /// #     AuthenticatedCredential, CredentialErr
 /// # };
 /// # #[derive(Debug)]
@@ -79,9 +79,9 @@ use ser_relaxed::SerdeJsonErr;
 /// #         Self::AuthCeremony(value)
 /// #     }
 /// # }
+/// const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
 /// let mut ceremonies = FixedCapHashSet::new(128);
-/// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
-/// let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id).start_ceremony()?;
+/// let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID).start_ceremony()?;
 /// assert!(
 ///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
 /// );
@@ -94,7 +94,7 @@ use ser_relaxed::SerdeJsonErr;
 /// # #[cfg(all(feature = "custom", feature = "serde"))]
 /// let mut cred = AuthenticatedCredential::new(authentication.raw_id(), &user_handle, static_state, dynamic_state)?;
 /// # #[cfg(all(feature = "custom", feature = "serde"))]
-/// if ceremonies.take(&authentication.challenge()?).ok_or(E::MissingCeremony)?.verify(&rp_id, &authentication, &mut cred, &AuthenticationVerificationOptions::<&str, &str>::default())? {
+/// if ceremonies.take(&authentication.challenge()?).ok_or(E::MissingCeremony)?.verify(RP_ID, &authentication, &mut cred, &AuthenticationVerificationOptions::<&str, &str>::default())? {
 ///     update_cred(authentication.raw_id(), cred.dynamic_state());
 /// }
 /// /// Send `DiscoverableAuthenticationClientState` and receive `DiscoverableAuthentication64` JSON from client.
@@ -121,9 +121,9 @@ use ser_relaxed::SerdeJsonErr;
 /// #     }).to_string()
 /// }
 /// /// Gets the `AuthenticatedCredential` parts associated with `id` and `user_handle` from the database.
-/// fn get_credential(id: CredentialId<&[u8]>, user_handle: &UserHandle64) -> Option<(StaticState<CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>>, DynamicState)> {
+/// fn get_credential(id: CredentialId<&[u8]>, user_handle: &UserHandle64) -> Option<(StaticState<CompressedPubKeyOwned>, DynamicState)> {
 ///     // ⋮
-/// #     Some((StaticState { credential_public_key: CompressedPubKey::Ed25519(Ed25519PubKey::from([0; 32])), extensions: AuthenticatorExtensionOutputStaticState { cred_protect: CredentialProtectionPolicy::UserVerificationRequired, hmac_secret: None, }, client_extension_results: ClientExtensionsOutputsStaticState { prf: None, }, }, DynamicState { user_verified: true, backup: Backup::NotEligible, sign_count: 1, authenticator_attachment: AuthenticatorAttachment::None }))
+/// #     Some((StaticState { credential_public_key: CompressedPubKeyOwned::Ed25519(Ed25519PubKey::from([0; 32])), extensions: AuthenticatorExtensionOutputStaticState { cred_protect: CredentialProtectionPolicy::UserVerificationRequired, hmac_secret: None, }, client_extension_results: ClientExtensionsOutputsStaticState { prf: None, }, }, DynamicState { user_verified: true, backup: Backup::NotEligible, sign_count: 1, authenticator_attachment: AuthenticatorAttachment::None }))
 /// }
 /// /// Updates the current `DynamicState` associated with `id` in the database to
 /// /// `dyn_state`.
@@ -156,7 +156,7 @@ pub mod error;
 /// # use data_encoding::BASE64URL_NOPAD;
 /// # use webauthn_rp::{
 /// #     hash::hash_set::FixedCapHashSet,
-/// #     request::{register::{error::CreationOptionsErr, CredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomain, PublicKeyCredentialDescriptor, RpId},
+/// #     request::{register::{error::CreationOptionsErr, CredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomainStatic, PublicKeyCredentialDescriptor, RpId},
 /// #     response::{register::{error::RegCeremonyErr, Registration}, error::CollectedClientDataErr, CollectedClientData},
 /// #     RegisteredCredential
 /// # };
@@ -194,9 +194,9 @@ pub mod error;
 /// #         Self::RegCeremony(value)
 /// #     }
 /// # }
+/// const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
 /// # #[cfg(feature = "custom")]
 /// let mut ceremonies = FixedCapHashSet::new(128);
-/// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
 /// # #[cfg(feature = "custom")]
 /// let user_handle = get_user_handle();
 /// # #[cfg(feature = "custom")]
@@ -204,7 +204,7 @@ pub mod error;
 /// # #[cfg(feature = "custom")]
 /// let creds = get_registered_credentials(user_handle);
 /// # #[cfg(feature = "custom")]
-/// let (server, client) = CredentialCreationOptions::passkey(&rp_id, user, creds).start_ceremony()?;
+/// let (server, client) = CredentialCreationOptions::passkey(RP_ID, user, creds).start_ceremony()?;
 /// # #[cfg(feature = "custom")]
 /// assert!(
 ///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
@@ -213,7 +213,7 @@ pub mod error;
 /// let registration = serde_json::from_str::<Registration>(get_registration_json(client).as_str())?;
 /// let ver_opts = RegistrationVerificationOptions::<&str, &str>::default();
 /// # #[cfg(all(feature = "custom", feature = "serde_relaxed"))]
-/// insert_cred(ceremonies.take(&registration.challenge()?).ok_or(E::MissingCeremony)?.verify(&rp_id, &registration, &ver_opts)?);
+/// insert_cred(ceremonies.take(&registration.challenge()?).ok_or(E::MissingCeremony)?.verify(RP_ID, &registration, &ver_opts)?);
 /// /// Extract `UserHandle` from session cookie if this is not the first credential registered.
 /// # #[cfg(feature = "custom")]
 /// fn get_user_handle() -> UserHandle64 {
@@ -606,6 +606,34 @@ impl<T: Ord> Ord for CredentialId<T> {
 /// Copy of [`Challenge`] sent back from the client.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SentChallenge(pub u128);
+impl SentChallenge {
+    /// Transforms `value` into a `SentChallenge` by interpreting `value` as a
+    /// little-endian `u128`.
+    #[expect(clippy::little_endian_bytes, reason = "Challenge and SentChallenge need to be compatible, and we need to ensure the data is sent and received in the same order")]
+    #[inline]
+    #[must_use]
+    pub const fn from_array(value: [u8; 16]) -> Self {
+        Self(u128::from_le_bytes(value))
+    }
+    /// Transforms `value` into a `SentChallenge`.
+    #[inline]
+    #[must_use]
+    pub const fn from_challenge(value: Challenge) -> Self {
+        Self(value.into_data())
+    }
+}
+impl From<Challenge> for SentChallenge {
+    #[inline]
+    fn from(value: Challenge) -> Self {
+        Self::from_challenge(value)
+    }
+}
+impl From<[u8; 16]> for SentChallenge {
+    #[inline]
+    fn from(value: [u8; 16]) -> Self {
+        Self::from_array(value)
+    }
+}
 impl PartialEq<&Self> for SentChallenge {
     #[inline]
     fn eq(&self, other: &&Self) -> bool {

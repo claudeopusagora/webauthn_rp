@@ -8,7 +8,7 @@ use super::{
             DynamicState, StaticState,
         },
     },
-    AsciiDomain, DomainOrigin, Url,
+    AsciiDomain, AsciiDomainStatic, DomainOrigin, Url,
     register::{self, PublicKeyCredentialCreationOptions},
 };
 use super::{
@@ -364,6 +364,25 @@ impl<'rp_id, 'prf_first, 'prf_second>
                 DiscoverableAuthenticationClientState(self),
             )
         })
+    }
+    /// Same as [`Self::start_ceremony`] except the raw challenge is returned instead of
+    /// [`DiscoverableAuthenticationClientState`].
+    ///
+    /// Note this is useful when one configures the authentication ceremony client-side and only needs the
+    /// server-generated challenge. It's of course essential that `self` is configured exactly the same as
+    /// how it is configured client-side. See
+    /// [`challengeURL`](https://github.com/w3c/webauthn/wiki/Explainer:-WebAuthn-challengeURL) for more
+    /// information.
+    ///
+    /// # Errors
+    ///
+    /// Read [`Self::start_ceremony`].
+    #[inline]
+    pub fn start_ceremony_challenge_only(
+        self,
+    ) -> Result<(DiscoverableAuthenticationServerState, [u8; 16]), InvalidTimeout> {
+        self.start_ceremony()
+            .map(|(server, client)| (server, client.0.public_key.challenge.into_array()))
     }
 }
 /// The [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions)
@@ -987,9 +1006,10 @@ pub struct AuthenticationVerificationOptions<'origins, 'top_origins, O, T> {
     /// Origins to use for [origin validation](https://www.w3.org/TR/webauthn-3/#sctn-validating-origin).
     ///
     /// When this is empty, the origin that will be used will be based on the [`RpId`] passed to
-    /// [`DiscoverableAuthenticationServerState::verify`] or [`NonDiscoverableAuthenticationServerState::verify`]. If
-    /// [`RpId::Domain`], then the [`DomainOrigin`] returned from passing [`AsciiDomain::as_ref`] to
-    /// [`DomainOrigin::new`] will be used; otherwise the [`Url`] in [`RpId::Url`] will be used.
+    /// [`DiscoverableAuthenticationServerState::verify`] or [`NonDiscoverableAuthenticationServerState::verify`].
+    /// If [`RpId::Domain`] or [`RpId::StaticDomain`], then the [`DomainOrigin`] returned from passing
+    /// [`AsciiDomain::as_ref`] and [`AsciiDomainStatic::as_str`] to [`DomainOrigin::new`] respectively will be
+    /// used; otherwise the [`Url`] in [`RpId::Url`] will be used.
     pub allowed_origins: &'origins [O],
     /// [Top-level origins](https://html.spec.whatwg.org/multipage/webappapis.html#concept-environment-top-level-origin)
     /// to use for [origin validation](https://www.w3.org/TR/webauthn-3/#sctn-validating-origin).
@@ -1019,25 +1039,35 @@ pub struct AuthenticationVerificationOptions<'origins, 'top_origins, O, T> {
     #[cfg(feature = "serde_relaxed")]
     pub client_data_json_relaxed: bool,
 }
-impl<O, T> Default for AuthenticationVerificationOptions<'_, '_, O, T> {
+impl<O, T> AuthenticationVerificationOptions<'_, '_, O, T> {
     /// Returns `Self` such that [`Self::allowed_origins`] is empty, [`Self::allowed_top_origins`] is `None`,
     /// [`Self::backup_requirement`] is `None`, [`Self::error_on_unsolicited_extensions`] is `true`,
     /// [`Self::auth_attachment_enforcement`] is [`AuthenticatorAttachmentEnforcement::default`],
     /// [`Self::update_uv`] is `false`, [`Self::sig_counter_enforcement`] is
     /// [`SignatureCounterEnforcement::default`], and [`Self::client_data_json_relaxed`] is `true`.
+    ///
+    /// Note `O` and `T` should implement `PartialEq<Origin<'_>>` (e.g., `&str`).
     #[inline]
-    fn default() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
-            allowed_origins: &[],
+            allowed_origins: [].as_slice(),
             allowed_top_origins: None,
             backup_requirement: None,
             error_on_unsolicited_extensions: true,
-            auth_attachment_enforcement: AuthenticatorAttachmentEnforcement::default(),
+            auth_attachment_enforcement: AuthenticatorAttachmentEnforcement::Ignore(false),
             update_uv: false,
-            sig_counter_enforcement: SignatureCounterEnforcement::default(),
+            sig_counter_enforcement: SignatureCounterEnforcement::Fail,
             #[cfg(feature = "serde_relaxed")]
             client_data_json_relaxed: true,
         }
+    }
+}
+impl<O, T> Default for AuthenticationVerificationOptions<'_, '_, O, T> {
+    /// Same as [`Self::new`].
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 // This is essentially the `DiscoverableCredentialRequestOptions` used to create it; however to reduce

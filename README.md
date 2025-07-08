@@ -20,11 +20,11 @@ having said that, there are pre-defined serialization formats for "common" deplo
 use core::convert;
 use webauthn_rp::{
     AuthenticatedCredential64, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
-    DiscoverableCredentialRequestOptions, PublicKeyCredentialCreationOptions64, RegisteredCredential64,
+    DiscoverableCredentialRequestOptions, CredentialCreationOptions64, RegisteredCredential64,
     Registration, RegistrationServerState64,
     hash::hash_set::FixedCapHashSet,
     request::{
-        AsciiDomain, PublicKeyCredentialDescriptor, RpId,
+        AsciiDomainStatic, PublicKeyCredentialDescriptor, RpId,
         auth::AuthenticationVerificationOptions,
         register::{
             Nickname, PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
@@ -34,13 +34,17 @@ use webauthn_rp::{
     response::{
         CredentialId,
         auth::error::AuthCeremonyErr,
-        register::{CompressedPubKey, DynamicState, error::RegCeremonyErr},
+        register::{CompressedPubKeyOwned, DynamicState, error::RegCeremonyErr},
     },
 };
 use serde::de::{Deserialize, Deserializer};
 use serde_json::Error as JsonErr;
 /// The RP ID our application uses.
-const RP_ID: &str = "example.com";
+const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+/// The registration verification options.
+const REG_OPTS: &RegistrationVerificationOptions::<'static, 'static, &'static str, &'static str> = &RegistrationVerificationOptions::new();
+/// The authentication verification options.
+const AUTH_OPTS: &AuthenticationVerificationOptions::<'static, 'static, &'static str, &'static str> = &AuthenticationVerificationOptions::new();
 /// Error we return in our application when a function fails.
 enum AppErr {
     /// WebAuthn registration ceremony failed.
@@ -101,14 +105,10 @@ impl<'de: 'a + 'b, 'a, 'b> Deserialize<'de> for AccountReg<'a, 'b> {
 fn start_account_creation(
     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
 ) -> Result<Vec<u8>, AppErr> {
-    let rp_id = RpId::Domain(
-        AsciiDomain::try_from(RP_ID.to_owned())
-            .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
-    );
     let user_id = UserHandle64::new();
     let (server, client) =
-        PublicKeyCredentialCreationOptions64::first_passkey_with_blank_user_info(
-            &rp_id, &user_id,
+        CredentialCreationOptions64::first_passkey_with_blank_user_info(
+            RP_ID, &user_id,
         )
         .start_ceremony()
         .unwrap_or_else(|_e| {
@@ -132,9 +132,9 @@ fn start_account_creation(
 /// authenticator.
 fn finish_account_creation(
     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
-    client_data: Vec<u8>,
+    client_data: &[u8],
 ) -> Result<(), AppErr> {
-    let account = serde_json::from_slice::<AccountReg<'_, '_>>(client_data.as_slice())?;
+    let account = serde_json::from_slice::<AccountReg<'_, '_>>(client_data)?;
     insert_account(
         &account,
         reg_ceremonies
@@ -142,12 +142,9 @@ fn finish_account_creation(
             .take(&account.registration.challenge_relaxed()?)
             .ok_or(AppErr::MissingWebAuthnCeremony)?
             .verify(
-                &RpId::Domain(
-                    AsciiDomain::try_from(RP_ID.to_owned())
-                        .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
-                ),
+                RP_ID,
                 &account.registration,
-                &RegistrationVerificationOptions::<&str, &str>::default(),
+                REG_OPTS,
             )?,
     )
 }
@@ -161,12 +158,8 @@ fn start_cred_registration(
     user_id: &UserHandle64,
     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
 ) -> Result<Vec<u8>, AppErr> {
-    let rp_id = RpId::Domain(
-        AsciiDomain::try_from(RP_ID.to_owned())
-            .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
-    );
-    let (entity, creds) = select_user_info(user_id)?.ok_or_else(|| AppErr::NoAccount)?;
-    let (server, client) = PublicKeyCredentialCreationOptions64::passkey(&rp_id, entity, creds)
+    let (entity, creds) = select_user_info(user_id)?.ok_or(AppErr::NoAccount)?;
+    let (server, client) = CredentialCreationOptions64::passkey(RP_ID, entity, creds)
         .start_ceremony()
         .unwrap_or_else(|_e| {
             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
@@ -189,22 +182,19 @@ fn start_cred_registration(
 /// authenticator.
 fn finish_cred_registration(
     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
-    client_data: Vec<u8>,
+    client_data: &[u8],
 ) -> Result<(), AppErr> {
     // `Registration::from_json_custom` is available iff `serde_relaxed` is enabled.
-    let registration = Registration::from_json_custom(client_data.as_slice())?;
+    let registration = Registration::from_json_custom(client_data)?;
     insert_credential(
         reg_ceremonies
             // `Registration::challenge_relaxed` is available iff `serde_relaxed` is enabled.
             .take(&registration.challenge_relaxed()?)
             .ok_or(AppErr::MissingWebAuthnCeremony)?
             .verify(
-                &RpId::Domain(
-                    AsciiDomain::try_from(RP_ID.to_owned())
-                        .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
-                ),
+                RP_ID,
                 &registration,
-                &RegistrationVerificationOptions::<&str, &str>::default(),
+                REG_OPTS,
             )?,
     )
 }
@@ -212,11 +202,7 @@ fn finish_cred_registration(
 fn start_auth(
     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
 ) -> Result<Vec<u8>, AppErr> {
-    let rp_id = RpId::Domain(
-        AsciiDomain::try_from(RP_ID.to_owned())
-            .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
-    );
-    let (server, client) = DiscoverableCredentialRequestOptions::passkey(&rp_id)
+    let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID)
         .start_ceremony()
         .unwrap_or_else(|_e| {
             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
@@ -233,28 +219,25 @@ fn start_auth(
 /// Finishes the passkey authentication ceremony.
 fn finish_auth(
     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
-    client_data: Vec<u8>,
+    client_data: &[u8],
 ) -> Result<(), AppErr> {
     // `DiscoverableAuthentication64::from_json_custom` is available iff `serde_relaxed` is enabled.
     let authentication =
-        DiscoverableAuthentication64::from_json_custom(client_data.as_slice())?;
+        DiscoverableAuthentication64::from_json_custom(client_data)?;
     let mut cred = select_credential(
         authentication.raw_id(),
         authentication.response().user_handle(),
     )?
-    .ok_or_else(|| AppErr::NoCredential)?;
+    .ok_or(AppErr::NoCredential)?;
     if auth_ceremonies
         // `DiscoverableAuthentication64::challenge_relaxed` is available iff `serde_relaxed` is enabled.
         .take(&authentication.challenge_relaxed()?)
         .ok_or(AppErr::MissingWebAuthnCeremony)?
         .verify(
-            &RpId::Domain(
-                AsciiDomain::try_from(RP_ID.to_owned())
-                    .unwrap_or_else(|_e| unreachable!("example.com is a valid domain")),
-            ),
+            RP_ID,
             &authentication,
             &mut cred,
-            &AuthenticationVerificationOptions::<&str, &str>::default(),
+            AUTH_OPTS,
         )?
     {
         update_credential(cred.id(), cred.dynamic_state())
@@ -279,11 +262,11 @@ fn insert_account(
 /// # Errors
 ///
 /// Errors iff fetching the data errors.
-fn select_user_info<'a>(
-    user_id: &'a UserHandle64,
+fn select_user_info(
+    user_id: &UserHandle64,
 ) -> Result<
     Option<(
-        PublicKeyCredentialUserEntity64<'static, 'static, 'a>,
+        PublicKeyCredentialUserEntity64<'static, 'static, '_>,
         Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
     )>,
     AppErr,
@@ -315,7 +298,7 @@ fn select_credential<'cred, 'user>(
         AuthenticatedCredential64<
             'cred,
             'user,
-            CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>,
+            CompressedPubKeyOwned,
         >,
     >,
     AppErr,

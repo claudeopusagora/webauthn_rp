@@ -7,7 +7,7 @@ use core::{
     fmt::{self, Display, Formatter},
     num::ParseIntError,
 };
-/// Error returned by [`AsciiDomain::try_from`] when the `String` is not a valid ASCII domain.
+/// Error returned by [`AsciiDomain::try_from`] when the `Vec` is not a valid ASCII domain.
 #[derive(Clone, Copy, Debug)]
 pub enum AsciiDomainErr {
     /// Variant returned when the domain is empty.

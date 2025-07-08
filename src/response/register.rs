@@ -1466,27 +1466,23 @@ impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
             let zeros = fst.leading_zeros() as usize;
             if zeros == 8 {
                 Err(RsaPubKeyErr::NLeading0)
-            } else if let Some(bits) = n.len().checked_mul(8) {
-                if (MIN_RSA_N_BITS..=MAX_RSA_N_BITS)
-                    // `bits` is at least 8 since `n.len()` is at least 1; thus underflow cannot occur.
-                    .contains(&(bits - zeros))
+                // `bits` is at least 8 since `n.len()` is at least 1; thus underflow cannot occur.
+            } else if let Some(bits) = n.len().checked_mul(8)
+                && (MIN_RSA_N_BITS..=MAX_RSA_N_BITS).contains(&(bits - zeros))
+            {
+                // We know `n` is not empty, so this won't `panic`.
+                if n.last()
+                    .unwrap_or_else(|| unreachable!("there is a bug in RsaPubKey::try_from"))
+                    & 1
+                    == 0
                 {
-                    // We know `n` is not empty, so this won't `panic`.
-                    if n.last()
-                        .unwrap_or_else(|| unreachable!("there is a bug in RsaPubKey::try_from"))
-                        & 1
-                        == 0
-                    {
-                        Err(RsaPubKeyErr::NEven)
-                    } else if e < MIN_RSA_E {
-                        Err(RsaPubKeyErr::ESize)
-                    } else if e & 1 == 0 {
-                        Err(RsaPubKeyErr::EEven)
-                    } else {
-                        Ok(Self(n, e))
-                    }
+                    Err(RsaPubKeyErr::NEven)
+                } else if e < MIN_RSA_E {
+                    Err(RsaPubKeyErr::ESize)
+                } else if e & 1 == 0 {
+                    Err(RsaPubKeyErr::EEven)
                 } else {
-                    Err(RsaPubKeyErr::NSize)
+                    Ok(Self(n, e))
                 }
             } else {
                 Err(RsaPubKeyErr::NSize)
@@ -1994,6 +1990,15 @@ pub enum CompressedPubKey<T, T2, T3, T4> {
     /// An alleged RSA public key.
     Rsa(RsaPubKey<T4>),
 }
+/// `CompressedPubKey` that owns the key data.
+pub type CompressedPubKeyOwned = CompressedPubKey<
+    [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
+    [u8; <NistP256 as Curve>::FieldBytesSize::INT],
+    [u8; <NistP384 as Curve>::FieldBytesSize::INT],
+    Vec<u8>,
+>;
+/// `CompressedPubKey` that borrows the key data.
+pub type CompressedPubKeyBorrowed<'a> = CompressedPubKey<&'a [u8], &'a [u8], &'a [u8], &'a [u8]>;
 impl CompressedPubKey<&[u8], &[u8], &[u8], &[u8]> {
     /// Validates `self` is in fact a valid public key.
     ///
@@ -3410,15 +3415,8 @@ impl<'a: 'b, 'b, T: AsRef<[u8]>, T2: AsRef<[u8]>, T3: AsRef<[u8]>, T4: AsRef<[u8
 }
 /// `StaticState` with an uncompressed [`Self::credential_public_key`].
 pub type StaticStateUncompressed<'a> = StaticState<UncompressedPubKey<'a>>;
-/// `StaticState` with a compressed [`Self::credential_public_key`].
-pub type StaticStateCompressed = StaticState<
-    CompressedPubKey<
-        [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
-        [u8; <NistP256 as Curve>::FieldBytesSize::INT],
-        [u8; <NistP384 as Curve>::FieldBytesSize::INT],
-        Vec<u8>,
-    >,
->;
+/// `StaticState` with a compressed [`Self::credential_public_key`] that owns the key data.
+pub type StaticStateCompressed = StaticState<CompressedPubKeyOwned>;
 impl StaticStateUncompressed<'_> {
     /// Transforms `self` into `StaticState` that contains the compressed version of the public key.
     #[inline]

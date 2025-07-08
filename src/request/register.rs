@@ -19,7 +19,9 @@ use super::{
 };
 #[cfg(doc)]
 use crate::{
-    request::{AsciiDomain, DomainOrigin, Url, auth::PublicKeyCredentialRequestOptions},
+    request::{
+        AsciiDomain, AsciiDomainStatic, DomainOrigin, Url, auth::PublicKeyCredentialRequestOptions,
+    },
     response::{AuthTransports, AuthenticatorTransport, Backup, CollectedClientData},
 };
 use alloc::borrow::Cow;
@@ -1913,9 +1915,9 @@ pub struct RegistrationVerificationOptions<'origins, 'top_origins, O, T> {
     /// Origins to use for [origin validation](https://www.w3.org/TR/webauthn-3/#sctn-validating-origin).
     ///
     /// When this is empty, the origin that will be used will be based on
-    /// the [`RpId`] passed to [`RegistrationServerState::verify`]. If [`RpId::Domain`], then the [`DomainOrigin`] returned from
-    /// passing [`AsciiDomain::as_ref`] to [`DomainOrigin::new`] will be used; otherwise the [`Url`] in
-    /// [`RpId::Url`] will be used.
+    /// the [`RpId`] passed to [`RegistrationServerState::verify`]. If [`RpId::Domain`] or [`RpId::StaticDomain`],
+    /// then the [`DomainOrigin`] returned from passing [`AsciiDomain::as_ref`] and [`AsciiDomainStatic::as_str`]
+    /// to [`DomainOrigin::new`] respectively will be used; otherwise the [`Url`] in [`RpId::Url`] will be used.
     pub allowed_origins: &'origins [O],
     /// [Top-level origins](https://html.spec.whatwg.org/multipage/webappapis.html#concept-environment-top-level-origin)
     /// to use for [origin validation](https://www.w3.org/TR/webauthn-3/#sctn-validating-origin).
@@ -1935,11 +1937,29 @@ pub struct RegistrationVerificationOptions<'origins, 'top_origins, O, T> {
     #[cfg(feature = "serde_relaxed")]
     pub client_data_json_relaxed: bool,
 }
-impl<O, T> Default for RegistrationVerificationOptions<'_, '_, O, T> {
+impl<O, T> RegistrationVerificationOptions<'_, '_, O, T> {
     /// Returns `Self` such that [`Self::allowed_origins`] is empty, [`Self::allowed_top_origins`] is `None`,
     /// [`Self::backup_requirement`] is [`BackupReq::None`], [`Self::error_on_unsolicited_extensions`] is `true`,
     /// [`Self::require_authenticator_attachment`] is `false`, and [`Self::client_data_json_relaxed`] is
     /// `true`.
+    ///
+    /// Note `O` and `T` should implement `PartialEq<Origin<'_>>` (e.g., `&str`).
+    #[inline]
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            allowed_origins: [].as_slice(),
+            allowed_top_origins: None,
+            backup_requirement: BackupReq::None,
+            error_on_unsolicited_extensions: true,
+            require_authenticator_attachment: false,
+            #[cfg(feature = "serde_relaxed")]
+            client_data_json_relaxed: true,
+        }
+    }
+}
+impl<O, T> Default for RegistrationVerificationOptions<'_, '_, O, T> {
+    /// Same as [`Self::new`].
     #[inline]
     fn default() -> Self {
         Self {
@@ -2212,7 +2232,7 @@ impl PartialEq for ServerExtensionInfo {
 }
 // This is essentially the `PublicKeyCredentialCreationOptions` used to create it; however to reduce
 // memory usage, we remove all unnecessary data making an instance of this 48 bytes in size on
-// `x86_64-unknown-linux-gnu` platforms.
+// `x86_64-unknown-linux-gnu` platforms when `USER_LEN` is `USER_HANDLE_MIN_LEN`.
 /// State needed to be saved when beginning the registration ceremony.
 ///
 /// Saves the necessary information associated with the [`CredentialCreationOptions`] used to create it

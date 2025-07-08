@@ -48,8 +48,7 @@ impl Serialize for Challenge {
     /// Serializes `self` to conform with
     /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptionsjson-challenge).
     ///
-    /// Specifically `self` is interpreted as a little-endian array of 16 bytes that is then transformed into a
-    /// base64url-encoded string.
+    /// Specifically [`Self::as_array`] is transformed into a base64url-encoded string.
     ///
     /// # Examples
     ///
@@ -59,17 +58,13 @@ impl Serialize for Challenge {
     /// assert_eq!(serde_json::to_string(&Challenge::new())?.len(), 24);
     /// # Ok::<_, serde_json::Error>(())
     /// ```
-    #[expect(
-        clippy::little_endian_bytes,
-        reason = "SentChallenge::deserialize and Challenge::serialize need to be consistent across architectures"
-    )]
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(
-            self.0.to_le_bytes().as_slice(),
+            self.as_array().as_slice(),
             [0; Self::BASE64_LEN].as_mut_slice(),
         ))
     }

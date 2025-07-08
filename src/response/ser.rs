@@ -428,10 +428,6 @@ impl<'de> Deserialize<'de> for SentChallenge {
                 clippy::panic_in_result_fn,
                 reason = "we want to crash when there is a bug"
             )]
-            #[expect(
-                clippy::little_endian_bytes,
-                reason = "SentChallenge::deserialize and Challenge::serialize need to be consistent across architectures"
-            )]
             fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
             where
                 E: Error,
@@ -443,7 +439,7 @@ impl<'de> Deserialize<'de> for SentChallenge {
                         .map_err(|err| E::custom(err.error))
                         .map(|len| {
                             assert_eq!(len, 16, "there is a bug in BASE64URL_NOPAD::decode_mut");
-                            SentChallenge(u128::from_le_bytes(data))
+                            SentChallenge::from_array(data)
                         })
                 } else {
                     Err(E::invalid_value(
