@@ -143,14 +143,21 @@ impl Encode for DiscoverableAuthenticationServerState {
     where
         Self: 'a;
     type Err = SystemTimeError;
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "comment justifies correctness"
+    )]
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
         // Length of the anticipated most common output:
         // * 16 for `SentChallenge`
         // * 1 for `UserVerificationRequirement`
-        // * 1 or 3 for `ServerExtensionInfo` where we assume 1 is the most common
+        // * 1 or 2 for `ServerExtensionInfo`
         // * 12 for `SystemTime`
-        let mut buffer = Vec::with_capacity(16 + 1 + 1 + 12);
+        // Clearly cannot overflow.
+        let mut buffer = Vec::with_capacity(
+            16 + 1 + 1 + usize::from(!matches!(self.0.extensions.prf, ServerPrfInfo::None)) + 12,
+        );
         self.0.encode_into_buffer(&mut buffer).map(|()| buffer)
     }
 }
@@ -187,12 +194,21 @@ impl Encode for NonDiscoverableAuthenticationServerState {
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
         // Length of the anticipated most common output:
         // * 16 for `SentChallenge`
-        // * 2 + large range for `[CredInfo]` where we assume [`CredInfo`] being
-        //   empty is the most common
+        // * 2 + Σ(2 + len(id_i) + (1|2)) from i = 1 to i = `self.allow_credentials.len()` where i is the
+        //   1-based index of the `AllowedCredential` and len(id_i) is the number of bytes that makes up
+        //   the ith `CredentialId`. Since `self.allow_credentials.len()` is inclusively between 1 and
+        //   65,535, the smallest this can be is 2 + 2 + 16 + 1 = 21; and the largest this can be is
+        //   2 + 65535(2 + 1023 + 2) = 67,304,447. We assume no credential-specific PRF is sent and the
+        //   the average length of the `CredentialId`s is 128.
         // * 1 for `UserVerificationRequirement`
-        // * 1 or 3 for `ServerExtensionInfo` where we assume 1 is the most common
+        // * 1 or 2 for `ServerExtensionInfo` where we assume 1 is the most common
         // * 12 for `SystemTime`
-        let mut buffer = Vec::with_capacity(16 + 2 + 1 + 1 + 12);
+        // This is just an estimate; thus we rely on wrapping arithmetic. If the actual needed capacity is too big,
+        // then a `panic` will happen anyway once we serialize the entire payload.
+        let mut buffer = Vec::with_capacity(
+            (16usize + 2 + 1 + 1 + 12)
+                .wrapping_add(self.allow_credentials.len().wrapping_mul(2 + 128 + 1)),
+        );
         self.state
             .encode_into_buffer(&mut buffer)
             .map_err(EncodeNonDiscoverableAuthenticationServerStateErr::SystemTime)
@@ -291,7 +307,9 @@ impl Decode for NonDiscoverableAuthenticationServerState {
                 Vec::decode_from_buffer(&mut input)
                     .map_err(|_e| DecodeNonDiscoverableAuthenticationServerStateErr::Other)
                     .and_then(|allow_credentials| {
-                        if input.is_empty() {
+                        if allow_credentials.is_empty() {
+                            Err(DecodeNonDiscoverableAuthenticationServerStateErr::Other)
+                        } else if input.is_empty() {
                             Ok(Self {
                                 state,
                                 allow_credentials,

@@ -66,7 +66,7 @@ use url::Url as Uri;
 /// let creds = get_registered_credentials(&user_handle)?;
 /// # #[cfg(feature = "custom")]
 /// let (server_2, client_2) =
-///     NonDiscoverableCredentialRequestOptions::second_factor(RP_ID, creds)?.start_ceremony()?;
+///     NonDiscoverableCredentialRequestOptions::second_factor(RP_ID, creds).start_ceremony()?;
 /// # #[cfg(feature = "custom")]
 /// assert!(
 ///     ceremonies_2.insert_remove_all_expired(server_2).map_or(false, convert::identity)
@@ -200,9 +200,8 @@ pub(super) mod ser_server_state;
 #[derive(Debug)]
 pub struct Challenge(u128);
 impl Challenge {
-    // This won't `panic` since 4/3 of 16 is less than `usize::MAX`.
     /// The number of bytes a `Challenge` takes to encode in base64url.
-    pub(super) const BASE64_LEN: usize = super::base64url_nopad_len(16).unwrap();
+    pub(super) const BASE64_LEN: usize = super::base64url_nopad_len(16);
     /// Generates a random `Challenge`.
     ///
     /// # Examples
@@ -1274,30 +1273,32 @@ impl Display for ExtensionInfo {
     }
 }
 /// [`CredentialMediationRequirement`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
+///
+/// Note [`silent`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-silent)
+/// is not supported for WebAuthn credentials, and
+/// [`optional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-optional)
+/// is just an alias for [`Self::Required`].
+#[expect(clippy::doc_markdown, reason = "false positive")]
 #[derive(Clone, Copy, Debug, Default)]
 pub enum CredentialMediationRequirement {
-    /// [`silent`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-silent).
-    Silent,
-    /// [`optional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-optional).
+    /// [`required`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-required).
+    ///
+    /// This is the default mediation for ceremonies.
     #[default]
-    Optional,
+    Required,
     /// [`conditional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-conditional).
     ///
     /// Note that when registering a new credential with [`CredentialCreationOptions::mediation`] set to
     /// `Self::Conditional`, [`UserVerificationRequirement::Discouraged`] MUST be used unless user verification
     /// can be explicitly performed during the ceremony.
     Conditional,
-    /// [`required`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-required).
-    Required,
 }
 #[cfg(test)]
 impl PartialEq for CredentialMediationRequirement {
     fn eq(&self, other: &Self) -> bool {
         match *self {
-            Self::Silent => matches!(other, Self::Silent),
-            Self::Optional => matches!(other, Self::Optional),
-            Self::Conditional => matches!(other, Self::Conditional),
             Self::Required => matches!(other, Self::Required),
+            Self::Conditional => matches!(other, Self::Conditional),
         }
     }
 }
@@ -1706,8 +1707,6 @@ trait Ceremony<const USER_LEN: usize, const DISCOVERABLE: bool> {
         }
     }
 }
-/// `300_000` milliseconds is equal to five minutes.
-pub(super) const THREE_HUNDRED_THOUSAND: NonZeroU32 = NonZeroU32::new(300_000).unwrap();
 /// "Ceremonies" stored on the server that expire after a certain duration.
 ///
 /// Types like [`RegistrationServerState`] and [`DiscoverableAuthenticationServerState`] are based on [`Challenge`]s
@@ -1737,6 +1736,12 @@ impl PartialEq for PrfInput<'_, '_> {
         self.first == other.first && self.second == other.second
     }
 }
+
+/// The number of milliseconds in 5 minutes.
+///
+/// This is the recommended default timeout duration for ceremonies
+/// [in the spec](https://www.w3.org/TR/webauthn-3/#sctn-timeout-recommended-range).
+pub const FIVE_MINUTES: NonZeroU32 = NonZeroU32::new(300_000).unwrap();
 #[cfg(test)]
 mod tests {
     use super::AsciiDomainStatic;
@@ -2212,10 +2217,10 @@ mod tests {
                 }),
             },
         });
-        let mut opts = NonDiscoverableCredentialRequestOptions::second_factor(RP_ID, creds)?;
-        opts.options().user_verification = UserVerificationRequirement::Required;
-        opts.options().challenge = Challenge(0);
-        opts.options().extensions = AuthExt { prf: None };
+        let mut opts = NonDiscoverableCredentialRequestOptions::second_factor(RP_ID, creds);
+        opts.options.user_verification = UserVerificationRequirement::Required;
+        opts.options.challenge = Challenge(0);
+        opts.options.extensions = AuthExt { prf: None };
         let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
         // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
         let mut authenticator_data = Vec::with_capacity(164);

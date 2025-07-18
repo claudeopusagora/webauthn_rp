@@ -161,8 +161,9 @@ pub enum ExtensionErr {
     UserNotVerifiedHmacSecret,
     /// [`AuthenticatorExtensionOutput::hmac_secret`] was sent from the client but was not supposed to be.
     ForbiddenHmacSecret,
-    /// [`Extension::prf`] was requested for a credential that does not support it.
-    PrfRequestedForPrfIncapableCred,
+    /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
+    /// was received for a credential that does not support it.
+    HmacSecretForNonHmacSecretCredential,
     /// [`Extension::prf`] was requested for a PRF-capable credential that is based on the
     /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension)
     /// extension, but the required response was not sent back.
@@ -182,9 +183,9 @@ impl Display for ExtensionErr {
             Self::ForbiddenHmacSecret => {
                 f.write_str("hmac-secret info was sent from the client, but it is not allowed")
             }
-            Self::PrfRequestedForPrfIncapableCred => {
-                f.write_str("prf extension was requested for a credential that is not PRF-capable")
-            }
+            Self::HmacSecretForNonHmacSecretCredential => f.write_str(
+                "hmac-secret info was sent from the client, but the credential does not support it",
+            ),
             Self::MissingHmacSecret => f.write_str("hmac-secret was not sent from the client"),
             Self::InvalidHmacSecretValue(sent, recv) => write!(
                 f,

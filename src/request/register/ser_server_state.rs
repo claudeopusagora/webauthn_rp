@@ -246,17 +246,41 @@ impl<const USER_LEN: usize> Encode for RegistrationServerState<USER_LEN> {
     where
         Self: 'a;
     type Err = SystemTimeError;
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "comment justifies correctness"
+    )]
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
         // Length of the anticipated most common output:
         // * 1 for `CredentialMediationRequirement`
         // * 16 for `SentChallenge`
         // * 1 for `CoseAlgorithmIdentifiers`
-        // * 6 for `AuthenticatorSelectionCriteria`
-        // * 4–8 for `Extension` where we assume 4 is the most common
+        // * 4 for `AuthenticatorSelectionCriteria`
+        // * 4–10 for `Extension`
         // * 12 for `SystemTime`
-        // * Variable length for `U` where we assume a 16-byte `UserHandle` array is most common.
-        let mut buffer = Vec::with_capacity(1 + 16 + 1 + 6 + 4 + 12 + 16);
+        // * 1–64 for `UserHandle<USER_LEN>`
+        // Overflow cannot occur since `self.user_id` has max length of 64.
+        let mut buffer = Vec::with_capacity(
+            1 + 16
+                + 1
+                + 4
+                + (1 + usize::from(self.extensions.cred_props.is_some())
+                    + if matches!(self.extensions.cred_protect, CredProtect::None) {
+                        1
+                    } else {
+                        3
+                    }
+                    + if self.extensions.min_pin_length.is_none() {
+                        1
+                    } else {
+                        3
+                    }
+                    + 1
+                    + usize::from(!matches!(self.extensions.prf, ServerPrfInfo::None)))
+                + 12
+                + self.user_id.0.len(),
+        );
         self.mediation.encode_into_buffer(&mut buffer);
         self.challenge.encode_into_buffer(&mut buffer);
         self.pub_key_cred_params.encode_into_buffer(&mut buffer);

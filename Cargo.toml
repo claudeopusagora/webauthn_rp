@@ -97,7 +97,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 data-encoding = { version = "2.9.0", default-features = false }
-ed25519-dalek = { version = "2.1.1", default-features = false }
+ed25519-dalek = { version = "2.2.0", default-features = false }
 hashbrown = { version = "0.15.4", default-features = false }
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.13.1", default-features = false, features = ["ecdsa"] }
@@ -105,15 +105,15 @@ precis-profiles = { version = "0.1.12", default-features = false }
 rand = { version = "0.9.1", default-features = false, features = ["thread_rng"] }
 rsa = { version = "0.9.8", default-features = false, features = ["sha2"] }
 serde = { version = "1.0.219", default-features = false, features = ["alloc"], optional = true }
-serde_json = { version = "1.0.140", default-features = false, features = ["alloc"], optional = true }
+serde_json = { version = "1.0.141", default-features = false, features = ["alloc"], optional = true }
 url = { version = "2.5.4", default-features = false }
 
 [dev-dependencies]
 data-encoding = { version = "2.9.0", default-features = false, features = ["alloc"] }
-ed25519-dalek = { version = "2.1.1", default-features = false, features = ["alloc", "pkcs8"] }
+ed25519-dalek = { version = "2.2.0", default-features = false, features = ["alloc", "pkcs8"] }
 p256 = { version = "0.13.2", default-features = false, features = ["pem"] }
 p384 = { version = "0.13.1", default-features = false, features = ["pkcs8"] }
-serde_json = { version = "1.0.140", default-features = false, features = ["preserve_order"] }
+serde_json = { version = "1.0.141", default-features = false, features = ["preserve_order"] }
 
 
 ### FEATURES #################################################################

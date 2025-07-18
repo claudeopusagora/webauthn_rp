@@ -2,7 +2,7 @@ use super::{
     super::{
         super::request::register::CoseAlgorithmIdentifier,
         ser::{
-            AuthenticationExtensionsPrfOutputsHelper, AuthenticationExtensionsPrfValues,
+            self, AuthenticationExtensionsPrfOutputsHelper, AuthenticationExtensionsPrfValues,
             Base64DecodedVal, ClientExtensions, PublicKeyCredential,
         },
     },
@@ -765,7 +765,7 @@ impl<'e> Deserialize<'e> for AttObj {
             where
                 E: Error,
             {
-                crate::base64url_nopad_decode_len(v.len())
+                ser::base64url_nopad_decode_len(v.len())
                     .ok_or_else(|| E::invalid_value(Unexpected::Str(v), &"base64url-encoded value"))
                     .and_then(|len| {
                         // The decoded length is 3/4 of the encoded length, so overflow could only occur

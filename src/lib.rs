@@ -545,7 +545,7 @@ use crate::{
 };
 use crate::{
     request::{
-        auth::error::{InvalidTimeout, SecondFactorErr},
+        auth::error::{InvalidTimeout, NonDiscoverableCredentialRequestOptionsErr},
         error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
         register::{
             ResidentKeyRequirement, USER_HANDLE_MAX_LEN, UserHandle,
@@ -1094,12 +1094,19 @@ impl<'cred, 'user, const USER_LEN: usize, PublicKey>
         )
     }
 }
+use response::register::{CompressedPubKeyBorrowed, CompressedPubKeyOwned};
 /// `AuthenticatedCredential` based on a [`UserHandle64`].
 pub type AuthenticatedCredential64<'cred, 'user, PublicKey> =
     AuthenticatedCredential<'cred, 'user, USER_HANDLE_MAX_LEN, PublicKey>;
 /// `AuthenticatedCredential` based on a [`UserHandle16`].
 pub type AuthenticatedCredential16<'cred, 'user, PublicKey> =
     AuthenticatedCredential<'cred, 'user, 16, PublicKey>;
+/// `AuthenticatedCredential` that owns the key data.
+pub type AuthenticatedCredentialOwned<'cred, 'user, const USER_LEN: usize> =
+    AuthenticatedCredential<'cred, 'user, USER_LEN, CompressedPubKeyOwned>;
+/// `AuthenticatedCredential` that borrows the key data.
+pub type AuthenticatedCredentialBorrowed<'cred, 'user, 'key, const USER_LEN: usize> =
+    AuthenticatedCredential<'cred, 'user, USER_LEN, CompressedPubKeyBorrowed<'key>>;
 /// Convenience aggregate error that rolls up all errors into one.
 #[derive(Debug)]
 pub enum AggErr {
@@ -1117,10 +1124,10 @@ pub enum AggErr {
     /// [`NonDiscoverableCredentialRequestOptions::start_ceremony`]
     /// error.
     InvalidTimeout(InvalidTimeout),
-    /// Variant when [`NonDiscoverableCredentialRequestOptions::second_factor`] errors.
-    SecondFactor(SecondFactorErr),
     /// Variant when [`CredentialCreationOptions::start_ceremony`] errors.
     CreationOptions(CreationOptionsErr),
+    /// Variant when [`NonDiscoverableCredentialRequestOptions::start_ceremony`] errors.
+    NonDiscoverableCredentialRequestOptions(NonDiscoverableCredentialRequestOptionsErr),
     /// Variant when [`Nickname::try_from`] errors.
     Nickname(NicknameErr),
     /// Variant when [`Username::try_from`] errors.
@@ -1238,16 +1245,16 @@ impl From<InvalidTimeout> for AggErr {
         Self::InvalidTimeout(value)
     }
 }
-impl From<SecondFactorErr> for AggErr {
-    #[inline]
-    fn from(value: SecondFactorErr) -> Self {
-        Self::SecondFactor(value)
-    }
-}
 impl From<CreationOptionsErr> for AggErr {
     #[inline]
     fn from(value: CreationOptionsErr) -> Self {
         Self::CreationOptions(value)
+    }
+}
+impl From<NonDiscoverableCredentialRequestOptionsErr> for AggErr {
+    #[inline]
+    fn from(value: NonDiscoverableCredentialRequestOptionsErr) -> Self {
+        Self::NonDiscoverableCredentialRequestOptions(value)
     }
 }
 impl From<NicknameErr> for AggErr {
@@ -1410,8 +1417,8 @@ impl Display for AggErr {
             Self::DomainOrigin(ref err) => err.fmt(f),
             Self::Port(ref err) => err.fmt(f),
             Self::InvalidTimeout(err) => err.fmt(f),
-            Self::SecondFactor(err) => err.fmt(f),
             Self::CreationOptions(err) => err.fmt(f),
+            Self::NonDiscoverableCredentialRequestOptions(err) => err.fmt(f),
             Self::Nickname(err) => err.fmt(f),
             Self::Username(err) => err.fmt(f),
             Self::RegCeremony(ref err) => err.fmt(f),
@@ -1455,17 +1462,17 @@ impl Display for AggErr {
 impl Error for AggErr {}
 /// Calculates the number of bytes needed to encode an input of length `n` bytes into base64url.
 ///
-/// `Some` is returned iff the encoded length does not exceed [`isize::MAX`].
+/// # Panics
+///
+/// `panics` iff `n > isize::MAX`.
 #[expect(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
-    clippy::cast_possible_wrap,
-    clippy::cast_sign_loss,
     clippy::integer_division,
     clippy::integer_division_remainder_used,
     reason = "proof and comment justifies their correctness"
 )]
-const fn base64url_nopad_len(n: usize) -> Option<usize> {
+const fn base64url_nopad_len(n: usize) -> usize {
     // 256^n is the number of distinct values of the input. Let the base64 encoding in a URL safe
     // way without padding of the input be O. There are 64 possible values each byte in O can be; thus we must find
     // the minimum nonnegative integer m such that:
@@ -1474,95 +1481,54 @@ const fn base64url_nopad_len(n: usize) -> Option<usize> {
     // lg(2^(6m)) = 6m >= lg(2^(8n)) = 8n   lg is defined on all positive reals which 2^(6m) and 2^(8n) are
     // <==>
     // m >= 8n/6 = 4n/3
-    // Clearly that corresponds to m = ⌈4n/3⌉; thus:
+    // Clearly that corresponds to m = ⌈4n/3⌉.
+    // We claim ⌈4n/3⌉ = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉.
+    // Proof:
+    // There are three partitions for n:
+    // (1) 3i = n ≡ 0 (mod 3) for some integer i
+    //   <==>
+    //   ⌈4n/3⌉ = ⌈4(3i)/3⌉ = ⌈4i⌉ = 4i = 4⌊i⌋ = 4⌊3i/3⌋ = 4⌊n/3⌋ + 0 = 4⌊n/3⌋ + ⌈4(0)/3⌉ = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉
+    // (2) 3i + 1 = n ≡ 1 (mod 3) for some integer i
+    //   <==>
+    //   ⌈4n/3⌉ = ⌈4(3i + 1)/3⌉ = ⌈4i + 4/3⌉ = 4i + ⌈4/3⌉ = 4i + 2 = 4⌊i + 1/3⌋ + ⌈4(1)/3⌉
+    //                                                             = 4⌊(3i + 1)/3⌋ + ⌈4((3i + 1) mod 3)/3⌉
+    //                                                             = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉
+    // (3) 3i + 2 = n ≡ 2 (mod 3) for some integer i
+    //   <==>
+    //   ⌈4n/3⌉ = ⌈4(3i + 2)/3⌉ = ⌈4i + 8/3⌉ = 4i + ⌈8/3⌉ = 4i + 3 = 4⌊i + 2/3⌋ + ⌈4(2)/3⌉
+    //                                                             = 4⌊(3i + 2)/3⌋ + ⌈4((3i + 2) mod 3)/3⌉
+    //                                                             = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉
+    // QED
+    // Proof of no overflow:
+    // usize >= u16::MAX
+    // usize = 2^i - 1 where i is any integer >= 16 (due to above)
+    // isize = 2^(i-1) - 1
+    // Suppose n <= isize::MAX, then:
+    // ⌈4n/3⌉ <= ⌈4*isize::MAX/3⌉ = ⌈4*(2^(i-1)-1)/3⌉
+    //                            = ⌈(2^(i+1)-4)/3⌉
+    //                            < ⌈(2^(i+1)-4)/2⌉
+    //                            = ⌈2^i-2⌉ = 2^i-2 < 2^i - 1 = usize::MAX
+    // thus ignoring intermediate calcuations, overflow is not possible.
+    // QED
+    // Naively implementing ⌈4n/3⌉ as (4 * n).div_ceil(3) can cause overflow due to `4 * n`; thus
+    // we implement the equivalent equation 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉ instead:
+    // `(4 * (n / 3)) + (4 * (n % 3)).div_ceil(3)` since none of the intermediate calculations suffer
+    // from overflow.
 
+    // `isize::MAX > 0 = usize::MIN`; thus this conversion is lossless.
+    assert!(
+        n <= isize::MAX as usize,
+        "base64url_nopad_len must be passed a `const` that is no larger than isize::MAX"
+    );
+    // n = 3quot + rem.
     let (quot, rem) = (n / 3, n % 3);
-    // Actual construction of the encoded output requires the allocation to take no more than `isize::MAX`
-    // bytes; thus we must detect overflow of it and not `usize::MAX`.
-    // isize::MAX = usize::MAX / 2 >= usize::MAX / 3; thus this `as` conversion is lossless.
-    match (quot as isize).checked_mul(4) {
-        // If multiplying by 4 caused overflow, then multiplying by 4 and adding by 3 would also.
-        None => None,
-        // This won't overflow since this maxes at `isize::MAX` since
-        // `n` <= ⌊3*isize::MAX/4⌋; thus `quot` <= ⌊isize::MAX/4⌋.
-        // `n` can be partitioned into 4 possibilities:
-        // (1) n ≡ 0 (mod 4) = 4quot + 0
-        // (2) n ≡ 1 (mod 4) = 4quot + 1
-        // (3) n ≡ 2 (mod 4) = 4quot + 2
-        // (4) n ≡ 3 (mod 4) = 4quot + 3
-        // For (1), rem is 0; thus 4quot + 0 = `n` which is fine.
-        // For (2), rem is 1; thus 4quot + 2 = n - 1 + 2 = n + 1 <= ⌊3*isize::MAX/4⌋ + 1 <= isize::MAX for
-        // isize::MAX > 0. Clearly `isize::MAX > 0`; otherwise we couldn't allocate anything.
-        // For (3), rem is 2; thus 4quot + 3 = n - 2 + 3 = n + 1 <= ⌊3*isize::MAX/4⌋ + 1 <= isize::MAX for
-        // isize::MAX > 0. Clearly `isize::MAX > 0`; otherwise we couldn't allocate anything.
-        // For (4), rem is 3; thus 4quot + 4 = n - 3 + 4 = n + 1 <= ⌊3*isize::MAX/4⌋ + 1 <= isize::MAX for
-        // isize::MAX > 0. Clearly `isize::MAX > 0`; otherwise we couldn't allocate anything.
-        //
-        // `val >= 0`; thus we can cast it to `usize` via `as` in a lossless way.
-        // Thus this is free from overflow, underflow, and a lossy conversion.
-        Some(val) => Some(val as usize + (4 * rem).div_ceil(3)),
-    }
-}
-/// Calculates the number of bytes a base64url-encoded input of length `n` bytes will be decoded into.
-///
-/// `Some` is returned iff `n` is a valid input length.
-///
-/// Note `n` must not only be a valid length mathematically but also represent a possible allocation of that
-/// many bytes. Since only allocations <= [`isize::MAX`] are possible, this will always return `None` when
-/// `n > isize::MAX`.
-#[cfg(feature = "serde")]
-#[expect(
-    clippy::arithmetic_side_effects,
-    clippy::as_conversions,
-    clippy::integer_division_remainder_used,
-    reason = "proof and comment justifies their correctness"
-)]
-const fn base64url_nopad_decode_len(n: usize) -> Option<usize> {
-    // 64^n is the number of distinct values of the input. Let the decoded output be O.
-    // There are 256 possible values each byte in O can be; thus we must find
-    // the maximum nonnegative integer m such that:
-    // 256^m = (2^8)^m = 2^(8m) <= 64^n = (2^6)^n = 2^(6n)
+    // quot << 2u8 <= m < usize::MAX; thus the left operand of + is fine.
+    // rem <= 2
     // <==>
-    // lg(2^(8m)) = 8m <= lg(2^(6n)) = 6n   lg is defined on all positive reals which 2^(8m) and 2^(6n) are
+    // 4rem <= 8 < usize::MAX; thus rem << 2u8 is fine.
     // <==>
-    // m <= 6n/8 = 3n/4
-    // Clearly that corresponds to m = ⌊3n/4⌋.
-    //
-    // There are three partitions for m:
-    // (1) m ≡ 0 (mod 3) = 3i
-    // (2) m ≡ 1 (mod 3) = 3i + 1
-    // (3) m ≡ 2 (mod 3) = 3i + 2
-    //
-    // From `crate::base64url_nopad_len`, we know that the encoded length, n, of an input of length m is n = ⌈4m/3⌉.
-    // The encoded length of (1) is thus n = ⌈4(3i)/3⌉ = ⌈4i⌉ = 4i ≡ 0 (mod 4).
-    // The encoded length of (2) is thus n = ⌈4(3i + 1)/3⌉ = ⌈4i + 4/3⌉ = 4i + 2 ≡ 2 (mod 4).
-    // The encoded length of (3) is thus n = ⌈4(3i + 2)/3⌉ = ⌈4i + 8/3⌉ = 4i + 3 ≡ 3 (mod 4).
-    //
-    // Thus if n ≡ 1 (mod 4), it is never a valid length.
-    //
-    // Let n be the length of a possible encoded output of an input of length m.
-    // We know from above that n ≢ 1 (mod 4), this leaves three possibilities:
-    // (1) n ≡ 0 (mod 4) = 4i
-    // (2) n ≡ 2 (mod 4) = 4i + 2
-    // (3) n ≡ 3 (mod 4) = 4i + 3
-    //
-    // For (1) an input of length 3i is the inverse since ⌈4(3i)/3⌉ = 4i.
-    // For (2) an input of length 3i + 1 is the inverse since ⌈4(3i + 1)/3⌉ = ⌈4i + 4/3⌉ = 4i + 2.
-    // For (3) an input of length 3i + 2 is the inverse since ⌈4(3i + 2)/3⌉ = ⌈4i + 8/3⌉ = 4i + 3.
-    //
-    // Consequently n is a valid length of an encoded output iff n ≢ 1 (mod 4).
-
-    // `isize::MAX >= 0 >= usize::MIN`; thus this conversion is lossless.
-    if n % 4 == 1 || n > isize::MAX as usize {
-        None
-    } else {
-        let (quot, rem) = (n >> 2u8, n % 4);
-        // 4quot + rem = n
-        // rem <= 3
-        // 3rem <= 9
-        // 3rem/4 <= 2
-        // 3quot + 3rem/4 <= 4quot + rem
-        // Thus no operation causes overflow or underflow.
-        Some((3 * quot) + ((3 * rem) >> 2u8))
-    }
+    // ⌈4rem/3⌉ <= 4rem, so the right operand of + is fine.
+    // The sum is fine since
+    // m = ⌈4n/3⌉ = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉ = (quot << 2u8) + (rem << 2u8).div_ceil(3), and m < usize::MAX.
+    (quot << 2u8) + (rem << 2u8).div_ceil(3)
 }

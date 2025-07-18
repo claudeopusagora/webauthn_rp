@@ -1,8 +1,8 @@
 #[cfg(doc)]
 use super::{
-    AllowedCredentials, CredentialSpecificExtension, DiscoverableCredentialRequestOptions,
-    Extension, NonDiscoverableCredentialRequestOptions, PublicKeyCredentialRequestOptions,
-    UserVerificationRequirement,
+    AllowedCredentials, CredentialMediationRequirement, CredentialSpecificExtension,
+    DiscoverableCredentialRequestOptions, Extension, NonDiscoverableCredentialRequestOptions,
+    PublicKeyCredentialRequestOptions, UserVerificationRequirement,
 };
 use core::{
     error::Error,
@@ -10,19 +10,7 @@ use core::{
 };
 #[cfg(doc)]
 use std::time::{Instant, SystemTime};
-/// Error returned from [`NonDiscoverableCredentialRequestOptions::second_factor`] when
-/// [`AllowedCredentials`] is empty.
-#[derive(Clone, Copy, Debug)]
-pub struct SecondFactorErr;
-impl Display for SecondFactorErr {
-    #[inline]
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("allowed credentials was empty")
-    }
-}
-impl Error for SecondFactorErr {}
-/// Error returned by [`DiscoverableCredentialRequestOptions::start_ceremony`]
-/// and [`NonDiscoverableCredentialRequestOptions::start_ceremony`].
+/// Error returned by [`DiscoverableCredentialRequestOptions::start_ceremony`].
 ///
 /// This happens when [`PublicKeyCredentialRequestOptions::timeout`] could not be added to [`Instant::now`] or
 /// [`SystemTime::now`].
@@ -35,3 +23,31 @@ impl Display for InvalidTimeout {
     }
 }
 impl Error for InvalidTimeout {}
+/// Error returned by [`NonDiscoverableCredentialRequestOptions::start_ceremony`].
+#[derive(Clone, Copy, Debug)]
+pub enum NonDiscoverableCredentialRequestOptionsErr {
+    /// Variant when [`NonDiscoverableCredentialRequestOptions::allow_credentials`] is
+    /// empty.
+    EmptyAllowedCredentials,
+    /// Variant when [`NonDiscoverableCredentialRequestOptions::mediation`] is
+    /// [`CredentialMediationRequirement::Conditional`].
+    ConditionalMediationRequested,
+    /// Variant when [`PublicKeyCredentialRequestOptions::timeout`] could not be added to [`Instant::now`] or
+    /// [`SystemTime::now`].
+    InvalidTimeout,
+}
+impl Display for NonDiscoverableCredentialRequestOptionsErr {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::EmptyAllowedCredentials => {
+                "non-discoverable requests require a non-empty collection of allowed credentials"
+            }
+            Self::ConditionalMediationRequested => {
+                "non-discoverable requests are not allowed to use conditional mediation"
+            }
+            Self::InvalidTimeout => "the timeout could not be added to the current Instant",
+        })
+    }
+}
+impl Error for NonDiscoverableCredentialRequestOptionsErr {}

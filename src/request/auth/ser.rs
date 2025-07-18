@@ -340,7 +340,7 @@ impl Serialize for DiscoverableAuthenticationClientState<'_, '_, '_> {
     /// };
     /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap();
     /// let json = serde_json::json!({
-    ///     "mediation":"optional",
+    ///     "mediation":"required",
     ///     "publicKey":{
     ///         "challenge":"AAAAAAAAAAAAAAAAAAAAAA",
     ///         "timeout":300000,
@@ -421,9 +421,9 @@ impl Serialize for NonDiscoverableAuthenticationClientState<'_, '_, '_> {
     /// });
     /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let mut options = NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?;
+    /// let mut options = NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds);
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let opts = options.options();
+    /// let opts = &mut options.options;
     /// # #[cfg(not(all(feature = "bin", feature = "custom")))]
     /// # let mut opts = webauthn_rp::DiscoverableCredentialRequestOptions::passkey(&rp_id).public_key;
     /// opts.hints = Hint::SecurityKey;
@@ -443,7 +443,7 @@ impl Serialize for NonDiscoverableAuthenticationClientState<'_, '_, '_> {
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap();
     /// let json = serde_json::json!({
-    ///     "mediation":"optional",
+    ///     "mediation":"required",
     ///     "publicKey":{
     ///         "challenge":"AAAAAAAAAAAAAAAAAAAAAA",
     ///         "timeout":300000,

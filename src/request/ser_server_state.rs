@@ -3,7 +3,7 @@ use super::{
     CredentialMediationRequirement, ExtensionInfo, ExtensionReq, Hint, SentChallenge,
     UserVerificationRequirement,
 };
-use core::{convert::Infallible, time::Duration};
+use core::{convert::Infallible, num::NonZeroU32, time::Duration};
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 /// [`ExtensionInfo::RequireEnforceValue`] tag.
 const EXT_INFO_REQUIRE_ENFORCE: u8 = 0;
@@ -150,7 +150,10 @@ impl<'a> DecodeBuffer<'a> for SentChallenge {
     }
 }
 impl Encode for SentChallenge {
-    type Output<'a> = u128 where Self: 'a;
+    type Output<'a>
+        = u128
+    where
+        Self: 'a;
     type Err = Infallible;
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
@@ -184,21 +187,15 @@ impl<'a> DecodeBuffer<'a> for UserVerificationRequirement {
         })
     }
 }
-/// [`CredentialMediationRequirement::Silent`] tag.
-const CRED_MED_REQ_SILENT: u8 = 0;
-/// [`CredentialMediationRequirement::Optional`] tag.
-const CRED_MED_REQ_OPTIONAL: u8 = 1;
-/// [`CredentialMediationRequirement::Conditional`] tag.
-const CRED_MED_REQ_CONDITIONAL: u8 = 2;
 /// [`CredentialMediationRequirement::Required`] tag.
-const CRED_MED_REQ_REQUIRED: u8 = 3;
+const CRED_MED_REQ_REQUIRED: u8 = 0;
+/// [`CredentialMediationRequirement::Conditional`] tag.
+const CRED_MED_REQ_CONDITIONAL: u8 = 1;
 impl EncodeBuffer for CredentialMediationRequirement {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         match *self {
-            Self::Silent => CRED_MED_REQ_SILENT,
-            Self::Optional => CRED_MED_REQ_OPTIONAL,
-            Self::Conditional => CRED_MED_REQ_CONDITIONAL,
             Self::Required => CRED_MED_REQ_REQUIRED,
+            Self::Conditional => CRED_MED_REQ_CONDITIONAL,
         }
         .encode_into_buffer(buffer);
     }
@@ -207,10 +204,8 @@ impl<'a> DecodeBuffer<'a> for CredentialMediationRequirement {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         u8::decode_from_buffer(data).and_then(|val| match val {
-            CRED_MED_REQ_SILENT => Ok(Self::Silent),
-            CRED_MED_REQ_OPTIONAL => Ok(Self::Optional),
-            CRED_MED_REQ_CONDITIONAL => Ok(Self::Conditional),
             CRED_MED_REQ_REQUIRED => Ok(Self::Required),
+            CRED_MED_REQ_CONDITIONAL => Ok(Self::Conditional),
             _ => Err(EncDecErr),
         })
     }
@@ -227,12 +222,35 @@ impl EncodeBufferFallible for SystemTime {
 impl<'a> DecodeBuffer<'a> for SystemTime {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        /// Maximum duration possible for a timeout which is around 49.7 days.
+        #[expect(
+            clippy::as_conversions,
+            reason = "u32 as u64 is always OK, and we can't use u64::from in const contexts"
+        )]
+        const MAX_TIMEOUT: Duration = Duration::from_millis(NonZeroU32::MAX.get() as u64);
         u64::decode_from_buffer(data).and_then(|secs| {
             u32::decode_from_buffer(data).and_then(|nanos| {
                 if nanos < 1_000_000_000 {
                     UNIX_EPOCH
                         .checked_add(Duration::new(secs, nanos))
                         .ok_or(EncDecErr)
+                        .and_then(|exp| {
+                            // The latest we could have started the ceremony is now which means the maximum
+                            // expiry is now plus the maximum timeout.
+                            if let Some(max_exp) = Self::now().checked_add(MAX_TIMEOUT)
+                                && max_exp < exp
+                            {
+                                Err(EncDecErr)
+                            } else {
+                                // Note even when `SystemTime::now().checked_add(MAX_TIMEOUT)` is `None`,
+                                // this is valid since the ceremony could have very recently been started.
+                                // While this is highly unlikely seeing how `MAX_TIMEOUT` is less than 50 days;
+                                // it is _technically_ possible if `SystemTime::now` is within 50 days
+                                // of the maximum representable `SystemTime`. It is _far_ more likely that
+                                // this branch is taken since `max_exp >= exp`.
+                                Ok(exp)
+                            }
+                        })
                 } else {
                     Err(EncDecErr)
                 }

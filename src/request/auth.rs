@@ -25,9 +25,9 @@ use super::{
         },
     },
     BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, CredentialMediationRequirement,
-    Credentials, ExtensionReq, Hint, Origin, PrfInput, PublicKeyCredentialDescriptor, RpId,
-    SentChallenge, THREE_HUNDRED_THOUSAND, TimedCeremony, UserVerificationRequirement,
-    auth::error::{InvalidTimeout, SecondFactorErr},
+    Credentials, ExtensionReq, FIVE_MINUTES, Hint, Origin, PrfInput, PublicKeyCredentialDescriptor,
+    RpId, SentChallenge, TimedCeremony, UserVerificationRequirement,
+    auth::error::{InvalidTimeout, NonDiscoverableCredentialRequestOptionsErr},
 };
 use core::{
     borrow::Borrow,
@@ -289,7 +289,7 @@ impl From<Vec<PublicKeyCredentialDescriptor<Vec<u8>>>> for AllowedCredentials {
     }
 }
 /// The [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions)
-/// to send to the client when authenticating a discoverable credentential.
+/// to send to the client when authenticating a discoverable credential.
 ///
 /// Upon saving the [`DiscoverableAuthenticationServerState`] returned from [`Self::start_ceremony`], one MUST send
 /// [`DiscoverableAuthenticationClientState`] to the client ASAP. After receiving the newly created
@@ -297,6 +297,10 @@ impl From<Vec<PublicKeyCredentialDescriptor<Vec<u8>>>> for AllowedCredentials {
 #[derive(Debug)]
 pub struct DiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
     /// [`mediation`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
+    ///
+    /// Note if this is [`CredentialMediationRequirement::Conditional`], user agents are instructed to not
+    /// enforce any timeout; as result, one may want to set [`PublicKeyCredentialRequestOptions::timeout`] to
+    /// [`NonZeroU32::MAX`].
     pub mediation: CredentialMediationRequirement,
     /// `public-key` [credential type](https://www.w3.org/TR/credential-management-1/#sctn-cred-type-registry).
     pub public_key: PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,
@@ -386,7 +390,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
     }
 }
 /// The [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions)
-/// to send to the client when authenticating non-discoverable credententials.
+/// to send to the client when authenticating non-discoverable credentials.
 ///
 /// Upon saving the [`NonDiscoverableAuthenticationServerState`] returned from [`Self::start_ceremony`], one MUST send
 /// [`NonDiscoverableAuthenticationClientState`] to the client ASAP. After receiving the newly created
@@ -394,40 +398,18 @@ impl<'rp_id, 'prf_first, 'prf_second>
 #[derive(Debug)]
 pub struct NonDiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
     /// [`mediation`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
-    mediation: CredentialMediationRequirement,
+    pub mediation: CredentialMediationRequirement,
     /// [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions).
-    options: PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,
+    pub options: PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,
     /// [`allowCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-allowcredentials).
-    allow_credentials: AllowedCredentials,
+    pub allow_credentials: AllowedCredentials,
 }
 impl<'rp_id, 'prf_first, 'prf_second>
     NonDiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>
 {
-    /// Returns a mutable reference to the `CredentialMediationRequirement`.
-    #[inline]
-    pub const fn mediation(&mut self) -> &mut CredentialMediationRequirement {
-        &mut self.mediation
-    }
-    /// Returns a mutable reference to the configurable options.
-    #[inline]
-    pub const fn options(
-        &mut self,
-    ) -> &mut PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
-        &mut self.options
-    }
-    /// Returns a reference to the [`AllowedCredential`]s.
-    #[inline]
-    #[must_use]
-    pub const fn allow_credentials(&self) -> &AllowedCredentials {
-        &self.allow_credentials
-    }
     /// Creates a `NonDiscoverableCredentialRequestOptions` containing
-    /// [`CredentialMediationRequirement::Optional`],
+    /// [`CredentialMediationRequirement::default`],
     /// [`PublicKeyCredentialRequestOptions::second_factor`], and the passed [`AllowedCredentials`].
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `allow_credentials` is empty.
     ///
     /// # Examples
     ///
@@ -461,8 +443,8 @@ impl<'rp_id, 'prf_first, 'prf_second>
     /// assert!(creds.push(PublicKeyCredentialDescriptor { id, transports }.into()));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// assert_eq!(
-    ///     NonDiscoverableCredentialRequestOptions::second_factor(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?), creds)?
-    ///         .allow_credentials()
+    ///     NonDiscoverableCredentialRequestOptions::second_factor(&RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?), creds)
+    ///         .allow_credentials
     ///         .len(),
     ///     1
     /// );
@@ -470,18 +452,15 @@ impl<'rp_id, 'prf_first, 'prf_second>
     /// ```
     #[expect(single_use_lifetimes, reason = "false positive")]
     #[inline]
+    #[must_use]
     pub fn second_factor<'a: 'rp_id>(
         rp_id: &'a RpId,
         allow_credentials: AllowedCredentials,
-    ) -> Result<Self, SecondFactorErr> {
-        if allow_credentials.is_empty() {
-            Err(SecondFactorErr)
-        } else {
-            Ok(Self {
-                mediation: CredentialMediationRequirement::default(),
-                options: PublicKeyCredentialRequestOptions::second_factor(rp_id),
-                allow_credentials,
-            })
+    ) -> Self {
+        Self {
+            mediation: CredentialMediationRequirement::default(),
+            options: PublicKeyCredentialRequestOptions::second_factor(rp_id),
+            allow_credentials,
         }
     }
     /// Begins the [authentication ceremony](https://www.w3.org/TR/webauthn-3/#authentication-ceremony) consuming
@@ -501,30 +480,36 @@ impl<'rp_id, 'prf_first, 'prf_second>
             NonDiscoverableAuthenticationServerState,
             NonDiscoverableAuthenticationClientState<'rp_id, 'prf_first, 'prf_second>,
         ),
-        InvalidTimeout,
+        NonDiscoverableCredentialRequestOptionsErr,
     > {
-        #[cfg(not(feature = "serializable_server_state"))]
-        let res = Instant::now();
-        #[cfg(feature = "serializable_server_state")]
-        let res = SystemTime::now();
-        res.checked_add(Duration::from_millis(
-            NonZeroU64::from(self.options.timeout).get(),
-        ))
-        .ok_or(InvalidTimeout)
-        .map(|expiration| {
-            (
-                NonDiscoverableAuthenticationServerState {
-                    state: AuthenticationServerState {
-                        challenge: SentChallenge(self.options.challenge.0),
-                        user_verification: self.options.user_verification,
-                        extensions: self.options.extensions.into(),
-                        expiration,
+        if self.allow_credentials.is_empty() {
+            Err(NonDiscoverableCredentialRequestOptionsErr::EmptyAllowedCredentials)
+        } else if matches!(self.mediation, CredentialMediationRequirement::Conditional) {
+            Err(NonDiscoverableCredentialRequestOptionsErr::ConditionalMediationRequested)
+        } else {
+            #[cfg(not(feature = "serializable_server_state"))]
+            let res = Instant::now();
+            #[cfg(feature = "serializable_server_state")]
+            let res = SystemTime::now();
+            res.checked_add(Duration::from_millis(
+                NonZeroU64::from(self.options.timeout).get(),
+            ))
+            .ok_or(NonDiscoverableCredentialRequestOptionsErr::InvalidTimeout)
+            .map(|expiration| {
+                (
+                    NonDiscoverableAuthenticationServerState {
+                        state: AuthenticationServerState {
+                            challenge: SentChallenge(self.options.challenge.0),
+                            user_verification: self.options.user_verification,
+                            extensions: self.options.extensions.into(),
+                            expiration,
+                        },
+                        allow_credentials: Vec::from(&self.allow_credentials),
                     },
-                    allow_credentials: Vec::from(&self.allow_credentials),
-                },
-                NonDiscoverableAuthenticationClientState(self),
-            )
-        })
+                    NonDiscoverableAuthenticationClientState(self),
+                )
+            })
+        }
     }
 }
 /// The [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions)
@@ -554,7 +539,7 @@ pub struct PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
 }
 impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
     /// Creates a `PublicKeyCredentialRequestOptions` with [`Self::user_verification`] set to
-    /// [`UserVerificationRequirement::Required`] and [`Self::timeout`] set to 5 minutes,
+    /// [`UserVerificationRequirement::Required`] and [`Self::timeout`] set to [`FIVE_MINUTES`].
     ///
     /// Note `rp_id` _must_ be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] when the
     /// credential was registered.
@@ -575,7 +560,7 @@ impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
     pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
         Self {
             challenge: Challenge::new(),
-            timeout: THREE_HUNDRED_THOUSAND,
+            timeout: FIVE_MINUTES,
             rp_id,
             user_verification: UserVerificationRequirement::Required,
             hints: Hint::None,
@@ -583,7 +568,7 @@ impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
         }
     }
     /// Creates a `PublicKeyCredentialRequestOptions` with [`Self::user_verification`] set to
-    /// [`UserVerificationRequirement::Discouraged`] and [`Self::timeout`] set to 5 minutes.
+    /// [`UserVerificationRequirement::Discouraged`] and [`Self::timeout`] set to [`FIVE_MINUTES`].
     ///
     /// Note `rp_id` _must_ be the same as the [`PublicKeyCredentialCreationOptions::rp_id`] when the
     /// credentials were registered.
@@ -662,16 +647,6 @@ enum CredPrf {
     /// `prf.enabled` and `hmac_secret` are `true`.
     TrueTrueHmac,
 }
-impl CredPrf {
-    /// Returns `true` iff `self` is allowed to have an `HmacSecret` response.
-    ///
-    /// Note many authenticators allow PRF to be used during authentication even when not requested during
-    /// registration even for authenticators (e.g., CTAP-based ones) that implement PRF on top of the `hmac-secret`
-    /// extension; thus we allow `Self::None` and `Self::TrueNoHmac`.
-    const fn is_prf_capable(self) -> bool {
-        matches!(self, Self::None | Self::TrueNoHmac | Self::TrueTrueHmac)
-    }
-}
 /// `PrfInput` and `PrfInputOwned` without the actual data sent to reduce memory usage when storing
 /// [`DiscoverableAuthenticationServerState`] in an in-memory collection.
 #[derive(Clone, Copy, Debug)]
@@ -702,20 +677,12 @@ impl ServerPrfInfo {
             HmacSecret::None => match self {
                 Self::None => Ok(()),
                 Self::One(req) | Self::Two(req) => {
-                    if matches!(req, ExtensionReq::Allow) {
-                        if cred_prf.is_prf_capable() {
-                            Ok(())
-                        } else {
-                            Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
-                        }
+                    if matches!(req, ExtensionReq::Allow)
+                        || !matches!(cred_prf, CredPrf::TrueTrueHmac)
+                    {
+                        Ok(())
                     } else {
-                        match cred_prf {
-                            CredPrf::None | CredPrf::TrueNoHmac => Ok(()),
-                            CredPrf::FalseNoHmac | CredPrf::FalseFalseHmac => {
-                                Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
-                            }
-                            CredPrf::TrueTrueHmac => Err(ExtensionErr::MissingHmacSecret),
-                        }
+                        Err(ExtensionErr::MissingHmacSecret)
                     }
                 }
             },
@@ -723,21 +690,21 @@ impl ServerPrfInfo {
                 Self::None => {
                     if err_unsolicited {
                         Err(ExtensionErr::ForbiddenHmacSecret)
-                    } else if cred_prf.is_prf_capable() {
+                    } else if matches!(cred_prf, CredPrf::None | CredPrf::TrueTrueHmac) {
                         if user_verified {
                             Ok(())
                         } else {
                             Err(ExtensionErr::UserNotVerifiedHmacSecret)
                         }
                     } else {
-                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                        Err(ExtensionErr::HmacSecretForNonHmacSecretCredential)
                     }
                 }
                 Self::One(_) => {
-                    if cred_prf.is_prf_capable() {
+                    if matches!(cred_prf, CredPrf::None | CredPrf::TrueTrueHmac) {
                         Ok(())
                     } else {
-                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                        Err(ExtensionErr::HmacSecretForNonHmacSecretCredential)
                     }
                 }
                 Self::Two(_) => Err(ExtensionErr::InvalidHmacSecretValue(
@@ -749,14 +716,14 @@ impl ServerPrfInfo {
                 Self::None => {
                     if err_unsolicited {
                         Err(ExtensionErr::ForbiddenHmacSecret)
-                    } else if cred_prf.is_prf_capable() {
+                    } else if matches!(cred_prf, CredPrf::None | CredPrf::TrueTrueHmac) {
                         if user_verified {
                             Ok(())
                         } else {
                             Err(ExtensionErr::UserNotVerifiedHmacSecret)
                         }
                     } else {
-                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                        Err(ExtensionErr::HmacSecretForNonHmacSecretCredential)
                     }
                 }
                 Self::One(_) => Err(ExtensionErr::InvalidHmacSecretValue(
@@ -764,10 +731,10 @@ impl ServerPrfInfo {
                     OneOrTwo::Two,
                 )),
                 Self::Two(_) => {
-                    if cred_prf.is_prf_capable() {
+                    if matches!(cred_prf, CredPrf::None | CredPrf::TrueTrueHmac) {
                         Ok(())
                     } else {
-                        Err(ExtensionErr::PrfRequestedForPrfIncapableCred)
+                        Err(ExtensionErr::HmacSecretForNonHmacSecretCredential)
                     }
                 }
             },
@@ -1126,7 +1093,7 @@ impl DiscoverableAuthenticationServerState {
         if cred.user_id == response.response.user_handle() {
             // Step 6 item 2.
             if cred.id == response.raw_id {
-                self.0.verify(true, rp_id, response, cred, options, None)
+                self.0.verify(rp_id, response, cred, options, None)
             } else {
                 Err(AuthCeremonyErr::CredentialIdMismatch)
             }
@@ -1218,7 +1185,7 @@ impl NonDiscoverableAuthenticationServerState {
                         // Step 6 item 1.
                         if c.id == cred.id {
                             self.state
-                                .verify(false, rp_id, response, cred, options, Some(c.ext))
+                                .verify(rp_id, response, cred, options, Some(c.ext))
                         } else {
                             Err(AuthCeremonyErr::CredentialIdMismatch)
                         }
@@ -1283,7 +1250,6 @@ impl AuthenticationServerState {
         RsaKey: AsRef<[u8]>,
     >(
         self,
-        discoverable: bool,
         rp_id: &RpId,
         response: &'a Authentication<USER_LEN, DISCOVERABLE>,
         cred: &mut AuthenticatedCredential<
@@ -1397,7 +1363,7 @@ impl AuthenticationServerState {
                                     match cred.static_state.extensions.cred_protect {
                                         CredentialProtectionPolicy::None | CredentialProtectionPolicy::UserVerificationOptional => Ok(()),
                                         CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList => {
-                                            if discoverable {
+                                            if DISCOVERABLE {
                                                 Err(AuthCeremonyErr::DiscoverableCredProtectCredentialIdList)
                                             } else {
                                                 Ok(())
@@ -1653,37 +1619,13 @@ mod tests {
     };
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     use ed25519_dalek::{Signer as _, SigningKey};
-    #[cfg(all(
-        feature = "custom",
-        any(
-            feature = "serializable_server_state",
-            not(any(feature = "bin", feature = "serde"))
-        )
-    ))]
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     use rsa::sha2::{Digest as _, Sha256};
-    #[cfg(all(
-        feature = "custom",
-        any(
-            feature = "serializable_server_state",
-            not(any(feature = "bin", feature = "serde"))
-        )
-    ))]
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     const CBOR_BYTES: u8 = 0b010_00000;
-    #[cfg(all(
-        feature = "custom",
-        any(
-            feature = "serializable_server_state",
-            not(any(feature = "bin", feature = "serde"))
-        )
-    ))]
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     const CBOR_TEXT: u8 = 0b011_00000;
-    #[cfg(all(
-        feature = "custom",
-        any(
-            feature = "serializable_server_state",
-            not(any(feature = "bin", feature = "serde"))
-        )
-    ))]
+    #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     const CBOR_MAP: u8 = 0b101_00000;
     #[test]
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
@@ -1703,179 +1645,31 @@ mod tests {
                 }),
             },
         });
-        let mut opts = NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds)?;
+        let mut opts = NonDiscoverableCredentialRequestOptions::second_factor(&rp_id, creds);
         opts.options.user_verification = UserVerificationRequirement::Required;
         opts.options.challenge = Challenge(0);
         opts.options.extensions = Extension { prf: None };
-        let client_data_json = br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.to_vec();
-        // We over-allocate by 32 bytes. See [`AuthenticatorAssertion::new`] for more information.
-        let mut authenticator_data = Vec::with_capacity(164);
-        authenticator_data.extend_from_slice(
-            [
-                // rpIdHash.
-                // This will be overwritten later.
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                // flags.
-                // UP, UV, and ED (right-to-left).
-                0b1000_0101,
-                // signCount.
-                // 0 as 32-bit big endian.
-                0,
-                0,
-                0,
-                0,
-                CBOR_MAP | 1,
-                CBOR_TEXT | 11,
-                b'h',
-                b'm',
-                b'a',
-                b'c',
-                b'-',
-                b's',
-                b'e',
-                b'c',
-                b'r',
-                b'e',
-                b't',
-                CBOR_BYTES | 24,
-                // Length is 80.
-                80,
-                // Two HMAC outputs concatenated and encrypted.
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ]
-            .as_slice(),
-        );
-        authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(rp_id.as_ref().as_bytes()).as_slice());
-        authenticator_data
-            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
-        authenticator_data.truncate(132);
         let server = opts.start_ceremony()?.0;
+        let enc_data = server.encode()?;
+        assert_eq!(enc_data.capacity(), 16 + 2 + 1 + 1 + 12 + 2 + 128 + 1);
+        assert_eq!(enc_data.len(), 16 + 2 + 1 + 1 + 12 + 2 + 16 + 2);
         assert!(
             server.is_eq(&NonDiscoverableAuthenticationServerState::decode(
-                server.encode()?.as_slice()
+                enc_data.as_slice()
             )?)
         );
         let mut opts_2 = DiscoverableCredentialRequestOptions::passkey(&rp_id);
         opts_2.public_key.challenge = Challenge(0);
         opts_2.public_key.extensions = Extension { prf: None };
         let server_2 = opts_2.start_ceremony()?.0;
+        let enc_data_2 = server_2
+            .encode()
+            .map_err(AggErr::EncodeDiscoverableAuthenticationServerState)?;
+        assert_eq!(enc_data_2.capacity(), enc_data_2.len());
+        assert_eq!(enc_data_2.len(), 16 + 1 + 1 + 12);
         assert!(
             server_2.is_eq(&DiscoverableAuthenticationServerState::decode(
-                server_2
-                    .encode()
-                    .map_err(AggErr::EncodeDiscoverableAuthenticationServerState)?
-                    .as_slice()
+                enc_data_2.as_slice()
             )?)
         );
         Ok(())
@@ -2300,12 +2094,12 @@ mod tests {
             ExtensionReq::Allow,
         ));
         opts.cred.prf = PrfCredOptions::TrueNoHmac;
-        validate(opts)?;
+        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::HmacSecretForNonHmacSecretCredential))), |_| false));
         opts.response.hmac = HmacSecret::Two;
         assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidHmacSecretValue(OneOrTwo::One, OneOrTwo::Two)))), |_| false));
         opts.response.hmac = HmacSecret::One;
         opts.cred.prf = PrfCredOptions::FalseNoHmac;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::PrfRequestedForPrfIncapableCred))), |_| false));
+        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::HmacSecretForNonHmacSecretCredential))), |_| false));
         opts.response.user_verified = false;
         opts.request.prf_uv = PrfUvOptions::None(false);
         opts.cred.prf = PrfCredOptions::TrueHmacTrue;

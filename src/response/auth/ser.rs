@@ -2,7 +2,7 @@ use super::{
     super::{
         super::response::ser::{Base64DecodedVal, PublicKeyCredential},
         ser::{
-            AuthenticationExtensionsPrfOutputsHelper, AuthenticationExtensionsPrfValues,
+            self, AuthenticationExtensionsPrfOutputsHelper, AuthenticationExtensionsPrfValues,
             ClientExtensions,
         },
     },
@@ -48,11 +48,11 @@ impl<'e> Deserialize<'e> for AuthData {
             where
                 E: Error,
             {
-                crate::base64url_nopad_decode_len(v.len())
+                ser::base64url_nopad_decode_len(v.len())
                     .ok_or_else(|| E::invalid_value(Unexpected::Str(v), &"base64url-encoded value"))
                     .and_then(|len| {
                         // The decoded length is 3/4 of the encoded length, so overflow could only occur
-                        // if usize::MAX / 4 < 32 => usize::MAX < 128 < u8::MAX; thus overflow is not
+                        // if usize::MAX / 4 < 32 => usize::MAX < 128 < u16::MAX; thus overflow is not
                         // possible.
                         // We add 32 since the SHA-256 hash of `clientDataJSON` will be added to the
                         // raw authenticator data by `AuthenticatorDataAssertion::new`.

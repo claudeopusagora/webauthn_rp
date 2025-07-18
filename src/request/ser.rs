@@ -14,20 +14,12 @@ impl Serialize for CredentialMediationRequirement {
     /// ```
     /// # use webauthn_rp::request::CredentialMediationRequirement;
     /// assert_eq!(
-    ///     serde_json::to_string(&CredentialMediationRequirement::Silent)?,
-    ///     r#""silent""#
-    /// );
-    /// assert_eq!(
-    ///     serde_json::to_string(&CredentialMediationRequirement::Optional)?,
-    ///     r#""optional""#
+    ///     serde_json::to_string(&CredentialMediationRequirement::Required)?,
+    ///     r#""required""#
     /// );
     /// assert_eq!(
     ///     serde_json::to_string(&CredentialMediationRequirement::Conditional)?,
     ///     r#""conditional""#
-    /// );
-    /// assert_eq!(
-    ///     serde_json::to_string(&CredentialMediationRequirement::Required)?,
-    ///     r#""required""#
     /// );
     /// # Ok::<_, serde_json::Error>(())
     /// ```
@@ -37,8 +29,6 @@ impl Serialize for CredentialMediationRequirement {
         S: Serializer,
     {
         serializer.serialize_str(match *self {
-            Self::Silent => "silent",
-            Self::Optional => "optional",
             Self::Conditional => "conditional",
             Self::Required => "required",
         })

@@ -277,22 +277,15 @@ impl<'de> Deserialize<'de> for CredentialId<Vec<u8>> {
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("CredentialId")
             }
-            #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                // Any value between `super::CRED_ID_MIN_LEN` and `super::CRED_ID_MIN_LEN` can be base64url encoded
-                // without fear since that range is just 16 to 1023, and
-                // 4/3 of 1023 is less than `usize::MAX`.
-                if (crate::base64url_nopad_len(super::CRED_ID_MIN_LEN).unwrap_or_else(|| {
-                    unreachable!("there is a bug in webauthn_rp::base64url_nopad_len")
-                })
-                    ..=crate::base64url_nopad_len(super::CRED_ID_MAX_LEN).unwrap_or_else(|| {
-                        unreachable!("there is a bug in webauthn_rp::base64url_nopad_len")
-                    }))
-                    .contains(&v.len())
-                {
+                /// Minimum possible encoded length of a `CredentialId`.
+                const MIN_LEN: usize = crate::base64url_nopad_len(super::CRED_ID_MIN_LEN);
+                /// Maximum possible encoded length of a `CredentialId`.
+                const MAX_LEN: usize = crate::base64url_nopad_len(super::CRED_ID_MAX_LEN);
+                if (MIN_LEN..=MAX_LEN).contains(&v.len()) {
                     BASE64URL_NOPAD
                         .decode(v.as_bytes())
                         .map_err(E::custom)
@@ -1203,5 +1196,68 @@ where
             },
             AuthenticationExtensionsPrfOutputsVisitor::<REL, REG, Prf>(PhantomData),
         )
+    }
+}
+/// Calculates the number of bytes a base64url-encoded input of length `n` bytes will be decoded into.
+///
+/// `Some` is returned iff `n` is a valid input length.
+///
+/// Note `n` must not only be a valid length mathematically but also represent a possible allocation of that
+/// many bytes. Since only allocations <= [`isize::MAX`] are possible, this will always return `None` when
+/// `n > isize::MAX`.
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    reason = "proof and comment justifies their correctness"
+)]
+pub(super) const fn base64url_nopad_decode_len(n: usize) -> Option<usize> {
+    // 64^n is the number of distinct values of the input. Let the decoded output be O.
+    // There are 256 possible values each byte in O can be; thus we must find
+    // the maximum nonnegative integer m such that:
+    // 256^m = (2^8)^m = 2^(8m) <= 64^n = (2^6)^n = 2^(6n)
+    // <==>
+    // lg(2^(8m)) = 8m <= lg(2^(6n)) = 6n   lg is defined on all positive reals which 2^(8m) and 2^(6n) are
+    // <==>
+    // m <= 6n/8 = 3n/4
+    // Clearly that corresponds to m = ⌊3n/4⌋.
+    // From the proof in `crate::base64url_nopad_len`, we know that n is a valid length
+    // iff n ≢ 1 (mod 4) and n <= isize::MAX.
+    // We claim ⌊3n/4⌋ = 3⌊n/4⌋ + ⌊3(n mod 4)/4⌋.
+    // Proof:
+    // There are three partitions for n:
+    // (1) 4i = n ≡ 0 (mod 4) for some integer i
+    //   <==>
+    //   ⌊3n/4⌋ = ⌊3(4i)/4⌋ = ⌊3i⌋ = 3i = 3⌊i⌋ = 3⌊4i/4⌋ = 3⌊n/4⌋ + 0 = 3⌊n/4⌋ + ⌊3(0)/4⌋ = 3⌊n/4⌋ + ⌊3(n mod 4)/4⌋
+    // (2) 4i + 2 = n ≡ 2 (mod 4) for some integer i
+    //   <==>
+    //   ⌊3n/4⌋ = ⌊3(4i + 2)/4⌋ = ⌊3i + 6/4⌋ = 3i + ⌊6/4⌋ = 3i + 1 = 3⌊i⌋ + ⌊3(2)/4⌋
+    //                                                             = 3⌊(4i + 2)/4⌋ + ⌊3((4i + 2) mod 4)/4⌋
+    //                                                             = 3⌊n/4⌋ + ⌊3(n mod 4)/4⌋
+    // (3) 4i + 3 = n ≡ 3 (mod 4) for some integer i
+    //   <==>
+    //   ⌊3n/4⌋ = ⌊3(4i + 3)/4⌋ = ⌊3i + 9/4⌋ = 3i + ⌊9/4⌋ = 3i + 2 = 3⌊i⌋ + ⌊3(3)/4⌋
+    //                                                             = 3⌊(4i + 3)/4⌋ + ⌊3((4i + 3) mod 4)/4⌋
+    //                                                             = 3⌊n/4⌋ + ⌊3(n mod 4)/4⌋
+    // QED
+    // Naively implementing ⌊3n/4⌋ as (3 * n) / 3 can cause overflow due to `3 * n`; thus
+    // we implement the equivalent equation 3⌊n/4⌋ + ⌊3(n mod 4)/4⌋ instead:
+    // `(3 * (n / 4)) + ((3 * (n % 4)) / 4)` since none of the intermediate calculations suffer
+    // from overflow.
+
+    // `isize::MAX > 0 = usize::MIN`; thus this conversion is lossless.
+    if n & 3 == 1 || n > isize::MAX as usize {
+        None
+    } else {
+        // n = 4quot + rem
+        let (quot, rem) = (n >> 2u8, n & 3);
+        // 3 * quot <= m < usize::MAX; thus the left operand of + is fine.
+        // rem <= 3
+        // <==>
+        // 3rem <= 9 < usize::MAX; thus 3 * rem is fine.
+        // <==>
+        // ⌊3rem/4⌋ <= 3rem, so the right operand of + is fine.
+        // The sum is fine since
+        // m = ⌊3n/4⌋ = 3⌊n/4⌋ + ⌊3(n mod 4)/4⌋ = (3 * quot) + ((3 * rem) >> 2u8), and m < usize::MAX.
+        Some((3 * quot) + ((3 * rem) >> 2u8))
     }
 }

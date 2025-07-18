@@ -206,7 +206,7 @@ impl Serialize for UserHandle<1> {
     {
         serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(
             self.0.as_slice(),
-            [0; crate::base64url_nopad_len(1).unwrap()].as_mut_slice(),
+            [0; crate::base64url_nopad_len(1)].as_mut_slice(),
         ))
     }
 }
@@ -224,7 +224,7 @@ impl Serialize for UserHandle<$x> {
         S: Serializer,
     {
 
-        serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(self.0.as_slice(), [0; crate::base64url_nopad_len($x).unwrap()].as_mut_slice()))
+        serializer.serialize_str(BASE64URL_NOPAD.encode_mut_str(self.0.as_slice(), [0; crate::base64url_nopad_len($x)].as_mut_slice()))
     }
 }
         )*
@@ -773,7 +773,7 @@ where
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize"));
     /// let json = serde_json::json!({
-    ///     "mediation":"optional",
+    ///     "mediation":"required",
     ///     "publicKey":{
     ///         "rp":{
     ///             "name":"example.com",
@@ -970,19 +970,13 @@ where
             }
             #[expect(
                 clippy::panic_in_result_fn,
-                clippy::unreachable,
                 reason = "we want to crash when there is a bug"
             )]
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                // Any value between `USER_HANDLE_MIN_LEN` and `USER_HANDLE_MAX_LEN` can be base64url encoded
-                // without fear since that range is just 1 to 64, and 4/3 of 64 is less than `usize::MAX`.
-                if crate::base64url_nopad_len(L).unwrap_or_else(|| {
-                    unreachable!("there is a bug in webauthn_rp::base64url_nopad_len")
-                }) == v.len()
-                {
+                if crate::base64url_nopad_len(L) == v.len() {
                     let mut data = [0; L];
                     BASE64URL_NOPAD
                         .decode_mut(v.as_bytes(), data.as_mut_slice())
