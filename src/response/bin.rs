@@ -37,7 +37,7 @@ impl<'a> DecodeBuffer<'a> for Backup {
     }
 }
 /// Error returned from [`AuthTransports::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DecodeAuthTransportsErr;
 impl Display for DecodeAuthTransportsErr {
     #[inline]

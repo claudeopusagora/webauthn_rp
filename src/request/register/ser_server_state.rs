@@ -293,7 +293,7 @@ impl<const USER_LEN: usize> Encode for RegistrationServerState<USER_LEN> {
     }
 }
 /// Error returned from [`RegistrationServerState::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeRegistrationServerStateErr {
     /// Variant returned when there was trailing data after decoding a [`RegistrationServerState`].
     TrailingData,

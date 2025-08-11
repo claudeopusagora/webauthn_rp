@@ -13,8 +13,6 @@ use core::{
     fmt::{self, Formatter},
     marker::PhantomData,
 };
-#[cfg(doc)]
-use data_encoding::BASE64URL_NOPAD;
 use serde::de::{Deserialize, Deserializer, Error, IgnoredAny, MapAccess, Unexpected, Visitor};
 #[cfg(doc)]
 use serde_json::de;

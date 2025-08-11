@@ -24,7 +24,7 @@
 //!     Registration, RegistrationServerState64,
 //!     hash::hash_set::FixedCapHashSet,
 //!     request::{
-//!         AsciiDomainStatic, PublicKeyCredentialDescriptor, RpId,
+//!         PublicKeyCredentialDescriptor, RpId,
 //!         auth::AuthenticationVerificationOptions,
 //!         register::{
 //!             Nickname, PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
@@ -42,7 +42,7 @@
 //! # #[cfg(feature = "serde_relaxed")]
 //! use serde_json::Error as JsonErr;
 //! /// The RP ID our application uses.
-//! const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+//! const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 //! /// The registration verification options.
 //! const REG_OPTS: &RegistrationVerificationOptions::<'static, 'static, &'static str, &'static str> = &RegistrationVerificationOptions::new();
 //! /// The authentication verification options.
@@ -677,7 +677,7 @@ pub use crate::{
     },
 };
 /// Error returned in [`RegCeremonyErr::Credential`] and [`AuthenticatedCredential::new`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialErr {
     /// Variant when [`CredentialProtectionPolicy::UserVerificationRequired`], but
     /// [`DynamicState::user_verified`] is `false`.
@@ -1460,75 +1460,3 @@ impl Display for AggErr {
     }
 }
 impl Error for AggErr {}
-/// Calculates the number of bytes needed to encode an input of length `n` bytes into base64url.
-///
-/// # Panics
-///
-/// `panics` iff `n > isize::MAX`.
-#[expect(
-    clippy::arithmetic_side_effects,
-    clippy::as_conversions,
-    clippy::integer_division,
-    clippy::integer_division_remainder_used,
-    reason = "proof and comment justifies their correctness"
-)]
-const fn base64url_nopad_len(n: usize) -> usize {
-    // 256^n is the number of distinct values of the input. Let the base64 encoding in a URL safe
-    // way without padding of the input be O. There are 64 possible values each byte in O can be; thus we must find
-    // the minimum nonnegative integer m such that:
-    // 64^m = (2^6)^m = 2^(6m) >= 256^n = (2^8)^n = 2^(8n)
-    // <==>
-    // lg(2^(6m)) = 6m >= lg(2^(8n)) = 8n   lg is defined on all positive reals which 2^(6m) and 2^(8n) are
-    // <==>
-    // m >= 8n/6 = 4n/3
-    // Clearly that corresponds to m = ⌈4n/3⌉.
-    // We claim ⌈4n/3⌉ = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉.
-    // Proof:
-    // There are three partitions for n:
-    // (1) 3i = n ≡ 0 (mod 3) for some integer i
-    //   <==>
-    //   ⌈4n/3⌉ = ⌈4(3i)/3⌉ = ⌈4i⌉ = 4i = 4⌊i⌋ = 4⌊3i/3⌋ = 4⌊n/3⌋ + 0 = 4⌊n/3⌋ + ⌈4(0)/3⌉ = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉
-    // (2) 3i + 1 = n ≡ 1 (mod 3) for some integer i
-    //   <==>
-    //   ⌈4n/3⌉ = ⌈4(3i + 1)/3⌉ = ⌈4i + 4/3⌉ = 4i + ⌈4/3⌉ = 4i + 2 = 4⌊i + 1/3⌋ + ⌈4(1)/3⌉
-    //                                                             = 4⌊(3i + 1)/3⌋ + ⌈4((3i + 1) mod 3)/3⌉
-    //                                                             = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉
-    // (3) 3i + 2 = n ≡ 2 (mod 3) for some integer i
-    //   <==>
-    //   ⌈4n/3⌉ = ⌈4(3i + 2)/3⌉ = ⌈4i + 8/3⌉ = 4i + ⌈8/3⌉ = 4i + 3 = 4⌊i + 2/3⌋ + ⌈4(2)/3⌉
-    //                                                             = 4⌊(3i + 2)/3⌋ + ⌈4((3i + 2) mod 3)/3⌉
-    //                                                             = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉
-    // QED
-    // Proof of no overflow:
-    // usize >= u16::MAX
-    // usize = 2^i - 1 where i is any integer >= 16 (due to above)
-    // isize = 2^(i-1) - 1
-    // Suppose n <= isize::MAX, then:
-    // ⌈4n/3⌉ <= ⌈4*isize::MAX/3⌉ = ⌈4*(2^(i-1)-1)/3⌉
-    //                            = ⌈(2^(i+1)-4)/3⌉
-    //                            < ⌈(2^(i+1)-4)/2⌉
-    //                            = ⌈2^i-2⌉ = 2^i-2 < 2^i - 1 = usize::MAX
-    // thus ignoring intermediate calcuations, overflow is not possible.
-    // QED
-    // Naively implementing ⌈4n/3⌉ as (4 * n).div_ceil(3) can cause overflow due to `4 * n`; thus
-    // we implement the equivalent equation 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉ instead:
-    // `(4 * (n / 3)) + (4 * (n % 3)).div_ceil(3)` since none of the intermediate calculations suffer
-    // from overflow.
-
-    // `isize::MAX > 0 = usize::MIN`; thus this conversion is lossless.
-    assert!(
-        n <= isize::MAX as usize,
-        "base64url_nopad_len must be passed a `const` that is no larger than isize::MAX"
-    );
-    // n = 3quot + rem.
-    let (quot, rem) = (n / 3, n % 3);
-    // quot << 2u8 <= m < usize::MAX; thus the left operand of + is fine.
-    // rem <= 2
-    // <==>
-    // 4rem <= 8 < usize::MAX; thus rem << 2u8 is fine.
-    // <==>
-    // ⌈4rem/3⌉ <= 4rem, so the right operand of + is fine.
-    // The sum is fine since
-    // m = ⌈4n/3⌉ = 4⌊n/3⌋ + ⌈4(n mod 3)/3⌉ = (quot << 2u8) + (rem << 2u8).div_ceil(3), and m < usize::MAX.
-    (quot << 2u8) + (rem << 2u8).div_ceil(3)
-}

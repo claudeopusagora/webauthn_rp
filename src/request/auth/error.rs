@@ -14,7 +14,7 @@ use std::time::{Instant, SystemTime};
 ///
 /// This happens when [`PublicKeyCredentialRequestOptions::timeout`] could not be added to [`Instant::now`] or
 /// [`SystemTime::now`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct InvalidTimeout;
 impl Display for InvalidTimeout {
     #[inline]
@@ -24,7 +24,7 @@ impl Display for InvalidTimeout {
 }
 impl Error for InvalidTimeout {}
 /// Error returned by [`NonDiscoverableCredentialRequestOptions::start_ceremony`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NonDiscoverableCredentialRequestOptionsErr {
     /// Variant when [`NonDiscoverableCredentialRequestOptions::allow_credentials`] is
     /// empty.

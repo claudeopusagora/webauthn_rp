@@ -29,7 +29,7 @@ use super::{
         request::{
             BackupReq, Challenge, UserVerificationRequirement,
             auth::{AuthenticationVerificationOptions, PublicKeyCredentialRequestOptions},
-            register::{Extension, RegistrationServerState},
+            register::{CoseAlgorithmIdentifier, Extension, RegistrationServerState},
         },
     },
     AuthenticatorTransport,
@@ -71,7 +71,7 @@ mod ser;
 #[cfg(feature = "serde_relaxed")]
 pub mod ser_relaxed;
 /// [`credentialProtectionPolicy`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#dom-authenticationextensionsclientinputs-credentialprotectionpolicy).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialProtectionPolicy {
     /// `credProtect` was not sent.
     None,
@@ -101,7 +101,7 @@ impl Display for CredentialProtectionPolicy {
 /// [`hmac-secret-mc`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-make-cred-extension).
 ///
 /// Note `hmac-secret-mc` can only exist if `hmac-secret` exists with a value of `true`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HmacSecret {
     /// No `hmac-secret` extension.
     None,
@@ -303,7 +303,7 @@ impl FromCbor<'_> for MinPinLength {
                         .split_first()
                         .ok_or(AuthenticatorExtensionOutputErr::Len)
                         .and_then(|(&key_len, remaining)| match key_len.cmp(&24) {
-                            Ordering::Less => FourToSixtyThree::new(key_len)
+                            Ordering::Less => FourToSixtyThree::from_u8(key_len)
                                 .ok_or(AuthenticatorExtensionOutputErr::MinPinLengthValue)
                                 .map(|val| CborSuccess {
                                     value: Self::Val(val),
@@ -314,7 +314,7 @@ impl FromCbor<'_> for MinPinLength {
                                 .ok_or(AuthenticatorExtensionOutputErr::Len)
                                 .and_then(|(&key_24, rem)| {
                                     if key_24 > 23 {
-                                        FourToSixtyThree::new(key_24)
+                                        FourToSixtyThree::from_u8(key_24)
                                             .ok_or(
                                                 AuthenticatorExtensionOutputErr::MinPinLengthValue,
                                             )
@@ -2132,7 +2132,7 @@ impl<'a> FromCbor<'a> for UncompressedPubKey<'a> {
 const AAGUID_LEN: usize = 16;
 /// 16 bytes representing an
 /// [Authenticator Attestation Globally Unique Identifier (AAGUID)](https://www.w3.org/TR/webauthn-3/#aaguid).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Aaguid<'a>(&'a [u8]);
 impl<'a> Aaguid<'a> {
     /// Returns the contained data.
@@ -2321,7 +2321,7 @@ impl FromCbor<'_> for NoneAttestation {
     }
 }
 /// A 64-byte slice that allegedly represents an Ed25519 signature.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Ed25519Signature<'a>(&'a [u8]);
 impl<'a> Ed25519Signature<'a> {
     /// Returns signature.
@@ -2523,7 +2523,7 @@ impl<'a> FromCbor<'a> for RsaPkcs1v15Sig<'a> {
     }
 }
 /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) signature.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Sig<'a> {
     /// Alleged Ed25519 signature.
     Ed25519(Ed25519Signature<'a>),
@@ -2535,7 +2535,7 @@ pub enum Sig<'a> {
     Rs256(&'a [u8]),
 }
 /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PackedAttestation<'a> {
     /// [Attestation signature](https://www.w3.org/TR/webauthn-3/#attestation-signature).
     pub signature: Sig<'a>,
@@ -2660,7 +2660,7 @@ impl<'a> FromCbor<'a> for PackedAttestation<'a> {
     }
 }
 /// [Attestation statement format identifiers](https://www.w3.org/TR/webauthn-3/#sctn-attstn-fmt-ids).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttestationFormat<'a> {
     /// [None](https://www.w3.org/TR/webauthn-3/#sctn-none-attestation).
     None,
@@ -3192,7 +3192,7 @@ impl Response for Registration {
     }
 }
 /// [Attestation statement](https://www.w3.org/TR/webauthn-3/#attestation-statement).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Attestation {
     /// [None](https://www.w3.org/TR/webauthn-3/#none).
     None,
@@ -3266,7 +3266,7 @@ impl Metadata<'_> {
     ///     attestation: Attestation::None,
     ///     aaguid: Aaguid::try_from([15; 16].as_slice())?,
     ///     extensions: AuthenticatorExtensionOutputMetadata {
-    ///         min_pin_length: Some(FourToSixtyThree::new(16).unwrap_or_else(|| unreachable!("bug in FourToSixtyThree::new"))),
+    ///         min_pin_length: Some(FourToSixtyThree::Sixteen),
     ///     },
     ///     client_extension_results: ClientExtensionsOutputsMetadata {
     ///         cred_props: Some(CredentialPropertiesOutput {
@@ -3331,9 +3331,9 @@ impl Metadata<'_> {
             None => buffer.extend_from_slice(b"null"),
             Some(pin) => {
                 // Clearly correct.
-                let dig_1 = pin.value() / 10;
+                let dig_1 = pin.into_u8() / 10;
                 // Clearly correct.
-                let dig_2 = pin.value() % 10;
+                let dig_2 = pin.into_u8() % 10;
                 if dig_1 > 0 {
                     // We simply add the appropriate offset which is `b'0` for decimal digits.
                     // Overflow cannot occur since this maxes at `b'9'`.
@@ -3479,31 +3479,53 @@ mod tests {
         AttestationFormat, AttestationObject, AuthDataContainer as _, AuthExtOutput as _,
         AuthTransports, AuthenticatorAttestation, AuthenticatorExtensionOutput,
         AuthenticatorExtensionOutputErr, Backup, CborSuccess, CredentialProtectionPolicy,
-        FromCbor as _, HmacSecret, Sig, UncompressedPubKey,
+        FourToSixtyThree, FromCbor as _, HmacSecret, Sig, UncompressedPubKey,
         cbor::{
             BYTES, BYTES_INFO_24, MAP_1, MAP_2, MAP_3, MAP_4, SIMPLE_FALSE, SIMPLE_TRUE, TEXT_11,
             TEXT_12, TEXT_14,
         },
     };
-    use data_encoding::HEXLOWER;
     use ed25519_dalek::Verifier as _;
     use p256::ecdsa::{DerSignature as P256Sig, SigningKey as P256Key};
     use rsa::sha2::{Digest as _, Sha256};
+    fn hex_decode<const N: usize>(input: &[u8; N]) -> Vec<u8> {
+        /// Value to subtract from a lowercase hex digit.
+        const LOWER_OFFSET: u8 = b'a' - 10;
+        assert_eq!(
+            N & 1,
+            0,
+            "hex_decode must be passed a reference to an array of even length"
+        );
+        let mut data = Vec::with_capacity(N >> 1);
+        input.chunks_exact(2).fold((), |(), byte| {
+            let mut hex = byte[0];
+            let val = match hex {
+                b'0'..=b'9' => hex - b'0',
+                b'a'..=b'f' => hex - LOWER_OFFSET,
+                _ => panic!("hex_decode must be passed a valid lowercase hexadecimal array"),
+            } << 4;
+            hex = byte[1];
+            data.push(
+                val | match hex {
+                    b'0'..=b'9' => hex - b'0',
+                    b'a'..=b'f' => hex - LOWER_OFFSET,
+                    _ => panic!("hex_decode must be passed a valid lowercase hexadecimal array"),
+                },
+            );
+        });
+        data
+    }
     /// https://pr-preview.s3.amazonaws.com/w3c/webauthn/pull/2209.html#sctn-test-vectors-none-es256
     #[test]
     fn es256_test_vector() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.org".to_owned())?);
-        let credential_private_key = HEXLOWER
-            .decode(b"6e68e7a58484a3264f66b77f5d6dc5bc36a47085b615c9727ab334e8c369c2ee".as_slice())
-            .unwrap();
-        let aaguid = HEXLOWER
-            .decode(b"8446ccb9ab1db374750b2367ff6f3a1f".as_slice())
-            .unwrap();
-        let credential_id = HEXLOWER
-            .decode(b"f91f391db4c9b2fde0ea70189cba3fb63f579ba6122b33ad94ff3ec330084be4".as_slice())
-            .unwrap();
-        let client_data_json = HEXLOWER.decode(b"7b2274797065223a22776562617574686e2e637265617465222c226368616c6c656e6765223a22414d4d507434557878475453746e63647134313759447742466938767049612d7077386f4f755657345441222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a20426b5165446a646354427258426941774a544c4535513d3d227d".as_slice()).unwrap();
-        let attestation_object = HEXLOWER.decode(b"a363666d74646e6f6e656761747453746d74a068617574684461746158a4bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b559000000008446ccb9ab1db374750b2367ff6f3a1f0020f91f391db4c9b2fde0ea70189cba3fb63f579ba6122b33ad94ff3ec330084be4a5010203262001215820afefa16f97ca9b2d23eb86ccb64098d20db90856062eb249c33a9b672f26df61225820930a56b87a2fca66334b03458abf879717c12cc68ed73290af2e2664796b9220".as_slice()).unwrap();
+        let credential_private_key =
+            hex_decode(b"6e68e7a58484a3264f66b77f5d6dc5bc36a47085b615c9727ab334e8c369c2ee");
+        let aaguid = hex_decode(b"8446ccb9ab1db374750b2367ff6f3a1f");
+        let credential_id =
+            hex_decode(b"f91f391db4c9b2fde0ea70189cba3fb63f579ba6122b33ad94ff3ec330084be4");
+        let client_data_json = hex_decode(b"7b2274797065223a22776562617574686e2e637265617465222c226368616c6c656e6765223a22414d4d507434557878475453746e63647134313759447742466938767049612d7077386f4f755657345441222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a20426b5165446a646354427258426941774a544c4535513d3d227d");
+        let attestation_object = hex_decode(b"a363666d74646e6f6e656761747453746d74a068617574684461746158a4bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b559000000008446ccb9ab1db374750b2367ff6f3a1f0020f91f391db4c9b2fde0ea70189cba3fb63f579ba6122b33ad94ff3ec330084be4a5010203262001215820afefa16f97ca9b2d23eb86ccb64098d20db90856062eb249c33a9b672f26df61225820930a56b87a2fca66334b03458abf879717c12cc68ed73290af2e2664796b9220");
         let key = *P256Key::from_slice(credential_private_key.as_slice())
             .unwrap()
             .verifying_key();
@@ -3535,14 +3557,11 @@ mod tests {
         );
         assert!(att_obj.data.auth_data.flags.user_present);
         assert!(matches!(att_obj.data.attestation, AttestationFormat::None));
-        let authenticator_data = HEXLOWER
-            .decode(
-                b"bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b51900000000"
-                    .as_slice(),
-            )
-            .unwrap();
-        let client_data_json_2 = HEXLOWER.decode(b"7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a224f63446e55685158756c5455506f334a5558543049393770767a7a59425039745a63685879617630314167222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73657d".as_slice()).unwrap();
-        let signature = HEXLOWER.decode(b"3046022100f50a4e2e4409249c4a853ba361282f09841df4dd4547a13a87780218deffcd380221008480ac0f0b93538174f575bf11a1dd5d78c6e486013f937295ea13653e331e87".as_slice()).unwrap();
+        let authenticator_data = hex_decode(
+            b"bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b51900000000",
+        );
+        let client_data_json_2 = hex_decode(b"7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a224f63446e55685158756c5455506f334a5558543049393770767a7a59425039745a63685879617630314167222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73657d");
+        let signature = hex_decode(b"3046022100f50a4e2e4409249c4a853ba361282f09841df4dd4547a13a87780218deffcd380221008480ac0f0b93538174f575bf11a1dd5d78c6e486013f937295ea13653e331e87");
         let auth_assertion = NonDiscoverableAuthenticatorAssertion::<1>::without_user(
             client_data_json_2,
             authenticator_data,
@@ -3569,17 +3588,13 @@ mod tests {
     #[test]
     fn es256_self_attest_test_vector() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.org".to_owned())?);
-        let credential_private_key = HEXLOWER
-            .decode(b"b4bbfa5d68e1693b6ef5a19a0e60ef7ee2cbcac81f7fec7006ac3a21e0c5116a".as_slice())
-            .unwrap();
-        let aaguid = HEXLOWER
-            .decode(b"df850e09db6afbdfab51697791506cfc".as_slice())
-            .unwrap();
-        let credential_id = HEXLOWER
-            .decode(b"455ef34e2043a87db3d4afeb39bbcb6cc32df9347c789a865ecdca129cbef58c".as_slice())
-            .unwrap();
-        let client_data_json = HEXLOWER.decode(b"7b2274797065223a22776562617574686e2e637265617465222c226368616c6c656e6765223a2265476e4374334c55745936366b336a506a796e6962506b31716e666644616966715a774c33417032392d55222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a205539685458764b453255526b4d6e625f3078594856673d3d227d".as_slice()).unwrap();
-        let attestation_object = HEXLOWER.decode(b"a363666d74667061636b65646761747453746d74a263616c67266373696758483046022100ae045923ded832b844cae4d5fc864277c0dc114ad713e271af0f0d371bd3ac540221009077a088ed51a673951ad3ba2673d5029bab65b64f4ea67b234321f86fcfac5d68617574684461746158a4bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b55d00000000df850e09db6afbdfab51697791506cfc0020455ef34e2043a87db3d4afeb39bbcb6cc32df9347c789a865ecdca129cbef58ca5010203262001215820eb151c8176b225cc651559fecf07af450fd85802046656b34c18f6cf193843c5225820927b8aa427a2be1b8834d233a2d34f61f13bfd44119c325d5896e183fee484f2".as_slice()).unwrap();
+        let credential_private_key =
+            hex_decode(b"b4bbfa5d68e1693b6ef5a19a0e60ef7ee2cbcac81f7fec7006ac3a21e0c5116a");
+        let aaguid = hex_decode(b"df850e09db6afbdfab51697791506cfc");
+        let credential_id =
+            hex_decode(b"455ef34e2043a87db3d4afeb39bbcb6cc32df9347c789a865ecdca129cbef58c");
+        let client_data_json = hex_decode(b"7b2274797065223a22776562617574686e2e637265617465222c226368616c6c656e6765223a2265476e4374334c55745936366b336a506a796e6962506b31716e666644616966715a774c33417032392d55222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a205539685458764b453255526b4d6e625f3078594856673d3d227d");
+        let attestation_object = hex_decode(b"a363666d74667061636b65646761747453746d74a263616c67266373696758483046022100ae045923ded832b844cae4d5fc864277c0dc114ad713e271af0f0d371bd3ac540221009077a088ed51a673951ad3ba2673d5029bab65b64f4ea67b234321f86fcfac5d68617574684461746158a4bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b55d00000000df850e09db6afbdfab51697791506cfc0020455ef34e2043a87db3d4afeb39bbcb6cc32df9347c789a865ecdca129cbef58ca5010203262001215820eb151c8176b225cc651559fecf07af450fd85802046656b34c18f6cf193843c5225820927b8aa427a2be1b8834d233a2d34f61f13bfd44119c325d5896e183fee484f2");
         let key = *P256Key::from_slice(credential_private_key.as_slice())
             .unwrap()
             .verifying_key();
@@ -3616,14 +3631,11 @@ mod tests {
                 }
             }
         });
-        let authenticator_data = HEXLOWER
-            .decode(
-                b"bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b50900000000"
-                    .as_slice(),
-            )
-            .unwrap();
-        let client_data_json_2 = HEXLOWER.decode(b"7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a225248696843784e534e493352594d45314f7731476d3132786e726b634a5f6666707637546e2d4a71386773222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a206754623533727a36456853576f6d58477a696d4331513d3d227d".as_slice()).unwrap();
-        let signature = HEXLOWER.decode(b"3044022076691be76a8618976d9803c4cdc9b97d34a7af37e3bdc894a2bf54f040ffae850220448033a015296ffb09a762efd0d719a55346941e17e91ebf64c60d439d0b9744".as_slice()).unwrap();
+        let authenticator_data = hex_decode(
+            b"bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b50900000000",
+        );
+        let client_data_json_2 = hex_decode(b"7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a225248696843784e534e493352594d45314f7731476d3132786e726b634a5f6666707637546e2d4a71386773222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a206754623533727a36456853576f6d58477a696d4331513d3d227d");
+        let signature = hex_decode(b"3044022076691be76a8618976d9803c4cdc9b97d34a7af37e3bdc894a2bf54f040ffae850220448033a015296ffb09a762efd0d719a55346941e17e91ebf64c60d439d0b9744");
         let auth_assertion = NonDiscoverableAuthenticatorAssertion::<1>::without_user(
             client_data_json_2,
             authenticator_data,
@@ -3795,7 +3807,9 @@ mod tests {
                 value.cred_protect,
                 CredentialProtectionPolicy::UserVerificationOptional
             ) && matches!(value.hmac_secret, HmacSecret::One)
-                && value.min_pin_length.is_some_and(|pin| pin.value() == 5)
+                && value
+                    .min_pin_length
+                    .is_some_and(|pin| pin == FourToSixtyThree::Five)
         );
         let opts = generate_auth_extensions(AuthExtOptions {
             cred_protect: Some(0),

@@ -43,7 +43,7 @@ impl Encode for Nickname<'_> {
     }
 }
 /// Error returned from [`Nickname::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeNicknameErr {
     /// Variant returned when the encoded data could not be decoded
     /// into a [`Nickname`].
@@ -94,7 +94,7 @@ impl Encode for Username<'_> {
     }
 }
 /// Error returned from [`Username::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeUsernameErr {
     /// Variant returned when the encoded data could not be decoded
     /// into a [`Username`].

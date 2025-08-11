@@ -241,7 +241,7 @@ impl<'a> DecodeBuffer<'a> for AuthenticationServerState {
     }
 }
 /// Error returned from [`DiscoverableAuthenticationServerState::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeDiscoverableAuthenticationServerStateErr {
     /// Variant returned when there was trailing data after decoding a [`DiscoverableAuthenticationServerState`].
     TrailingData,
@@ -277,7 +277,7 @@ impl Decode for DiscoverableAuthenticationServerState {
     }
 }
 /// Error returned from [`NonDiscoverableAuthenticationServerState::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeNonDiscoverableAuthenticationServerStateErr {
     /// Variant returned when there was trailing data after decoding a [`NonDiscoverableAuthenticationServerState`].
     TrailingData,

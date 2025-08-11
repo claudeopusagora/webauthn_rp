@@ -2,7 +2,7 @@ use super::{
     super::{
         super::response::ser::{Base64DecodedVal, PublicKeyCredential},
         ser::{
-            self, AuthenticationExtensionsPrfOutputsHelper, AuthenticationExtensionsPrfValues,
+            AuthenticationExtensionsPrfOutputsHelper, AuthenticationExtensionsPrfValues,
             ClientExtensions,
         },
     },
@@ -16,7 +16,6 @@ use core::{
     marker::PhantomData,
     str,
 };
-use data_encoding::BASE64URL_NOPAD;
 use rsa::sha2::{Sha256, digest::OutputSizeUser as _};
 use serde::{
     de::{Deserialize, Deserializer, Error, IgnoredAny, MapAccess, Unexpected, Visitor},
@@ -37,10 +36,6 @@ impl<'e> Deserialize<'e> for AuthData {
                 formatter.write_str("AuthenticatorData")
             }
             #[expect(
-                clippy::panic_in_result_fn,
-                reason = "we want to crash when there is a bug"
-            )]
-            #[expect(
                 clippy::arithmetic_side_effects,
                 reason = "comment justifies its correctness"
             )]
@@ -48,7 +43,7 @@ impl<'e> Deserialize<'e> for AuthData {
             where
                 E: Error,
             {
-                ser::base64url_nopad_decode_len(v.len())
+                base64url_nopad::decode_len(v.len())
                     .ok_or_else(|| E::invalid_value(Unexpected::Str(v), &"base64url-encoded value"))
                     .and_then(|len| {
                         // The decoded length is 3/4 of the encoded length, so overflow could only occur
@@ -58,16 +53,9 @@ impl<'e> Deserialize<'e> for AuthData {
                         // raw authenticator data by `AuthenticatorDataAssertion::new`.
                         let mut auth_data = vec![0; len + Sha256::output_size()];
                         auth_data.truncate(len);
-                        BASE64URL_NOPAD
-                            .decode_mut(v.as_bytes(), auth_data.as_mut_slice())
-                            .map_err(|e| E::custom(e.error))
-                            .map(|dec_len| {
-                                assert_eq!(
-                                    len, dec_len,
-                                    "there is a bug in BASE64URL_NOPAD::decode_mut"
-                                );
-                                AuthData(auth_data)
-                            })
+                        base64url_nopad::decode_buffer_exact(v.as_bytes(), auth_data.as_mut_slice())
+                            .map_err(E::custom)
+                            .map(|()| AuthData(auth_data))
                     })
             }
         }
@@ -462,7 +450,6 @@ mod tests {
         super::super::request::register::USER_HANDLE_MIN_LEN, AuthenticatorAttachment,
         DiscoverableAuthentication, NonDiscoverableAuthentication,
     };
-    use data_encoding::BASE64URL_NOPAD;
     use rsa::sha2::{Digest as _, Sha256};
     use serde::de::{Error as _, Unexpected};
     use serde_json::Error;
@@ -511,10 +498,10 @@ mod tests {
             0,
             0,
         ];
-        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD.encode(auth_data.as_slice());
-        let b64_sig = BASE64URL_NOPAD.encode([].as_slice());
-        let b64_user = BASE64URL_NOPAD.encode(b"\x00".as_slice());
+        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
+        let b64_adata = base64url_nopad::encode(auth_data.as_slice());
+        let b64_sig = base64url_nopad::encode([].as_slice());
+        let b64_user = base64url_nopad::encode(b"\x00".as_slice());
         // Base case is valid.
         assert!(
             serde_json::from_str::<DiscoverableAuthentication<USER_HANDLE_MIN_LEN>>(
@@ -547,8 +534,7 @@ mod tests {
         // `id` and `rawId` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Bytes(
-                BASE64URL_NOPAD
-                    .decode("ABABABABABABABABABABAA".as_bytes())
+                base64url_nopad::decode("ABABABABABABABABABABAA".as_bytes())
                     .unwrap()
                     .as_slice(),
             ),
@@ -1311,10 +1297,10 @@ mod tests {
             0,
             0,
         ];
-        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD.encode(auth_data.as_slice());
-        let b64_sig = BASE64URL_NOPAD.encode([].as_slice());
-        let b64_user = BASE64URL_NOPAD.encode(b"\x00".as_slice());
+        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
+        let b64_adata = base64url_nopad::encode(auth_data.as_slice());
+        let b64_sig = base64url_nopad::encode([].as_slice());
+        let b64_user = base64url_nopad::encode(b"\x00".as_slice());
         // Base case is valid.
         assert!(
             serde_json::from_str::<DiscoverableAuthentication<USER_HANDLE_MIN_LEN>>(

@@ -34,7 +34,7 @@ use core::{
     fmt::{self, Display, Formatter},
 };
 /// Error returned from [`Ed25519PubKey::try_from`] when the `slice` is not 32-bytes in length.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Ed25519PubKeyErr;
 impl Display for Ed25519PubKeyErr {
     #[inline]
@@ -44,7 +44,7 @@ impl Display for Ed25519PubKeyErr {
 }
 impl Error for Ed25519PubKeyErr {}
 /// Error returned from [`UncompressedP256PubKey::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UncompressedP256PubKeyErr {
     /// Variant returned when the x-coordinate is not 32-bytes in length.
     X,
@@ -63,7 +63,7 @@ impl Display for UncompressedP256PubKeyErr {
 impl Error for UncompressedP256PubKeyErr {}
 /// Error returned from [`CompressedP256PubKey::try_from`] when the x-coordinate
 /// is not exactly 32 bytes in length.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CompressedP256PubKeyErr;
 impl Display for CompressedP256PubKeyErr {
     #[inline]
@@ -73,7 +73,7 @@ impl Display for CompressedP256PubKeyErr {
 }
 impl Error for CompressedP256PubKeyErr {}
 /// Error returned from [`UncompressedP384PubKey::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UncompressedP384PubKeyErr {
     /// Variant returned when the x-coordinate is not 48-bytes in length.
     X,
@@ -92,7 +92,7 @@ impl Display for UncompressedP384PubKeyErr {
 impl Error for UncompressedP384PubKeyErr {}
 /// Error returned from [`CompressedP384PubKey::try_from`] when the x-coordinate
 /// is not exactly 48 bytes in length.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CompressedP384PubKeyErr;
 impl Display for CompressedP384PubKeyErr {
     #[inline]
@@ -102,7 +102,7 @@ impl Display for CompressedP384PubKeyErr {
 }
 impl Error for CompressedP384PubKeyErr {}
 /// Error returned from [`RsaPubKey::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RsaPubKeyErr {
     /// Variant returned when the modulus has a leading 0.
     NLeading0,
@@ -132,7 +132,7 @@ impl Display for RsaPubKeyErr {
 }
 impl Error for RsaPubKeyErr {}
 /// Error returned when an alleged public key is not valid.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PubKeyErr {
     /// Error when [`Ed25519PubKey`] is not valid.
     ///
@@ -156,7 +156,7 @@ impl Display for PubKeyErr {
 }
 impl Error for PubKeyErr {}
 /// Error returned from [`Ed25519Signature::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Ed25519SignatureErr;
 impl Display for Ed25519SignatureErr {
     #[inline]
@@ -167,7 +167,7 @@ impl Display for Ed25519SignatureErr {
 impl Error for Ed25519SignatureErr {}
 /// Error returned from [`Aaguid::try_from`] when the slice is not exactly
 /// 16-bytes in length.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AaguidErr;
 impl Display for AaguidErr {
     #[inline]
@@ -177,7 +177,7 @@ impl Display for AaguidErr {
 }
 impl Error for AaguidErr {}
 /// Error returned in [`AuthenticatorDataErr::AuthenticatorExtension`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthenticatorExtensionOutputErr {
     /// The `slice` had an invalid length.
     Len,
@@ -213,7 +213,7 @@ impl Display for AuthenticatorExtensionOutputErr {
 }
 impl Error for AuthenticatorExtensionOutputErr {}
 /// Error returned in [`AttestedCredentialDataErr::CoseKey`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoseKeyErr {
     /// The `slice` had an invalid length.
     Len,
@@ -261,7 +261,7 @@ impl Display for CoseKeyErr {
 }
 impl Error for CoseKeyErr {}
 /// Error returned in [`AuthenticatorDataErr::AttestedCredential`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttestedCredentialDataErr {
     /// The `slice` had an invalid length.
     Len,
@@ -282,7 +282,7 @@ impl Display for AttestedCredentialDataErr {
 }
 impl Error for AttestedCredentialDataErr {}
 /// Error returned from [`AuthenticatorData::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthenticatorDataErr {
     /// The `slice` had an invalid length.
     Len,
@@ -364,7 +364,7 @@ impl Display for AuthenticatorDataErr {
 }
 impl Error for AuthenticatorDataErr {}
 /// Error returned in [`AttestationObjectErr::Attestation`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttestationErr {
     /// The `slice` had an invalid length.
     Len,
@@ -424,7 +424,7 @@ impl Display for AttestationErr {
 }
 impl Error for AttestationErr {}
 /// Error returned by [`AttestationObject::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttestationObjectErr {
     /// The `slice` had an invalid length.
     Len,
@@ -475,7 +475,7 @@ impl Display for AttestationObjectErr {
 }
 impl Error for AttestationObjectErr {}
 /// Error in [`RegCeremonyErr::Extension`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExtensionErr {
     /// [`ClientExtensionsOutputs::cred_props`] was sent from the client but was not supposed to be.
     ForbiddenCredProps,

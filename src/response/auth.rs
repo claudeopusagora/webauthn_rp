@@ -55,7 +55,7 @@ pub mod ser_relaxed;
 ///
 /// Note while many authenticators that implement `prf` don't require `prf` to have been sent during registration
 /// (i.e., [`register::Extension::prf`]), it is recommended to do so for those authenticators that do require it.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HmacSecret {
     /// No `hmac-secret` response.
     ///

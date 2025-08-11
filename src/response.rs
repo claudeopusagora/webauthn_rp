@@ -19,7 +19,6 @@ use core::{
     hash::{Hash, Hasher},
     str,
 };
-use data_encoding::BASE64URL_NOPAD;
 use rsa::sha2::{digest::OutputSizeUser as _, Sha256};
 #[cfg(feature = "serde_relaxed")]
 use ser_relaxed::SerdeJsonErr;
@@ -30,17 +29,15 @@ use ser_relaxed::SerdeJsonErr;
 ///
 /// ```no_run
 /// # use core::convert;
-/// # use data_encoding::BASE64URL_NOPAD;
 /// # use webauthn_rp::{
 /// #     hash::hash_set::FixedCapHashSet,
-/// #     request::{auth::{error::InvalidTimeout, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, error::AsciiDomainErr, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, AsciiDomainStatic, BackupReq, RpId},
+/// #     request::{auth::{error::InvalidTimeout, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, BackupReq, RpId},
 /// #     response::{auth::{error::AuthCeremonyErr, DiscoverableAuthentication64}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputsStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKeyOwned, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
 /// #     AuthenticatedCredential, CredentialErr
 /// # };
 /// # #[derive(Debug)]
 /// # enum E {
 /// #     CollectedClientData(CollectedClientDataErr),
-/// #     RpId(AsciiDomainErr),
 /// #     InvalidTimeout(InvalidTimeout),
 /// #     SerdeJson(serde_json::Error),
 /// #     MissingUserHandle,
@@ -48,11 +45,6 @@ use ser_relaxed::SerdeJsonErr;
 /// #     UnknownCredential,
 /// #     Credential(CredentialErr),
 /// #     AuthCeremony(AuthCeremonyErr),
-/// # }
-/// # impl From<AsciiDomainErr> for E {
-/// #     fn from(value: AsciiDomainErr) -> Self {
-/// #         Self::RpId(value)
-/// #     }
 /// # }
 /// # impl From<CollectedClientDataErr> for E {
 /// #     fn from(value: CollectedClientDataErr) -> Self {
@@ -79,7 +71,7 @@ use ser_relaxed::SerdeJsonErr;
 /// #         Self::AuthCeremony(value)
 /// #     }
 /// # }
-/// const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+/// const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID).start_ceremony()?;
 /// assert!(
@@ -101,7 +93,7 @@ use ser_relaxed::SerdeJsonErr;
 /// # #[cfg(feature = "serde")]
 /// fn get_authentication_json(client: DiscoverableAuthenticationClientState<'_, '_, '_>) -> String {
 ///     // ⋮
-/// #     let client_data_json = BASE64URL_NOPAD.encode(serde_json::json!({
+/// #     let client_data_json = base64url_nopad::encode(serde_json::json!({
 /// #         "type": "webauthn.get",
 /// #         "challenge": client.options().public_key.challenge,
 /// #         "origin": format!("https://{}", client.options().public_key.rp_id.as_ref()),
@@ -153,26 +145,19 @@ pub mod error;
 ///
 /// ```no_run
 /// # use core::convert;
-/// # use data_encoding::BASE64URL_NOPAD;
 /// # use webauthn_rp::{
 /// #     hash::hash_set::FixedCapHashSet,
-/// #     request::{register::{error::CreationOptionsErr, CredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, error::AsciiDomainErr, AsciiDomainStatic, PublicKeyCredentialDescriptor, RpId},
+/// #     request::{register::{error::CreationOptionsErr, CredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, PublicKeyCredentialDescriptor, RpId},
 /// #     response::{register::{error::RegCeremonyErr, Registration}, error::CollectedClientDataErr, CollectedClientData},
 /// #     RegisteredCredential
 /// # };
 /// # #[derive(Debug)]
 /// # enum E {
 /// #     CollectedClientData(CollectedClientDataErr),
-/// #     RpId(AsciiDomainErr),
 /// #     CreationOptions(CreationOptionsErr),
 /// #     SerdeJson(serde_json::Error),
 /// #     MissingCeremony,
 /// #     RegCeremony(RegCeremonyErr),
-/// # }
-/// # impl From<AsciiDomainErr> for E {
-/// #     fn from(value: AsciiDomainErr) -> Self {
-/// #         Self::RpId(value)
-/// #     }
 /// # }
 /// # impl From<CollectedClientDataErr> for E {
 /// #     fn from(value: CollectedClientDataErr) -> Self {
@@ -194,7 +179,7 @@ pub mod error;
 /// #         Self::RegCeremony(value)
 /// #     }
 /// # }
-/// const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+/// const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 /// # #[cfg(feature = "custom")]
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// # #[cfg(feature = "custom")]
@@ -239,7 +224,7 @@ pub mod error;
 /// # #[cfg(feature = "serde")]
 /// fn get_registration_json(client: RegistrationClientState<'_, '_, '_, '_, '_, '_, USER_HANDLE_MAX_LEN>) -> String {
 ///     // ⋮
-/// #     let client_data_json = BASE64URL_NOPAD.encode(serde_json::json!({
+/// #     let client_data_json = base64url_nopad::encode(serde_json::json!({
 /// #         "type": "webauthn.create",
 /// #         "challenge": client.options().public_key.challenge,
 /// #         "origin": format!("https://{}", client.options().public_key.rp_id.as_ref()),
@@ -272,7 +257,7 @@ pub mod register;
 /// Contains functionality to (de)serialize data to/from a client.
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
-mod ser;
+pub(crate) mod ser;
 /// Contains functionality to deserialize data from a client in a "relaxed" way.
 #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
 #[cfg(feature = "serde_relaxed")]
@@ -301,7 +286,7 @@ impl PartialEq<Backup> for &Backup {
     }
 }
 /// [`AuthenticatorTransport`](https://www.w3.org/TR/webauthn-3/#enumdef-authenticatortransport).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthenticatorTransport {
     /// [`ble`](https://www.w3.org/TR/webauthn-3/#dom-authenticatortransport-ble).
     Ble,
@@ -1054,7 +1039,6 @@ impl<const R: bool> LimitedVerificationParser<R> {
 }
 impl<const R: bool> ClientDataJsonParser for LimitedVerificationParser<R> {
     type Err = CollectedClientDataErr;
-    #[expect(clippy::panic_in_result_fn, reason = "want to crash when there is a bug")]
     #[expect(clippy::little_endian_bytes, reason = "Challenge::serialize and this need to be consistent across architectures")]
     #[expect(clippy::too_many_lines, reason = "110 lines is fine")]
     fn parse(json: &[u8]) -> Result<CollectedClientData<'_>, Self::Err> {
@@ -1102,8 +1086,7 @@ impl<const R: bool> ClientDataJsonParser for LimitedVerificationParser<R> {
                                 if chall_key == AFTER_TYPE {
                                     chall_key_rem.split_at_checked(Challenge::BASE64_LEN).ok_or(CollectedClientDataErr::Len).and_then(|(base64_chall, base64_chall_rem)| {
                                         let mut chall = [0; 16];
-                                        BASE64URL_NOPAD.decode_mut(base64_chall, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).and_then(|chall_len| {
-                                            assert_eq!(chall_len, 16, "there is a bug in BASE64URL_NOPAD::decode_mut");
+                                        base64url_nopad::decode_buffer_exact(base64_chall, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).and_then(|()| {
                                             base64_chall_rem.split_at_checked(AFTER_CHALLENGE.len()).ok_or(CollectedClientDataErr::Len).and_then(|(origin_key, origin_key_rem)| {
                                                 if origin_key == AFTER_CHALLENGE {
                                                     Self::parse_string(origin_key_rem).and_then(|(origin, origin_rem)| {
@@ -1180,7 +1163,6 @@ impl<const R: bool> ClientDataJsonParser for LimitedVerificationParser<R> {
             }
         })
     }
-    #[expect(clippy::panic_in_result_fn, reason = "want to crash when there is a bug")]
     #[expect(clippy::arithmetic_side_effects, reason = "comment justifies correctness")]
     #[expect(clippy::little_endian_bytes, reason = "Challenge::serialize and this need to be consistent across architectures")]
     fn get_sent_challenge(json: &[u8]) -> Result<SentChallenge, Self::Err> {
@@ -1192,8 +1174,7 @@ impl<const R: bool> ClientDataJsonParser for LimitedVerificationParser<R> {
         // This maxes at 39 + 22 = 61; thus overflow is not an issue.
         json.get(idx..idx + Challenge::BASE64_LEN).ok_or(CollectedClientDataErr::Len).and_then(|chall_slice| {
             let mut chall = [0; 16];
-            BASE64URL_NOPAD.decode_mut(chall_slice, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).map(|len| {
-                assert_eq!(len, 16, "there is a bug in BASE64URL_NOPAD::decode_mut");
+            base64url_nopad::decode_buffer_exact(chall_slice, chall.as_mut_slice()).map_err(|_e| CollectedClientDataErr::Challenge).map(|()| {
                 SentChallenge(u128::from_le_bytes(chall))
             })
         })

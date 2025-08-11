@@ -8,7 +8,7 @@ use core::{
     num::ParseIntError,
 };
 /// Error returned by [`AsciiDomain::try_from`] when the `Vec` is not a valid ASCII domain.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AsciiDomainErr {
     /// Variant returned when the domain is empty.
     Empty,
@@ -39,7 +39,7 @@ impl Display for AsciiDomainErr {
 impl Error for AsciiDomainErr {}
 /// Error returned by [`Url::from_str`] when the `str` passed to the
 /// [URL serializer](https://url.spec.whatwg.org/#concept-url-serializer) leads to a failure.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UrlErr;
 impl Display for UrlErr {
     #[inline]
@@ -48,8 +48,18 @@ impl Display for UrlErr {
     }
 }
 impl Error for UrlErr {}
+/// Error returned by [`RpId::try_from`] when the `String` is not a valid [`AsciiDomain`] nor [`Url`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RpIdErr;
+impl Display for RpIdErr {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("RpId is invalid")
+    }
+}
+impl Error for RpIdErr {}
 /// Error returned by [`Scheme::try_from`] when the passed [`str`] is empty.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SchemeParseErr;
 impl Display for SchemeParseErr {
     #[inline]
@@ -60,7 +70,7 @@ impl Display for SchemeParseErr {
 impl Error for SchemeParseErr {}
 /// Error returned by [`Port::from_str`] when the passed [`str`] is not a valid unsigned 16-bit integer in
 /// decimal form without leading 0s.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum PortParseErr {
     /// Variant returned iff [`u16::from_str`] does.
     ParseInt(ParseIntError),
@@ -80,7 +90,7 @@ impl Display for PortParseErr {
 }
 impl Error for PortParseErr {}
 /// Error returned by [`DomainOrigin::try_from`].
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum DomainOriginParseErr {
     /// Variant returned when there is an error parsing the scheme.
     Scheme(SchemeParseErr),

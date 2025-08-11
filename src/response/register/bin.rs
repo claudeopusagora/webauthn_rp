@@ -263,7 +263,7 @@ impl EncodeBuffer for Aaguid<'_> {
     }
 }
 /// Owned version of [`Aaguid`] that exists for [`MetadataOwned::aaguid`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AaguidOwned(pub [u8; super::AAGUID_LEN]);
 impl<'a: 'b, 'b> From<&'a AaguidOwned> for Aaguid<'b> {
     #[inline]
@@ -279,7 +279,7 @@ impl<'a> DecodeBuffer<'a> for AaguidOwned {
 }
 impl EncodeBuffer for FourToSixtyThree {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
-        self.value().encode_into_buffer(buffer);
+        self.into_u8().encode_into_buffer(buffer);
     }
 }
 impl EncodeBuffer for AuthenticatorExtensionOutputMetadata {
@@ -290,7 +290,7 @@ impl EncodeBuffer for AuthenticatorExtensionOutputMetadata {
 impl<'a> DecodeBuffer<'a> for FourToSixtyThree {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        u8::decode_from_buffer(data).and_then(|val| Self::new(val).ok_or(EncDecErr))
+        u8::decode_from_buffer(data).and_then(|val| Self::from_u8(val).ok_or(EncDecErr))
     }
 }
 impl<'a> DecodeBuffer<'a> for AuthenticatorExtensionOutputMetadata {
@@ -394,7 +394,7 @@ impl<'a: 'b, 'b> From<&'a MetadataOwned> for Metadata<'b> {
     }
 }
 /// Error returned from [`MetadataOwned::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeMetadataOwnedErr {
     /// Variant returned when [`MetadataOwned::attestation`] could not be decoded.
     Attestation,
@@ -497,7 +497,7 @@ impl Encode for StaticState<UncompressedPubKey<'_>> {
     }
 }
 /// Error returned from [`StaticState::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeStaticStateErr {
     /// Variant returned when [`StaticState::credential_public_key`] could not be decoded.
     CredentialPublicKey,
@@ -592,7 +592,7 @@ impl Encode for DynamicState {
     }
 }
 /// Error returned from [`DynamicState::decode`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeDynamicStateErr {
     /// Variant returned when [`DynamicState::user_verified`] could not be decoded.
     UserVerified,

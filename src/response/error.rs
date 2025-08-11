@@ -1,7 +1,7 @@
 extern crate alloc;
+use super::{CRED_ID_MAX_LEN, CRED_ID_MIN_LEN};
 #[cfg(doc)]
 use super::{Challenge, CollectedClientData, CredentialId};
-use super::{CRED_ID_MAX_LEN, CRED_ID_MIN_LEN};
 use alloc::string::FromUtf8Error;
 use core::{
     error::Error,
@@ -10,7 +10,7 @@ use core::{
 };
 /// Error returned when a [`CredentialId`] does not have length inclusively between [`CRED_ID_MIN_LEN`] and
 /// [`CRED_ID_MAX_LEN`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CredentialIdErr;
 impl Display for CredentialIdErr {
     #[inline]
@@ -23,7 +23,7 @@ impl Display for CredentialIdErr {
 }
 impl Error for CredentialIdErr {}
 /// Error returned from [`CollectedClientData::from_client_data_json`].
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum CollectedClientDataErr {
     /// The `slice` had invalid length.
     Len,

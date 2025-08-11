@@ -14,7 +14,9 @@ use super::{
 };
 use crate::{
     request::{
-        error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
+        error::{
+            AsciiDomainErr, DomainOriginParseErr, PortParseErr, RpIdErr, SchemeParseErr, UrlErr,
+        },
         register::RegistrationVerificationOptions,
     },
     response::{
@@ -46,12 +48,12 @@ use url::Url as Uri;
 /// #     request::{
 /// #         auth::{AllowedCredentials, DiscoverableCredentialRequestOptions, NonDiscoverableCredentialRequestOptions},
 /// #         register::UserHandle64,
-/// #         AsciiDomainStatic, Credentials, PublicKeyCredentialDescriptor, RpId,
+/// #         Credentials, PublicKeyCredentialDescriptor, RpId,
 /// #     },
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
 /// #     AggErr,
 /// # };
-/// const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+/// const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID).start_ceremony()?;
 /// assert!(
@@ -110,12 +112,12 @@ pub mod error;
 /// #         register::{
 /// #             CredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
 /// #         },
-/// #         AsciiDomainStatic, PublicKeyCredentialDescriptor, RpId
+/// #         PublicKeyCredentialDescriptor, RpId
 /// #     },
 /// #     response::{AuthTransports, CredentialId, CRED_ID_MIN_LEN},
 /// #     AggErr,
 /// # };
-/// const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+/// const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 /// # #[cfg(feature = "custom")]
 /// let mut ceremonies = FixedCapHashSet::new(128);
 /// # #[cfg(feature = "custom")]
@@ -201,7 +203,7 @@ pub(super) mod ser_server_state;
 pub struct Challenge(u128);
 impl Challenge {
     /// The number of bytes a `Challenge` takes to encode in base64url.
-    pub(super) const BASE64_LEN: usize = super::base64url_nopad_len(16);
+    pub(super) const BASE64_LEN: usize = base64url_nopad::encode_len(16);
     /// Generates a random `Challenge`.
     ///
     /// # Examples
@@ -674,6 +676,16 @@ pub enum RpId {
     Url(Url),
 }
 impl RpId {
+    /// Returns `Some` containing an [`AsciiDomainStatic`] iff [`AsciiDomainStatic::new`] does.
+    #[inline]
+    #[must_use]
+    pub const fn from_static_domain(domain: &'static str) -> Option<Self> {
+        if let Some(dom) = AsciiDomainStatic::new(domain) {
+            Some(Self::StaticDomain(dom))
+        } else {
+            None
+        }
+    }
     /// Validates `hash` is the same as the SHA-256 hash of `self`.
     fn validate_rp_id_hash<E>(&self, hash: &[u8]) -> Result<(), CeremonyErr<E>> {
         if hash == Sha256::digest(self.as_ref()).as_slice() {
@@ -741,6 +753,22 @@ impl From<Url> for RpId {
     #[inline]
     fn from(value: Url) -> Self {
         Self::Url(value)
+    }
+}
+impl TryFrom<String> for RpId {
+    type Error = RpIdErr;
+    /// Returns `Ok` iff `value` is a valid [`Url`] or [`AsciiDomain`].
+    ///
+    /// Note when `value` is a valid `Url` and `AsciiDomain`, it will be treated as a `Url`.
+    #[inline]
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Url::from_str(value.as_str())
+            .map(Self::Url)
+            .or_else(|_err| {
+                AsciiDomain::try_from(value)
+                    .map(Self::Domain)
+                    .map_err(|_e| RpIdErr)
+            })
     }
 }
 /// A URI scheme. This can be used to make
@@ -1117,7 +1145,7 @@ pub struct PublicKeyCredentialDescriptor<T> {
     pub transports: AuthTransports,
 }
 /// [`UserVerificationRequirement`](https://www.w3.org/TR/webauthn-3/#enumdef-userverificationrequirement).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UserVerificationRequirement {
     /// [`required`](https://www.w3.org/TR/webauthn-3/#dom-userverificationrequirement-required).
     Required,
@@ -1130,18 +1158,8 @@ pub enum UserVerificationRequirement {
     /// [`preferred`](https://www.w3.org/TR/webauthn-3/#dom-userverificationrequirement-preferred).
     Preferred,
 }
-#[cfg(test)]
-impl PartialEq for UserVerificationRequirement {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::Required => matches!(other, Self::Required),
-            Self::Discouraged => matches!(other, Self::Discouraged),
-            Self::Preferred => matches!(other, Self::Preferred),
-        }
-    }
-}
 /// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Hint {
     /// No hints.
     #[default]
@@ -1177,69 +1195,24 @@ pub enum Hint {
     /// [`Self::HybridClientDevice`] and [`Self::SecurityKey`].
     HybridClientDeviceSecurityKey,
 }
-#[cfg(test)]
-impl PartialEq for Hint {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::None => matches!(other, Self::None),
-            Self::SecurityKey => matches!(other, Self::SecurityKey),
-            Self::ClientDevice => matches!(other, Self::ClientDevice),
-            Self::Hybrid => matches!(other, Self::Hybrid),
-            Self::SecurityKeyClientDevice => matches!(other, Self::SecurityKeyClientDevice),
-            Self::ClientDeviceSecurityKey => matches!(other, Self::ClientDeviceSecurityKey),
-            Self::SecurityKeyHybrid => matches!(other, Self::SecurityKeyHybrid),
-            Self::HybridSecurityKey => matches!(other, Self::HybridSecurityKey),
-            Self::ClientDeviceHybrid => matches!(other, Self::ClientDeviceHybrid),
-            Self::HybridClientDevice => matches!(other, Self::HybridClientDevice),
-            Self::SecurityKeyClientDeviceHybrid => {
-                matches!(other, Self::SecurityKeyClientDeviceHybrid)
-            }
-            Self::SecurityKeyHybridClientDevice => {
-                matches!(other, Self::SecurityKeyHybridClientDevice)
-            }
-            Self::ClientDeviceSecurityKeyHybrid => {
-                matches!(other, Self::ClientDeviceSecurityKeyHybrid)
-            }
-            Self::ClientDeviceHybridSecurityKey => {
-                matches!(other, Self::ClientDeviceHybridSecurityKey)
-            }
-            Self::HybridSecurityKeyClientDevice => {
-                matches!(other, Self::HybridSecurityKeyClientDevice)
-            }
-            Self::HybridClientDeviceSecurityKey => {
-                matches!(other, Self::HybridClientDeviceSecurityKey)
-            }
-        }
-    }
-}
 /// Controls if the response to a requested extension is required to be sent back.
 ///
 /// Note when requiring an extension, the extension must not only be sent back but also
-/// contain at least one expected field
-/// (e.g., [`ClientExtensionsOutputs::cred_props`] must be
+/// contain at least one expected field (e.g., [`ClientExtensionsOutputs::cred_props`] must be
 /// `Some(CredentialPropertiesOutput { rk: Some(_) })`.
 ///
 /// If one wants to additionally control the values of an extension, use [`ExtensionInfo`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExtensionReq {
     /// The response to a requested extension is required to be sent back.
     Require,
     /// The response to a requested extension is allowed, but not required, to be sent back.
     Allow,
 }
-#[cfg(test)]
-impl PartialEq for ExtensionReq {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::Require => matches!(other, Self::Require),
-            Self::Allow => matches!(other, Self::Allow),
-        }
-    }
-}
 /// Dictates how an extension should be processed.
 ///
 /// If one wants to only control if the extension should be returned, use [`ExtensionReq`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExtensionInfo {
     /// Require the associated extension and enforce its value.
     RequireEnforceValue,
@@ -1249,17 +1222,6 @@ pub enum ExtensionInfo {
     AllowEnforceValue,
     /// Allow the associated extension to exist but don't enforce its value.
     AllowDontEnforceValue,
-}
-#[cfg(test)]
-impl PartialEq for ExtensionInfo {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::RequireEnforceValue => matches!(other, Self::RequireEnforceValue),
-            Self::RequireDontEnforceValue => matches!(other, Self::RequireDontEnforceValue),
-            Self::AllowEnforceValue => matches!(other, Self::AllowEnforceValue),
-            Self::AllowDontEnforceValue => matches!(other, Self::AllowDontEnforceValue),
-        }
-    }
 }
 impl Display for ExtensionInfo {
     #[inline]
@@ -1279,7 +1241,7 @@ impl Display for ExtensionInfo {
 /// [`optional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-optional)
 /// is just an alias for [`Self::Required`].
 #[expect(clippy::doc_markdown, reason = "false positive")]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CredentialMediationRequirement {
     /// [`required`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-required).
     ///
@@ -1289,21 +1251,12 @@ pub enum CredentialMediationRequirement {
     /// [`conditional`](https://www.w3.org/TR/credential-management-1/#dom-credentialmediationrequirement-conditional).
     ///
     /// Note that when registering a new credential with [`CredentialCreationOptions::mediation`] set to
-    /// `Self::Conditional`, [`UserVerificationRequirement::Discouraged`] MUST be used unless user verification
+    /// `Self::Conditional`, [`UserVerificationRequirement::Required`] MUST NOT be used unless user verification
     /// can be explicitly performed during the ceremony.
     Conditional,
 }
-#[cfg(test)]
-impl PartialEq for CredentialMediationRequirement {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::Required => matches!(other, Self::Required),
-            Self::Conditional => matches!(other, Self::Conditional),
-        }
-    }
-}
 /// Backup requirements for the credential.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum BackupReq {
     /// No requirements (i.e., any [`Backup`] is allowed).
     #[default]
@@ -1723,20 +1676,35 @@ pub trait TimedCeremony {
     fn expiration(&self) -> SystemTime;
 }
 /// [`AuthenticationExtensionsPRFValues`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticationextensionsprfvalues).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PrfInput<'first, 'second> {
     /// [`first`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-first).
     pub first: &'first [u8],
     /// [`second`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-second).
     pub second: Option<&'second [u8]>,
 }
-#[cfg(test)]
-impl PartialEq for PrfInput<'_, '_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.first == other.first && self.second == other.second
+impl<'first, 'second> PrfInput<'first, 'second> {
+    /// Returns a `PrfInput` with [`Self::first`] set to `first` and [`Self::second`] set to `None`.
+    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[inline]
+    #[must_use]
+    pub const fn with_first<'a: 'first>(first: &'a [u8]) -> Self {
+        Self {
+            first,
+            second: None,
+        }
+    }
+    /// Same as [`Self::with_first`] except [`Self::second`] is set to `Some` containing `second`.
+    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[inline]
+    #[must_use]
+    pub const fn with_two<'a: 'first, 'b: 'second>(first: &'a [u8], second: &'b [u8]) -> Self {
+        Self {
+            first,
+            second: Some(second),
+        }
     }
 }
-
 /// The number of milliseconds in 5 minutes.
 ///
 /// This is the recommended default timeout duration for ceremonies
@@ -1844,7 +1812,7 @@ mod tests {
         assert!(AsciiDomainStatic::new("λ.com").is_none());
     }
     #[cfg(feature = "custom")]
-    const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+    const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
     #[test]
     #[cfg(feature = "custom")]
     fn eddsa_reg() -> Result<(), AggErr> {
@@ -1865,11 +1833,7 @@ mod tests {
                 false,
                 ExtensionInfo::RequireEnforceValue,
             ),
-            min_pin_length: Some((
-                FourToSixtyThree::new(10)
-                    .unwrap_or_else(|| unreachable!("bug in FourToSixyThree::new")),
-                ExtensionInfo::RequireEnforceValue,
-            )),
+            min_pin_length: Some((FourToSixtyThree::Ten, ExtensionInfo::RequireEnforceValue)),
             prf: Some((
                 PrfInput {
                     first: [0].as_slice(),

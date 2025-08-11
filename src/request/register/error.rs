@@ -11,7 +11,7 @@ use core::{
 #[cfg(doc)]
 use std::time::{Instant, SystemTime};
 /// Error returned by [`Nickname::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NicknameErr {
     /// Error returned when the [Nickname Enforcement rule](https://www.rfc-editor.org/rfc/rfc8266#section-2.3)
     /// fails.
@@ -31,7 +31,7 @@ impl Display for NicknameErr {
 }
 impl Error for NicknameErr {}
 /// Error returned by [`Username::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UsernameErr {
     /// Error returned when the
     /// [UsernameCasePreserved Enforcement rule](https://www.rfc-editor.org/rfc/rfc8265#section-3.4.3) fails.
@@ -51,7 +51,7 @@ impl Display for UsernameErr {
 }
 impl Error for UsernameErr {}
 /// Error returned by [`CredentialCreationOptions::start_ceremony`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CreationOptionsErr {
     /// Error when [`Extension::cred_protect`] is [`CredProtect::UserVerificationRequired`] but [`AuthenticatorSelectionCriteria::user_verification`] is not
     /// [`UserVerificationRequirement::Required`].

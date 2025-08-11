@@ -31,6 +31,7 @@ use core::{
     cmp::Ordering,
     fmt::{self, Display, Formatter},
     hash::{Hash, Hasher},
+    mem,
     num::{NonZeroU32, NonZeroU64},
     time::Duration,
 };
@@ -49,17 +50,17 @@ pub mod bin;
 mod custom;
 /// Contains error types.
 pub mod error;
-/// Contains functionality to serialize data to a client.
+/// Contains functionality to (de)serialize data to a client.
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
-pub(crate) mod ser;
+pub mod ser;
 /// Contains functionality to (de)serialize [`RegistrationServerState`] to a data store.
 #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 pub mod ser_server_state;
 /// Used by [`Extension::cred_protect`] to enforce the [`CredentialProtectionPolicy`] sent by the client via
 /// [`Registration`].
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CredProtect {
     /// No `credProtect` request.
     #[default]
@@ -166,23 +167,6 @@ impl CredProtect {
                 }
                 ExtensionInfo::AllowDontEnforceValue => Ok(()),
             },
-        }
-    }
-}
-#[cfg(test)]
-impl PartialEq for CredProtect {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::None => matches!(other, Self::None),
-            Self::UserVerificationOptional(enforce, info) => {
-                matches!(*other, Self::UserVerificationOptional(enforce2, info2) if enforce == enforce2 && info == info2)
-            }
-            Self::UserVerificationOptionalWithCredentialIdList(enforce, info) => {
-                matches!(*other, Self::UserVerificationOptionalWithCredentialIdList(enforce2, info2) if enforce == enforce2 && info == info2)
-            }
-            Self::UserVerificationRequired(enforce, info) => {
-                matches!(*other, Self::UserVerificationRequired(enforce2, info2) if enforce == enforce2 && info == info2)
-            }
         }
     }
 }
@@ -428,6 +412,12 @@ impl<'a> Username<'a> {
     pub fn with_max_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, UsernameErr> {
         Self::try_from(value)
     }
+    /// Returns `Self` containing `"blank"`.
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    fn blank() -> Self {
+        Self::try_from("blank")
+            .unwrap_or_else(|_e| unreachable!("'blank' is no longer a valid Username"))
+    }
 }
 impl AsRef<str> for Username<'_> {
     #[inline]
@@ -593,7 +583,7 @@ impl PartialEq<CoseAlgorithmIdentifier> for &CoseAlgorithmIdentifier {
     }
 }
 /// Non-empty ordered set of [`CoseAlgorithmIdentifier`]s.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CoseAlgorithmIdentifiers(u8);
 impl CoseAlgorithmIdentifiers {
     /// Contains all [`CoseAlgorithmIdentifier`]s.
@@ -646,61 +636,177 @@ impl Default for CoseAlgorithmIdentifiers {
         Self::ALL
     }
 }
-#[cfg(test)]
-impl PartialEq for CoseAlgorithmIdentifiers {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-/// `newtype` of `u8` bound inclusively between [`Self::MIN`] and [`Self::MAX`].
+/// Four to sixty-three inclusively.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct FourToSixtyThree(u8);
+#[repr(u8)]
+pub enum FourToSixtyThree {
+    /// 4.
+    Four = 4,
+    /// 5.
+    Five,
+    /// 6.
+    Six,
+    /// 7.
+    Seven,
+    /// 8.
+    Eight,
+    /// 9.
+    Nine,
+    /// 10.
+    Ten,
+    /// 11.
+    Eleven,
+    /// 12.
+    Twelve,
+    /// 13.
+    Thirteen,
+    /// 14.
+    Fourteen,
+    /// 15.
+    Fifteen,
+    /// 16.
+    Sixteen,
+    /// 17.
+    Seventeen,
+    /// 18.
+    Eighteen,
+    /// 19.
+    Nineteen,
+    /// 20.
+    Twenty,
+    /// 21.
+    TwentyOne,
+    /// 22.
+    TwentyTwo,
+    /// 23.
+    TwentyThree,
+    /// 24.
+    TwentyFour,
+    /// 25.
+    TwentyFive,
+    /// 26.
+    TwentySix,
+    /// 27.
+    TwentySeven,
+    /// 28.
+    TwentyEight,
+    /// 29.
+    TwentyNine,
+    /// 30.
+    Thirty,
+    /// 31.
+    ThirtyOne,
+    /// 32.
+    ThirtyTwo,
+    /// 33.
+    ThirtyThree,
+    /// 34.
+    ThirtyFour,
+    /// 35.
+    ThirtyFive,
+    /// 36.
+    ThirtySix,
+    /// 37.
+    ThirtySeven,
+    /// 38.
+    ThirtyEight,
+    /// 39.
+    ThirtyNine,
+    /// 40.
+    Fourty,
+    /// 41.
+    FourtyOne,
+    /// 42.
+    FourtyTwo,
+    /// 43.
+    FourtyThree,
+    /// 44.
+    FourtyFour,
+    /// 45.
+    FourtyFive,
+    /// 46.
+    FourtySix,
+    /// 47.
+    FourtySeven,
+    /// 48.
+    FourtyEight,
+    /// 49.
+    FourtyNine,
+    /// 50.
+    Fifty,
+    /// 51.
+    FiftyOne,
+    /// 52.
+    FiftyTwo,
+    /// 53.
+    FiftyThree,
+    /// 54.
+    FiftyFour,
+    /// 55.
+    FiftyFive,
+    /// 56.
+    FiftySix,
+    /// 57.
+    FiftySeven,
+    /// 58.
+    FiftyEight,
+    /// 59.
+    FiftyNine,
+    /// 60.
+    Sixty,
+    /// 61.
+    SixtyOne,
+    /// 62.
+    SixtyTwo,
+    /// 63.
+    SixtyThree,
+}
 impl FourToSixtyThree {
-    /// Minimum inner value.
-    const MIN_INNER: u8 = 4;
-    /// Maximum inner value.
-    const MAX_INNER: u8 = 63;
-    /// Minimum value.
-    pub const MIN: Self = Self(Self::MIN_INNER);
-    /// Maximum value.
-    pub const MAX: Self = Self(Self::MAX_INNER);
-    /// Returns `Self` iff `val` is inclusively between [`Self::MIN`] and [`Self::MAX`].
+    /// Returns the equivalent `u8`.
+    #[expect(clippy::as_conversions, reason = "comment justifies correctness")]
     #[inline]
     #[must_use]
-    pub const fn new(val: u8) -> Option<Self> {
-        match val {
-            Self::MIN_INNER..=Self::MAX_INNER => Some(Self(val)),
-            _ => None,
-        }
+    pub const fn into_u8(self) -> u8 {
+        // This is correct since `Self` is `repr(u8)`, and the initial discriminant has the value `4`
+        // and subsequent discriminants are implicitly incremented by 1.
+        self as u8
     }
-    /// Returns the contained value.
+    /// Returns `Some` representing `val` iff `val` is inclusively between 4 and 63.
+    #[expect(unsafe_code, reason = "comment justifies correctness")]
     #[inline]
     #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
+    pub const fn from_u8(val: u8) -> Option<Self> {
+        match val {
+            0..=3 | 64.. => None,
+            _ => {
+                // SAFETY:
+                // `val` is inclusively between 4 and 63, and `Self` is `repr(u8)`; thus this
+                // is safe and correct.
+                Some(unsafe { mem::transmute::<u8, Self>(val) })
+            }
+        }
     }
 }
 impl Display for FourToSixtyThree {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        self.into_u8().fmt(f)
     }
 }
 impl From<FourToSixtyThree> for u8 {
     #[inline]
     fn from(value: FourToSixtyThree) -> Self {
-        value.0
+        value.into_u8()
     }
 }
 impl Default for FourToSixtyThree {
-    /// Returns [`Self::MIN`].
     #[inline]
     fn default() -> Self {
-        Self::MIN
+        Self::Four
     }
 }
 /// The [defined extensions](https://www.w3.org/TR/webauthn-3/#sctn-defined-extensions) to send to the client.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Extension<'prf_first, 'prf_second> {
     /// [`credProps`](https://www.w3.org/TR/webauthn-3/#sctn-authenticator-credential-properties-extension).
     ///
@@ -752,6 +858,66 @@ pub struct Extension<'prf_first, 'prf_second> {
     /// For credentials intended to be used during non-discoverable requests, however, one is encouraged to rotate
     /// the inputs and have unique values for each credential.
     pub prf: Option<(PrfInput<'prf_first, 'prf_second>, ExtensionInfo)>,
+}
+impl<'prf_first, 'prf_second> Extension<'prf_first, 'prf_second> {
+    /// Returns an empty `Extension`.
+    #[inline]
+    #[must_use]
+    pub const fn none() -> Self {
+        Self {
+            cred_props: None,
+            cred_protect: CredProtect::None,
+            min_pin_length: None,
+            prf: None,
+        }
+    }
+    /// Same as [`Self::none`] except [`Self::cred_props`] is `Some` containing `req`.
+    #[inline]
+    #[must_use]
+    pub const fn with_cred_props(req: ExtensionReq) -> Self {
+        Self {
+            cred_props: Some(req),
+            ..Self::none()
+        }
+    }
+    /// Same as [`Self::none`] except [`Self::cred_protect`] is `cred_protect`.
+    #[inline]
+    #[must_use]
+    pub const fn with_cred_protect(cred_protect: CredProtect) -> Self {
+        Self {
+            cred_protect,
+            ..Self::none()
+        }
+    }
+    /// Same as [`Self::none`] except [`Self::min_pin_length`] is `Some` containing `min_len` and `info`.
+    #[inline]
+    #[must_use]
+    pub const fn with_min_pin_length(min_len: FourToSixtyThree, info: ExtensionInfo) -> Self {
+        Self {
+            min_pin_length: Some((min_len, info)),
+            ..Self::none()
+        }
+    }
+    /// Same as [`Self::none`] except [`Self::prf`] is `Some` containing `input` and `info`.
+    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[inline]
+    #[must_use]
+    pub const fn with_prf<'a: 'prf_first, 'b: 'prf_second>(
+        input: PrfInput<'a, 'b>,
+        info: ExtensionInfo,
+    ) -> Self {
+        Self {
+            prf: Some((input, info)),
+            ..Self::none()
+        }
+    }
+}
+impl Default for Extension<'_, '_> {
+    /// Same as [`Self::none`].
+    #[inline]
+    fn default() -> Self {
+        Self::none()
+    }
 }
 #[cfg(test)]
 impl PartialEq for Extension<'_, '_> {
@@ -987,12 +1153,10 @@ impl<'a: 'b, 'b, const LEN: usize> From<&'a UserHandle<LEN>>
     /// assert!(entity.display_name.is_none());
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
-    #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
     #[inline]
     fn from(value: &'a UserHandle<LEN>) -> Self {
         Self {
-            name: Username::try_from("blank")
-                .unwrap_or_else(|_e| unreachable!("'blank' is no longer a valid Username")),
+            name: Username::blank(),
             id: value,
             display_name: None,
         }
@@ -1005,7 +1169,7 @@ pub type PublicKeyCredentialUserEntity64<'name, 'display_name, 'id> =
 pub type PublicKeyCredentialUserEntity16<'name, 'display_name, 'id> =
     PublicKeyCredentialUserEntity<'name, 'display_name, 'id, 16>;
 /// [`ResidentKeyRequirement`](https://www.w3.org/TR/webauthn-3/#enumdef-residentkeyrequirement) sent to the client.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResidentKeyRequirement {
     /// [`required`](https://www.w3.org/TR/webauthn-3/#dom-residentkeyrequirement-required).
     Required,
@@ -1014,19 +1178,9 @@ pub enum ResidentKeyRequirement {
     /// [`preferred`](https://www.w3.org/TR/webauthn-3/#dom-residentkeyrequirement-preferred).
     Preferred,
 }
-#[cfg(test)]
-impl PartialEq for ResidentKeyRequirement {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::Required => matches!(other, Self::Required),
-            Self::Discouraged => matches!(other, Self::Discouraged),
-            Self::Preferred => matches!(other, Self::Preferred),
-        }
-    }
-}
 /// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint)
 /// for [`AuthenticatorAttachment::CrossPlatform`] authenticators.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CrossPlatformHint {
     /// No hints.
     #[default]
@@ -1052,21 +1206,9 @@ impl From<CrossPlatformHint> for Hint {
         }
     }
 }
-#[cfg(test)]
-impl PartialEq for CrossPlatformHint {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::None => matches!(other, Self::None),
-            Self::SecurityKey => matches!(other, Self::SecurityKey),
-            Self::Hybrid => matches!(other, Self::Hybrid),
-            Self::SecurityKeyHybrid => matches!(other, Self::SecurityKeyHybrid),
-            Self::HybridSecurityKey => matches!(other, Self::HybridSecurityKey),
-        }
-    }
-}
 /// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint)
 /// for [`AuthenticatorAttachment::Platform`] authenticators.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum PlatformHint {
     /// No hints.
     #[default]
@@ -1083,18 +1225,9 @@ impl From<PlatformHint> for Hint {
         }
     }
 }
-#[cfg(test)]
-impl PartialEq for PlatformHint {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::None => matches!(other, Self::None),
-            Self::ClientDevice => matches!(other, Self::ClientDevice),
-        }
-    }
-}
 /// [`AuthenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#enumdef-authenticatorattachment)
 /// requirement with associated hints for further refinement.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthenticatorAttachmentReq {
     /// No attachment information (i.e., any [`AuthenticatorAttachment`]).
     None(Hint),
@@ -1152,18 +1285,6 @@ impl AuthenticatorAttachmentReq {
                     Err(RegCeremonyErr::AuthenticatorAttachmentMismatch)
                 }
             },
-        }
-    }
-}
-#[cfg(test)]
-impl PartialEq for AuthenticatorAttachmentReq {
-    fn eq(&self, other: &Self) -> bool {
-        match *self {
-            Self::None(info) => matches!(*other, Self::None(info2) if info == info2),
-            Self::Platform(info) => matches!(*other, Self::Platform(info2) if info == info2),
-            Self::CrossPlatform(info) => {
-                matches!(*other, Self::CrossPlatform(info2) if info == info2)
-            }
         }
     }
 }
@@ -2072,7 +2193,7 @@ impl ServerExtensionInfo {
                 } else {
                     // Pretend to set `minPinLength`, so we can check `prf`.
                     self.min_pin_length =
-                        Some((FourToSixtyThree::MIN, ExtensionInfo::RequireEnforceValue));
+                        Some((FourToSixtyThree::Four, ExtensionInfo::RequireEnforceValue));
                     self.validate_unsolicited(client_ext, auth_ext)
                 }
             } else if !matches!(auth_ext.cred_protect, CredentialProtectionPolicy::None) {
@@ -2588,11 +2709,7 @@ mod tests {
                 false,
                 ExtensionInfo::RequireEnforceValue,
             ),
-            min_pin_length: Some((
-                FourToSixtyThree::new(10)
-                    .unwrap_or_else(|| unreachable!("bug in FourToSixtyThree::new")),
-                ExtensionInfo::RequireEnforceValue,
-            )),
+            min_pin_length: Some((FourToSixtyThree::Ten, ExtensionInfo::RequireEnforceValue)),
             prf: Some((
                 PrfInput {
                     first: [0].as_slice(),
@@ -2921,7 +3038,7 @@ mod tests {
             );
         }
         _ = options.min_pin.map(|p| {
-            assert!(p.value() <= 23, "bug");
+            assert!(p <= FourToSixtyThree::TwentyThree, "bug");
             attestation_object.extend_from_slice(
                 [
                     // CBOR text of length 12.
@@ -2938,7 +3055,7 @@ mod tests {
                     b'g',
                     b't',
                     b'h',
-                    CBOR_UINT | p.value(),
+                    CBOR_UINT | p.into_u8(),
                 ]
                 .as_slice(),
             );
@@ -3104,30 +3221,21 @@ mod tests {
             [None, Some(ExtensionReq::Require), Some(ExtensionReq::Allow)];
         const ALL_PIN_OPTIONS: [Option<(FourToSixtyThree, ExtensionInfo)>; 5] = [
             None,
+            Some((FourToSixtyThree::Five, ExtensionInfo::RequireEnforceValue)),
             Some((
-                FourToSixtyThree::new(5).unwrap(),
-                ExtensionInfo::RequireEnforceValue,
-            )),
-            Some((
-                FourToSixtyThree::new(5).unwrap(),
+                FourToSixtyThree::Five,
                 ExtensionInfo::RequireDontEnforceValue,
             )),
-            Some((
-                FourToSixtyThree::new(5).unwrap(),
-                ExtensionInfo::AllowEnforceValue,
-            )),
-            Some((
-                FourToSixtyThree::new(5).unwrap(),
-                ExtensionInfo::AllowDontEnforceValue,
-            )),
+            Some((FourToSixtyThree::Five, ExtensionInfo::AllowEnforceValue)),
+            Some((FourToSixtyThree::Five, ExtensionInfo::AllowDontEnforceValue)),
         ];
         const ALL_CRED_PROPS_OPTIONS: [Option<Option<bool>>; 4] =
             [None, Some(None), Some(Some(false)), Some(Some(true))];
         const ALL_MIN_PIN_OPTIONS: [Option<FourToSixtyThree>; 4] = [
             None,
-            Some(FourToSixtyThree::MIN),
-            Some(FourToSixtyThree::new(5).unwrap()),
-            Some(FourToSixtyThree::new(6).unwrap()),
+            Some(FourToSixtyThree::Four),
+            Some(FourToSixtyThree::Five),
+            Some(FourToSixtyThree::Six),
         ];
         for cred_protect in ALL_CRED_PROTECTION_OPTIONS {
             for prf in ALL_PRF_OPTIONS {
@@ -3234,30 +3342,21 @@ mod tests {
         ];
         const ALL_PIN_OPTIONS: [Option<(FourToSixtyThree, ExtensionInfo)>; 5] = [
             None,
+            Some((FourToSixtyThree::Five, ExtensionInfo::RequireEnforceValue)),
             Some((
-                FourToSixtyThree::new(5).unwrap(),
-                ExtensionInfo::RequireEnforceValue,
-            )),
-            Some((
-                FourToSixtyThree::new(5).unwrap(),
+                FourToSixtyThree::Five,
                 ExtensionInfo::RequireDontEnforceValue,
             )),
-            Some((
-                FourToSixtyThree::new(5).unwrap(),
-                ExtensionInfo::AllowEnforceValue,
-            )),
-            Some((
-                FourToSixtyThree::new(5).unwrap(),
-                ExtensionInfo::AllowDontEnforceValue,
-            )),
+            Some((FourToSixtyThree::Five, ExtensionInfo::AllowEnforceValue)),
+            Some((FourToSixtyThree::Five, ExtensionInfo::AllowDontEnforceValue)),
         ];
         const ALL_NON_EMPTY_CRED_PROPS_OPTIONS: [Option<Option<bool>>; 3] =
             [Some(None), Some(Some(false)), Some(Some(true))];
         const ALL_MIN_PIN_OPTIONS: [Option<FourToSixtyThree>; 4] = [
             None,
-            Some(FourToSixtyThree::MIN),
-            Some(FourToSixtyThree::new(5).unwrap()),
-            Some(FourToSixtyThree::new(6).unwrap()),
+            Some(FourToSixtyThree::Four),
+            Some(FourToSixtyThree::Five),
+            Some(FourToSixtyThree::Six),
         ];
         for cred_protect in ALL_CRED_PROTECTION_OPTIONS {
             for prf in ALL_PRF_OPTIONS {

@@ -19,8 +19,6 @@ use core::{
     fmt::{self, Formatter},
     marker::PhantomData,
 };
-#[cfg(doc)]
-use data_encoding::BASE64URL_NOPAD;
 use serde::de::{Deserialize, Deserializer, Error, MapAccess, Visitor};
 /// `newtype` around `ClientExtensionsOutputs` with a "relaxed" [`Self::deserialize`] implementation.
 struct ClientExtensionsOutputsRelaxed(pub ClientExtensionsOutputs);
@@ -467,7 +465,6 @@ mod tests {
         DiscoverableAuthenticationRelaxed, DiscoverableCustomAuthentication,
         NonDiscoverableAuthenticationRelaxed, NonDiscoverableCustomAuthentication,
     };
-    use data_encoding::BASE64URL_NOPAD;
     use rsa::sha2::{Digest as _, Sha256};
     use serde::de::{Error as _, Unexpected};
     use serde_json::Error;
@@ -516,10 +513,10 @@ mod tests {
             0,
             0,
         ];
-        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD.encode(auth_data.as_slice());
-        let b64_sig = BASE64URL_NOPAD.encode([].as_slice());
-        let b64_user = BASE64URL_NOPAD.encode(b"\x00".as_slice());
+        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
+        let b64_adata = base64url_nopad::encode(auth_data.as_slice());
+        let b64_sig = base64url_nopad::encode([].as_slice());
+        let b64_user = base64url_nopad::encode(b"\x00".as_slice());
         // Base case is valid.
         assert!(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
@@ -552,8 +549,7 @@ mod tests {
         // `id` and `rawId` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Bytes(
-                BASE64URL_NOPAD
-                    .decode("ABABABABABABABABABABAA".as_bytes())
+                base64url_nopad::decode("ABABABABABABABABABABAA".as_bytes())
                     .unwrap()
                     .as_slice(),
             ),
@@ -1740,10 +1736,10 @@ mod tests {
             0,
             0,
         ];
-        let b64_cdata = BASE64URL_NOPAD.encode(c_data_json.as_bytes());
-        let b64_adata = BASE64URL_NOPAD.encode(auth_data.as_slice());
-        let b64_sig = BASE64URL_NOPAD.encode([].as_slice());
-        let b64_user = BASE64URL_NOPAD.encode(b"\x00".as_slice());
+        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
+        let b64_adata = base64url_nopad::encode(auth_data.as_slice());
+        let b64_sig = base64url_nopad::encode([].as_slice());
+        let b64_user = base64url_nopad::encode(b"\x00".as_slice());
         // Base case is valid.
         assert!(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(

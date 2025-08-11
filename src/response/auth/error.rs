@@ -32,7 +32,7 @@ use core::{
     fmt::{self, Display, Formatter},
 };
 /// Error returned in [`AuthenticatorDataErr::AuthenticatorExtension`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthenticatorExtensionOutputErr {
     /// The `slice` had an invalid length.
     Len,
@@ -64,7 +64,7 @@ impl Display for AuthenticatorExtensionOutputErr {
 }
 impl Error for AuthenticatorExtensionOutputErr {}
 /// Error returned from [`AuthenticatorData::try_from`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthenticatorDataErr {
     /// The `slice` had an invalid length.
     Len,
@@ -132,7 +132,7 @@ impl Display for AuthenticatorDataErr {
 }
 impl Error for AuthenticatorDataErr {}
 /// One or two.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OneOrTwo {
     /// One.
     One,
@@ -149,7 +149,7 @@ impl Display for OneOrTwo {
     }
 }
 /// Error in [`AuthCeremonyErr::Extension`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExtensionErr {
     /// [`AuthenticatorExtensionOutput::hmac_secret`] was sent from the client, but [`Flag::user_verified`]
     /// was `false`.
@@ -311,7 +311,7 @@ impl Error for AuthCeremonyErr {}
 /// This can be sent to the client when an authentication ceremony fails due to an unknown [`CredentialId`]. This
 /// can be due to the user deleting a credential on the RP's side but not deleting it on the authenticator. This
 /// response can be forwarded to the authenticator which can subsequently delete the credential.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnknownCredentialOptions<'rp, 'cred> {
     /// [`rpId`](https://www.w3.org/TR/webauthn-3/#dictdef-unknowncredentialoptions-rpid).
     pub rp_id: &'rp RpId,
@@ -319,7 +319,7 @@ pub struct UnknownCredentialOptions<'rp, 'cred> {
     pub credential_id: CredentialId<&'cred [u8]>,
 }
 /// Error when a [`UserHandle`] does not exist that is required to.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MissingUserHandleErr;
 impl Display for MissingUserHandleErr {
     #[inline]

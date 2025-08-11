@@ -45,7 +45,7 @@ pub mod error;
 /// Contains functionality to serialize data to a client.
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
-mod ser;
+pub mod ser;
 /// Contains functionality to (de)serialize [`DiscoverableAuthenticationServerState`] and
 /// [`NonDiscoverableAuthenticationServerState`] to a data store.
 #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
@@ -55,7 +55,7 @@ pub mod ser_server_state;
 ///
 /// Note that if the previous signature counter is positive and the new counter is not strictly greater, then the
 /// authenticator is likely a clone (i.e., there are at least two copies of the private key).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SignatureCounterEnforcement {
     /// Fail the authentication ceremony if the counter is less than or equal to the previous value when the
     /// previous value is positive.
@@ -102,7 +102,7 @@ pub struct PrfInputOwned {
     pub ext_req: ExtensionReq,
 }
 /// The [defined extensions](https://www.w3.org/TR/webauthn-3/#sctn-defined-extensions) to send to the client.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Extension<'prf_first, 'prf_second> {
     /// [`prf`](https://www.w3.org/TR/webauthn-3/#prf-extension).
     ///
@@ -114,6 +114,33 @@ pub struct Extension<'prf_first, 'prf_second> {
     /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-ps-20250228/fido-client-to-authenticator-protocol-v2.2-ps-20250228.html#sctn-hmac-secret-extension)
     /// extension since the data is encrypted and is part of the [`AuthenticatorData`].
     pub prf: Option<(PrfInput<'prf_first, 'prf_second>, ExtensionReq)>,
+}
+impl<'prf_first, 'prf_second> Extension<'prf_first, 'prf_second> {
+    /// Returns an `Extension` with [`Self::prf`] set to `None`.
+    #[inline]
+    #[must_use]
+    pub const fn none() -> Self {
+        Self { prf: None }
+    }
+    /// Returns an `Extension` with [`Self::prf`] set to `None`.
+    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[inline]
+    #[must_use]
+    pub const fn with_prf<'a: 'prf_first, 'b: 'prf_second>(
+        input: PrfInput<'a, 'b>,
+        req: ExtensionReq,
+    ) -> Self {
+        Self {
+            prf: Some((input, req)),
+        }
+    }
+}
+impl Default for Extension<'_, '_> {
+    /// Same as [`Self::none`].
+    #[inline]
+    fn default() -> Self {
+        Self::none()
+    }
 }
 /// The [defined extensions](https://www.w3.org/TR/webauthn-3/#sctn-defined-extensions) to send to the client that
 /// are credential-specific which among other things implies a non-discoverable request.
@@ -885,7 +912,7 @@ impl PartialEq for CredInfo {
 /// Note when `DynamicState::authenticator_attachment` is [`AuthenticatorAttachment::None`], then it will
 /// be updated regardless. Similarly when [`Authentication::authenticator_attachment`] is
 /// `AuthenticatorAttachment::None`, it will never update `DynamicState::authenticator_attachment`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthenticatorAttachmentEnforcement {
     /// Fail the authentication ceremony if [`AuthenticatorAttachment`] is not the same.
     ///
