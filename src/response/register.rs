@@ -25,7 +25,7 @@ use super::{
 use super::{
     super::{
         AuthenticatedCredential, RegisteredCredential,
-        hash::hash_set::FixedCapHashSet,
+        hash::hash_set::MaxLenHashSet,
         request::{
             BackupReq, Challenge, UserVerificationRequirement,
             auth::{AuthenticationVerificationOptions, PublicKeyCredentialRequestOptions},
@@ -57,17 +57,14 @@ use rsa::{
 #[cfg(all(doc, feature = "serde_relaxed"))]
 use serde::Deserialize;
 /// Contains functionality to (de)serialize data to a data store.
-#[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
 pub mod bin;
 /// Contains error types.
 pub mod error;
 /// Contains functionality to deserialize data from a client.
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
 mod ser;
 /// Contains functionality to deserialize data from a client in a "relaxed" way.
-#[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
 #[cfg(feature = "serde_relaxed")]
 pub mod ser_relaxed;
 /// [`credentialProtectionPolicy`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#dom-authenticationextensionsclientinputs-credentialprotectionpolicy).
@@ -2931,8 +2928,7 @@ impl AuthenticatorAttestation {
         mut attestation_object: Vec<u8>,
         transports: AuthTransports,
     ) -> Self {
-        attestation_object
-            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        attestation_object.extend_from_slice(&Sha256::digest(client_data_json.as_slice()));
         Self {
             client_data_json,
             attestation_object_and_c_data_hash: attestation_object,
@@ -3105,7 +3101,6 @@ impl Registration {
         self.client_extension_results
     }
     /// Constructs a `Registration` based on the passed arguments.
-    #[cfg_attr(docsrs, doc(cfg(feature = "custom")))]
     #[cfg(feature = "custom")]
     #[inline]
     #[must_use]
@@ -3123,7 +3118,7 @@ impl Registration {
     /// Returns the associated `SentChallenge`.
     ///
     /// This is useful when wanting to extract the corresponding [`RegistrationServerState`] from
-    /// an in-memory collection (e.g., [`FixedCapHashSet`]) or storage.
+    /// an in-memory collection (e.g., [`MaxLenHashSet`]) or storage.
     ///
     /// Note if [`CollectedClientData::from_client_data_json`] returns `Ok`, then this will return
     /// `Ok` containing the same value as [`CollectedClientData::challenge`]; however the converse
@@ -3142,7 +3137,7 @@ impl Registration {
     /// Returns the associated `SentChallenge`.
     ///
     /// This is useful when wanting to extract the corresponding [`RegistrationServerState`] from
-    /// an in-memory collection (e.g., [`FixedCapHashSet`]) or storage.
+    /// an in-memory collection (e.g., [`MaxLenHashSet`]) or storage.
     ///
     /// Note if [`CollectedClientData::from_client_data_json_relaxed`] returns `Ok`, then this will return
     /// `Ok` containing the same value as [`CollectedClientData::challenge`]; however the converse
@@ -3154,7 +3149,6 @@ impl Registration {
     /// a leading U+FEFF and replacing any sequences of invalid UTF-8 code units with U+FFFD or
     /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-collectedclientdata-challenge) does not exist
     /// or is not a base64url-encoded [`Challenge`].
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     #[inline]
     pub fn challenge_relaxed(&self) -> Result<SentChallenge, SerdeJsonErr> {
@@ -3167,7 +3161,6 @@ impl Registration {
     /// # Errors
     ///
     /// Errors iff [`RegistrationRelaxed::deserialize`] does.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     #[inline]
     pub fn from_json_relaxed(json: &[u8]) -> Result<Self, SerdeJsonErr> {
@@ -3178,7 +3171,6 @@ impl Registration {
     /// # Errors
     ///
     /// Errors iff [`CustomRegistration::deserialize`] does.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     #[inline]
     pub fn from_json_custom(json: &[u8]) -> Result<Self, SerdeJsonErr> {
@@ -3368,7 +3360,6 @@ impl Metadata<'_> {
     }
     /// Transforms `self` into an "owned" version.
     #[expect(clippy::unreachable, reason = "we want to crash when there is a bug")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
     #[cfg(feature = "bin")]
     #[inline]
     #[must_use]
@@ -3488,6 +3479,13 @@ mod tests {
     use ed25519_dalek::Verifier as _;
     use p256::ecdsa::{DerSignature as P256Sig, SigningKey as P256Key};
     use rsa::sha2::{Digest as _, Sha256};
+    #[expect(clippy::panic, reason = "OK in tests")]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        clippy::indexing_slicing,
+        clippy::missing_asserts_for_indexing,
+        reason = "comments justifies correctness"
+    )]
     fn hex_decode<const N: usize>(input: &[u8; N]) -> Vec<u8> {
         /// Value to subtract from a lowercase hex digit.
         const LOWER_OFFSET: u8 = b'a' - 10;
@@ -3498,16 +3496,22 @@ mod tests {
         );
         let mut data = Vec::with_capacity(N >> 1);
         input.chunks_exact(2).fold((), |(), byte| {
+            // `byte.len() == 2`.
             let mut hex = byte[0];
             let val = match hex {
+                // `Won't underflow`.
                 b'0'..=b'9' => hex - b'0',
+                // `Won't underflow`.
                 b'a'..=b'f' => hex - LOWER_OFFSET,
                 _ => panic!("hex_decode must be passed a valid lowercase hexadecimal array"),
-            } << 4;
+            } << 4u8;
+            // `byte.len() == 2`.
             hex = byte[1];
             data.push(
                 val | match hex {
+                    // `Won't underflow`.
                     b'0'..=b'9' => hex - b'0',
+                    // `Won't underflow`.
                     b'a'..=b'f' => hex - LOWER_OFFSET,
                     _ => panic!("hex_decode must be passed a valid lowercase hexadecimal array"),
                 },
@@ -3515,7 +3519,13 @@ mod tests {
         });
         data
     }
-    /// https://pr-preview.s3.amazonaws.com/w3c/webauthn/pull/2209.html#sctn-test-vectors-none-es256
+    /// <https://pr-preview.s3.amazonaws.com/w3c/webauthn/pull/2209.html#sctn-test-vectors-none-es256>
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
     #[test]
     fn es256_test_vector() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.org".to_owned())?);
@@ -3549,11 +3559,11 @@ mod tests {
                 .0
         );
         assert!(
-            matches!(att_obj.data.auth_data.attested_credential_data.credential_public_key, UncompressedPubKey::P256(pub_key) if enc_key.x().unwrap().as_slice() == pub_key.0 && enc_key.y().unwrap().as_slice() == pub_key.1)
+            matches!(att_obj.data.auth_data.attested_credential_data.credential_public_key, UncompressedPubKey::P256(pub_key) if **enc_key.x().unwrap() == *pub_key.0 && **enc_key.y().unwrap() == *pub_key.1)
         );
         assert_eq!(
-            att_obj.data.auth_data.rp_id_hash,
-            Sha256::digest(rp_id.as_ref()).as_slice()
+            *att_obj.data.auth_data.rp_id_hash,
+            *Sha256::digest(rp_id.as_ref())
         );
         assert!(att_obj.data.auth_data.flags.user_present);
         assert!(matches!(att_obj.data.attestation, AttestationFormat::None));
@@ -3568,10 +3578,7 @@ mod tests {
             signature,
         );
         let auth_data = AuthenticatorData::try_from(auth_assertion.authenticator_data())?;
-        assert_eq!(
-            auth_data.rp_id_hash(),
-            Sha256::digest(rp_id.as_ref()).as_slice()
-        );
+        assert_eq!(*auth_data.rp_id_hash(), *Sha256::digest(rp_id.as_ref()));
         assert!(auth_data.flags().user_present);
         assert!(match att_obj.data.auth_data.flags.backup {
             Backup::NotEligible => matches!(auth_data.flags().backup, Backup::NotEligible),
@@ -3580,11 +3587,18 @@ mod tests {
         });
         let sig = P256Sig::from_bytes(auth_assertion.signature()).unwrap();
         let mut msg = auth_assertion.authenticator_data().to_owned();
-        msg.extend_from_slice(Sha256::digest(auth_assertion.client_data_json()).as_slice());
-        assert!(key.verify(msg.as_slice(), &sig).is_ok());
+        msg.extend_from_slice(&Sha256::digest(auth_assertion.client_data_json()));
+        key.verify(msg.as_slice(), &sig).unwrap();
         Ok(())
     }
-    /// https://pr-preview.s3.amazonaws.com/w3c/webauthn/pull/2209.html#sctn-test-vectors-packed-self-es256
+    /// <https://pr-preview.s3.amazonaws.com/w3c/webauthn/pull/2209.html#sctn-test-vectors-packed-self-es256>
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::indexing_slicing, reason = "comment justifies correctness")]
     #[test]
     fn es256_self_attest_test_vector() -> Result<(), AggErr> {
         let rp_id = RpId::Domain(AsciiDomain::try_from("example.org".to_owned())?);
@@ -3608,11 +3622,11 @@ mod tests {
             att_obj.auth_data.attested_credential_data.credential_id.0
         );
         assert!(
-            matches!(att_obj.auth_data.attested_credential_data.credential_public_key, UncompressedPubKey::P256(pub_key) if enc_key.x().unwrap().as_slice() == pub_key.0 && enc_key.y().unwrap().as_slice() == pub_key.1)
+            matches!(att_obj.auth_data.attested_credential_data.credential_public_key, UncompressedPubKey::P256(pub_key) if **enc_key.x().unwrap() == *pub_key.0 && **enc_key.y().unwrap() == *pub_key.1)
         );
         assert_eq!(
-            att_obj.auth_data.rp_id_hash,
-            Sha256::digest(rp_id.as_ref()).as_slice()
+            *att_obj.auth_data.rp_id_hash,
+            *Sha256::digest(rp_id.as_ref())
         );
         assert!(att_obj.auth_data.flags.user_present);
         assert!(match att_obj.attestation {
@@ -3623,6 +3637,7 @@ mod tests {
                     Sig::P256(sig) => {
                         let s = P256Sig::from_bytes(sig).unwrap();
                         key.verify(
+                            // Won't `panic` since `auth_idx` is returned from `AttestationObject::parse_data`.
                             &auth_attest.attestation_object_and_c_data_hash[auth_idx..],
                             &s,
                         )
@@ -3642,10 +3657,7 @@ mod tests {
             signature,
         );
         let auth_data = AuthenticatorData::try_from(auth_assertion.authenticator_data())?;
-        assert_eq!(
-            auth_data.rp_id_hash(),
-            Sha256::digest(rp_id.as_ref()).as_slice()
-        );
+        assert_eq!(*auth_data.rp_id_hash(), *Sha256::digest(rp_id.as_ref()));
         assert!(auth_data.flags().user_present);
         assert!(match att_obj.auth_data.flags.backup {
             Backup::NotEligible => matches!(auth_data.flags().backup, Backup::NotEligible),
@@ -3654,8 +3666,8 @@ mod tests {
         });
         let sig = P256Sig::from_bytes(auth_assertion.signature()).unwrap();
         let mut msg = auth_assertion.authenticator_data().to_owned();
-        msg.extend_from_slice(Sha256::digest(auth_assertion.client_data_json()).as_slice());
-        assert!(key.verify(msg.as_slice(), &sig).is_ok());
+        msg.extend_from_slice(&Sha256::digest(auth_assertion.client_data_json()));
+        key.verify(msg.as_slice(), &sig).unwrap();
         Ok(())
     }
     struct AuthExtOptions<'a> {
@@ -3664,7 +3676,19 @@ mod tests {
         min_pin_length: Option<u8>,
         hmac_secret_mc: Option<&'a [u8]>,
     }
-    fn generate_auth_extensions(opts: AuthExtOptions<'_>) -> Vec<u8> {
+    #[expect(
+        clippy::panic,
+        clippy::unreachable,
+        reason = "want to crash when there is a bug"
+    )]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        reason = "comments justify correctness"
+    )]
+    fn generate_auth_extensions(opts: &AuthExtOptions<'_>) -> Vec<u8> {
+        // Maxes at 4, so addition is clearly free from overflow.
         let map_len = u8::from(opts.cred_protect.is_some())
             + u8::from(opts.hmac_secret.is_some())
             + u8::from(opts.min_pin_length.is_some())
@@ -3705,10 +3729,12 @@ mod tests {
             cbor.extend_from_slice(b"hmac-secret-mc".as_slice());
             match mc.len() {
                 len @ ..=23 => {
+                    // `as` is clearly OK.
                     cbor.push(BYTES | len as u8);
                 }
                 len @ 24..=255 => {
                     cbor.push(BYTES_INFO_24);
+                    // `as` is clearly OK.
                     cbor.push(len as u8);
                 }
                 _ => panic!(
@@ -3719,9 +3745,12 @@ mod tests {
         }
         cbor
     }
+    #[expect(clippy::panic_in_result_fn, reason = "not a problem for a test")]
+    #[expect(clippy::shadow_unrelated, reason = "struct destructuring is prefered")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
-    fn test_auth_ext() -> Result<(), AuthenticatorExtensionOutputErr> {
-        let opts = generate_auth_extensions(AuthExtOptions {
+    fn auth_ext() -> Result<(), AuthenticatorExtensionOutputErr> {
+        let mut opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: None,
             hmac_secret: None,
             min_pin_length: None,
@@ -3731,7 +3760,7 @@ mod tests {
             AuthenticatorExtensionOutput::from_cbor(opts.as_slice())?;
         assert!(remaining.is_empty());
         assert!(value.missing());
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: None,
             hmac_secret: None,
             min_pin_length: None,
@@ -3743,7 +3772,7 @@ mod tests {
                 |_| false,
             )
         );
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: None,
             hmac_secret: Some(true),
             min_pin_length: None,
@@ -3757,7 +3786,7 @@ mod tests {
                 && matches!(value.hmac_secret, HmacSecret::One)
                 && value.min_pin_length.is_none()
         );
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: None,
             hmac_secret: Some(false),
             min_pin_length: None,
@@ -3769,7 +3798,7 @@ mod tests {
                 |_| false,
             )
         );
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: None,
             hmac_secret: Some(true),
             min_pin_length: None,
@@ -3781,7 +3810,7 @@ mod tests {
                 |_| false,
             )
         );
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: None,
             hmac_secret: Some(true),
             min_pin_length: None,
@@ -3793,7 +3822,7 @@ mod tests {
                 |_| false,
             )
         );
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: Some(1),
             hmac_secret: Some(true),
             min_pin_length: Some(5),
@@ -3811,7 +3840,7 @@ mod tests {
                     .min_pin_length
                     .is_some_and(|pin| pin == FourToSixtyThree::Five)
         );
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: Some(0),
             hmac_secret: None,
             min_pin_length: None,
@@ -3823,7 +3852,7 @@ mod tests {
                 |_| false,
             )
         );
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: None,
             hmac_secret: None,
             min_pin_length: Some(3),
@@ -3835,7 +3864,7 @@ mod tests {
                 |_| false,
             )
         );
-        let opts = generate_auth_extensions(AuthExtOptions {
+        opts = generate_auth_extensions(&AuthExtOptions {
             cred_protect: None,
             hmac_secret: None,
             min_pin_length: Some(64),

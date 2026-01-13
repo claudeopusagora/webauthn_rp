@@ -6,7 +6,7 @@ use self::{
 #[cfg(doc)]
 use super::super::{
     AuthenticatedCredential, RegisteredCredential, StaticState,
-    hash::hash_set::FixedCapHashSet,
+    hash::hash_set::MaxLenHashSet,
     request::{
         Challenge,
         auth::{
@@ -40,11 +40,9 @@ use serde::Deserialize;
 /// Contains error types.
 pub mod error;
 /// Contains functionality to deserialize data from a client.
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
 pub(super) mod ser;
 /// Contains functionality to deserialize data from a client in a "relaxed" way.
-#[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
 #[cfg(feature = "serde_relaxed")]
 pub mod ser_relaxed;
 /// [`hmac-secret`](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#sctn-hmac-secret-extension).
@@ -309,8 +307,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool>
         signature: Vec<u8>,
         user_handle: Option<UserHandle<USER_LEN>>,
     ) -> Self {
-        authenticator_data
-            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        authenticator_data.extend_from_slice(&Sha256::digest(client_data_json.as_slice()));
         Self {
             client_data_json,
             authenticator_data_and_c_data_hash: authenticator_data,
@@ -579,7 +576,6 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> Authentication<USER_LEN, D
         self.authenticator_attachment
     }
     /// Constructs an `Authentication`.
-    #[cfg_attr(docsrs, doc(cfg(feature = "custom")))]
     #[cfg(feature = "custom")]
     #[inline]
     #[must_use]
@@ -597,7 +593,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> Authentication<USER_LEN, D
     /// Returns the associated `SentChallenge`.
     ///
     /// This is useful when wanting to extract the corresponding [`DiscoverableAuthenticationServerState`]
-    /// or [`NonDiscoverableAuthenticationServerState`] from an in-memory collection (e.g., [`FixedCapHashSet`]) or
+    /// or [`NonDiscoverableAuthenticationServerState`] from an in-memory collection (e.g., [`MaxLenHashSet`]) or
     /// storage.
     ///
     /// Note if [`CollectedClientData::from_client_data_json`] returns `Ok`, then this will return `Ok`
@@ -618,7 +614,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> Authentication<USER_LEN, D
     ///
     /// This is useful when wanting to extract the corresponding [`DiscoverableAuthenticationServerState`]
     /// or [`NonDiscoverableAuthenticationServerState`] from an in-memory collection (e.g.,
-    /// [`FixedCapHashSet`]) or storage.
+    /// [`MaxLenHashSet`]) or storage.
     ///
     /// Note if [`CollectedClientData::from_client_data_json_relaxed`] returns `Ok`, then this will return
     /// `Ok` containing the same value as [`CollectedClientData::challenge`]; however the converse
@@ -630,7 +626,6 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> Authentication<USER_LEN, D
     /// a leading U+FEFF and replacing any sequences of invalid UTF-8 code units with U+FFFD or
     /// [`challenge`](https://www.w3.org/TR/webauthn-3/#dom-collectedclientdata-challenge) does not exist
     /// or is not a base64url-encoded [`Challenge`].
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     #[inline]
     pub fn challenge_relaxed(&self) -> Result<SentChallenge, SerdeJsonErr> {
@@ -643,7 +638,6 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> Authentication<USER_LEN, D
     /// # Errors
     ///
     /// Errors iff [`AuthenticationRelaxed::deserialize`] does.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     #[inline]
     pub fn from_json_relaxed<'a>(json: &'a [u8]) -> Result<Self, SerdeJsonErr>
@@ -658,7 +652,6 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> Authentication<USER_LEN, D
     /// # Errors
     ///
     /// Errors iff [`CustomAuthentication::deserialize`] does.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     #[inline]
     pub fn from_json_custom<'a>(json: &'a [u8]) -> Result<Self, SerdeJsonErr>

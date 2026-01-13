@@ -41,21 +41,17 @@ use std::time::Instant;
 #[cfg(any(doc, feature = "serializable_server_state"))]
 use std::time::SystemTime;
 /// Contains functionality to (de)serialize data to a data store.
-#[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
 pub mod bin;
 /// Contains functionality that needs to be accessible when `bin` or `serde` are not enabled.
-#[cfg_attr(docsrs, doc(cfg(feature = "custom")))]
 #[cfg(feature = "custom")]
 mod custom;
 /// Contains error types.
 pub mod error;
 /// Contains functionality to (de)serialize data to a client.
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
 pub mod ser;
 /// Contains functionality to (de)serialize [`RegistrationServerState`] to a data store.
-#[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 pub mod ser_server_state;
 /// Used by [`Extension::cred_protect`] to enforce the [`CredentialProtectionPolicy`] sent by the client via
@@ -235,6 +231,7 @@ impl<'a> Nickname<'a> {
             })
     }
     /// Same as [`Self::try_from`].
+    ///
     /// # Errors
     ///
     /// Errors iff `value` violates [RFC 8266 § 2.3](https://www.rfc-editor.org/rfc/rfc8266.html#section-2.3)
@@ -361,6 +358,167 @@ impl Ord for Nickname<'_> {
         self.0.cmp(&other.0)
     }
 }
+/// Name intended to be displayed to a user.
+#[derive(Clone, Debug)]
+pub enum DisplayName<'a> {
+    /// A blank string.
+    Blank,
+    /// A non-blank string conforming to RFC 8266.
+    Nickname(Nickname<'a>),
+}
+impl<'a> DisplayName<'a> {
+    /// The maximum allowed length.
+    pub const MAX_LEN: usize = 1023;
+    /// The recommended maximum length to allow.
+    pub const RECOMMENDED_MAX_LEN: usize = 64;
+    /// Returns a `DisplayName` that consumes `self`. When `self` owns the data, the data is simply moved;
+    /// when the data is borrowed, then it is cloned into an owned instance.
+    #[inline]
+    #[must_use]
+    pub fn into_owned<'b>(self) -> DisplayName<'b> {
+        match self {
+            Self::Blank => DisplayName::Blank,
+            Self::Nickname(val) => DisplayName::Nickname(val.into_owned()),
+        }
+    }
+    /// Same as [`Self::with_max_len`] except the length must not exceed [`Self::RECOMMENDED_MAX_LEN`] instead of
+    /// [`Self::MAX_LEN`].
+    ///
+    /// # Errors
+    ///
+    /// Errors iff `value` is not empty and [`Nickname::with_recommended_len`] errors.
+    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[inline]
+    pub fn with_recommended_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, NicknameErr> {
+        if value.is_empty() {
+            Ok(Self::Blank)
+        } else {
+            Nickname::with_recommended_len(value).map(Self::Nickname)
+        }
+    }
+    /// Same as [`Self::try_from`].
+    ///
+    /// # Errors
+    ///
+    /// Errors iff `value` is not empty and [`Nickname::with_max_len`] errors.
+    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[inline]
+    pub fn with_max_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, NicknameErr> {
+        Self::try_from(value)
+    }
+}
+impl AsRef<str> for DisplayName<'_> {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        match *self {
+            Self::Blank => "",
+            Self::Nickname(ref val) => val.as_ref(),
+        }
+    }
+}
+impl Borrow<str> for DisplayName<'_> {
+    #[inline]
+    fn borrow(&self) -> &str {
+        self.as_ref()
+    }
+}
+impl<'a: 'b, 'b> From<&'a DisplayName<'_>> for DisplayName<'b> {
+    #[inline]
+    fn from(value: &'a DisplayName<'_>) -> Self {
+        match *value {
+            DisplayName::Blank => Self::Blank,
+            DisplayName::Nickname(ref val) => Self::Nickname(val.into()),
+        }
+    }
+}
+impl<'a: 'b, 'b> From<DisplayName<'a>> for Cow<'b, str> {
+    #[inline]
+    fn from(value: DisplayName<'a>) -> Self {
+        match value {
+            DisplayName::Blank => Cow::Borrowed(""),
+            DisplayName::Nickname(val) => val.into(),
+        }
+    }
+}
+impl<'a: 'b, 'b> TryFrom<Cow<'a, str>> for DisplayName<'b> {
+    type Error = NicknameErr;
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::borrow::Cow;
+    /// # use webauthn_rp::request::register::{error::NicknameErr, DisplayName};
+    /// assert_eq!(
+    ///     DisplayName::try_from(Cow::Borrowed(""))?.as_ref(),
+    ///     ""
+    /// );
+    /// assert_eq!(
+    ///     DisplayName::try_from(Cow::Borrowed("Sir Isaac Newton"))?.as_ref(),
+    ///     "Sir Isaac Newton"
+    /// );
+    /// # Ok::<_, NicknameErr>(())
+    /// ```
+    #[inline]
+    fn try_from(value: Cow<'a, str>) -> Result<Self, Self::Error> {
+        if value.is_empty() {
+            Ok(Self::Blank)
+        } else {
+            Nickname::try_from(value).map(Self::Nickname)
+        }
+    }
+}
+impl<'a: 'b, 'b> TryFrom<&'a str> for DisplayName<'b> {
+    type Error = NicknameErr;
+    /// Same as [`DisplayName::try_from`] except the input is a `str`.
+    #[inline]
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        Self::try_from(Cow::Borrowed(value))
+    }
+}
+impl TryFrom<String> for DisplayName<'_> {
+    type Error = NicknameErr;
+    /// Same as [`DisplayName::try_from`] except the input is a `String`.
+    #[inline]
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(Cow::Owned(value))
+    }
+}
+impl PartialEq<DisplayName<'_>> for DisplayName<'_> {
+    #[inline]
+    fn eq(&self, other: &DisplayName<'_>) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+impl PartialEq<&DisplayName<'_>> for DisplayName<'_> {
+    #[inline]
+    fn eq(&self, other: &&DisplayName<'_>) -> bool {
+        *self == **other
+    }
+}
+impl PartialEq<DisplayName<'_>> for &DisplayName<'_> {
+    #[inline]
+    fn eq(&self, other: &DisplayName<'_>) -> bool {
+        **self == *other
+    }
+}
+impl Eq for DisplayName<'_> {}
+impl Hash for DisplayName<'_> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state);
+    }
+}
+impl PartialOrd<DisplayName<'_>> for DisplayName<'_> {
+    #[inline]
+    fn partial_cmp(&self, other: &DisplayName<'_>) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for DisplayName<'_> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_ref().cmp(other.as_ref())
+    }
+}
 /// String returned from the
 /// [UsernameCasePreserved Enforcement rule](https://www.rfc-editor.org/rfc/rfc8265#section-3.4.3) as defined in
 /// RFC 8265.
@@ -403,6 +561,7 @@ impl<'a> Username<'a> {
             })
     }
     /// Same as [`Self::try_from`].
+    ///
     /// # Errors
     ///
     /// Errors iff `value` violates [RFC 8265 § 3.4.3](https://www.rfc-editor.org/rfc/rfc8265.html#section-3.4.3)
@@ -411,12 +570,6 @@ impl<'a> Username<'a> {
     #[inline]
     pub fn with_max_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, UsernameErr> {
         Self::try_from(value)
-    }
-    /// Returns `Self` containing `"blank"`.
-    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
-    fn blank() -> Self {
-        Self::try_from("blank")
-            .unwrap_or_else(|_e| unreachable!("'blank' is no longer a valid Username"))
     }
 }
 impl AsRef<str> for Username<'_> {
@@ -1109,7 +1262,6 @@ impl UserHandle16 {
     /// user[8] = 255;
     /// assert!(UserHandle16::from_uuid_v4(user).is_none());
     /// ```
-    #[cfg_attr(docsrs, doc(cfg(feature = "custom")))]
     #[cfg(feature = "custom")]
     #[inline]
     #[must_use]
@@ -1127,40 +1279,7 @@ pub struct PublicKeyCredentialUserEntity<'name, 'display_name, 'id, const LEN: u
     /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-id).
     pub id: &'id UserHandle<LEN>,
     /// [`displayName`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-displayname).
-    ///
-    /// `None` iff the display name should be the empty string.
-    pub display_name: Option<Nickname<'display_name>>,
-}
-impl<'a: 'b, 'b, const LEN: usize> From<&'a UserHandle<LEN>>
-    for PublicKeyCredentialUserEntity<'_, '_, 'b, LEN>
-{
-    /// Returns a `PublicKeyCredentialUserEntity` with [`Self::name`] set to `"blank"`,
-    /// [`Self::id`] set to `value`, and [`Self::display_name`] set to `None`.
-    ///
-    /// One should let users set their own user name and user display name; however this can technically happen
-    /// _after_ successfully completing the registration ceremony since this information is not used during
-    /// [`RegistrationServerState::verify`]. For example the client can send such information along with
-    /// [`Registration`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::{PublicKeyCredentialUserEntity, UserHandle64};
-    /// let user_handle = UserHandle64::new();
-    /// let entity = PublicKeyCredentialUserEntity::from(&user_handle);
-    /// assert_eq!("blank", entity.name.as_ref());
-    /// assert_eq!(user_handle, *entity.id);
-    /// assert!(entity.display_name.is_none());
-    /// # Ok::<_, webauthn_rp::AggErr>(())
-    /// ```
-    #[inline]
-    fn from(value: &'a UserHandle<LEN>) -> Self {
-        Self {
-            name: Username::blank(),
-            id: value,
-            display_name: None,
-        }
-    }
+    pub display_name: DisplayName<'display_name>,
 }
 /// `PublicKeyCredentialUserEntity` based on a [`UserHandle64`].
 pub type PublicKeyCredentialUserEntity64<'name, 'display_name, 'id> =
@@ -1289,7 +1408,7 @@ impl AuthenticatorAttachmentReq {
     }
 }
 /// [`AuthenticatorSelectionCriteria`](https://www.w3.org/TR/webauthn-3/#dictionary-authenticatorSelection).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AuthenticatorSelectionCriteria {
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorselectioncriteria-authenticatorattachment).
     pub authenticator_attachment: AuthenticatorAttachmentReq,
@@ -1391,14 +1510,6 @@ impl AuthenticatorSelectionCriteria {
             .validate(require_auth_attachment, auth_attachment)
     }
 }
-#[cfg(test)]
-impl PartialEq for AuthenticatorSelectionCriteria {
-    fn eq(&self, other: &Self) -> bool {
-        self.authenticator_attachment == other.authenticator_attachment
-            && self.resident_key == other.resident_key
-            && self.user_verification == other.user_verification
-    }
-}
 /// Helper that verifies the overlap of [`CredentialCreationOptions::start_ceremony`] and
 /// [`RegistrationServerState::decode`].
 const fn validate_options_helper(
@@ -1493,35 +1604,6 @@ impl<
             ),
         }
     }
-    /// Convenience function for [`Self::passkey`] passing an empty `Vec`.
-    ///
-    /// This MUST only be used when this is the first credential for a user.
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    #[must_use]
-    pub fn first_passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
-        rp_id: &'a RpId,
-        user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
-    ) -> Self {
-        Self::passkey(rp_id, user, Vec::new())
-    }
-    /// Convenience function for [`Self::first_passkey`] passing [`PublicKeyCredentialUserEntity::from`] applied
-    /// to `user_id` for `user`.
-    ///
-    /// This MUST only be used when user information is provided _after_ registration (e.g., when the client
-    /// sends user name and user display name along with [`Registration`]).
-    ///
-    /// Because user information is likely known for existing accounts, this will often only be called during
-    /// greenfield deployments.
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    #[must_use]
-    pub fn first_passkey_with_blank_user_info<'a: 'rp_id, 'b: 'user_id>(
-        rp_id: &'a RpId,
-        user_id: &'b UserHandle<USER_LEN>,
-    ) -> Self {
-        Self::first_passkey(rp_id, user_id.into())
-    }
     /// Sets [`Self::mediation`] to [`CredentialMediationRequirement::default`] and
     /// [`Self::public_key`] to [`PublicKeyCredentialCreationOptions::second_factor`].
     #[expect(single_use_lifetimes, reason = "false positive")]
@@ -1541,18 +1623,6 @@ impl<
                 ExtensionInfo::AllowEnforceValue,
             );
         opts
-    }
-    /// Convenience function for [`Self::second_factor`] passing an empty `Vec`.
-    ///
-    /// This MUST only be used when this is the first credential for a user.
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    #[must_use]
-    pub fn first_second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
-        rp_id: &'a RpId,
-        user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
-    ) -> Self {
-        Self::second_factor(rp_id, user, Vec::new())
     }
     /// Begins the [registration ceremony](https://www.w3.org/TR/webauthn-3/#registration-ceremony) consuming
     /// `self`. Note that the expiration [`Instant`]/[`SystemTime`] is saved, so `RegistrationClientState` MUST be
@@ -1581,7 +1651,7 @@ impl<
     ///         PublicKeyCredentialUserEntity {
     ///             name: "bernard.riemann".try_into()?,
     ///             id: &UserHandle64::new(),
-    ///             display_name: Some("Georg Friedrich Bernhard Riemann".try_into()?)
+    ///             display_name: "Georg Friedrich Bernhard Riemann".try_into()?,
     ///         },
     ///         Vec::new()
     ///     ).start_ceremony()?.0.expiration() > Instant::now()
@@ -1746,7 +1816,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     ///         PublicKeyCredentialUserEntity {
     ///             name: "archimedes.of.syracuse".try_into()?,
     ///             id: &UserHandle64::new(),
-    ///             display_name: Some("Αρχιμήδης ο Συρακούσιος".try_into()?),
+    ///             display_name: "Αρχιμήδης ο Συρακούσιος".try_into()?,
     ///         },
     ///         Vec::new()
     ///     )
@@ -1780,35 +1850,6 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
                 prf: None,
             },
         }
-    }
-    /// Convenience function for [`Self::passkey`] passing an empty `Vec`.
-    ///
-    /// This MUST only be used when this is the first credential for a user.
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    #[must_use]
-    pub fn first_passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
-        rp_id: &'a RpId,
-        user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
-    ) -> Self {
-        Self::passkey(rp_id, user, Vec::new())
-    }
-    /// Convenience function for [`Self::first_passkey`] passing [`PublicKeyCredentialUserEntity::from`] applied
-    /// to `user_id` for `user`.
-    ///
-    /// This MUST only be used when user information is provided _after_ registration (e.g., when the client
-    /// sends user name and user display name along with [`Registration`]).
-    ///
-    /// Because user information is likely known for existing accounts, this will often only be called during
-    /// greenfield deployments.
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    #[must_use]
-    pub fn first_passkey_with_blank_user_info<'a: 'rp_id, 'b: 'user_id>(
-        rp_id: &'a RpId,
-        user_id: &'b UserHandle<USER_LEN>,
-    ) -> Self {
-        Self::first_passkey(rp_id, user_id.into())
     }
     /// Deployments that want to incorporate a "something a user has" factor into a larger multi-factor
     /// authentication (MFA) setup. Specifically deployments that are _not_ userless or passwordless. It
@@ -1845,7 +1886,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     ///         PublicKeyCredentialUserEntity {
     ///             name: "carl.gauss".try_into()?,
     ///             id: &UserHandle64::new(),
-    ///             display_name: Some("Johann Carl Friedrich Gauß".try_into()?),
+    ///             display_name: "Johann Carl Friedrich Gauß".try_into()?,
     ///         },
     ///         Vec::new()
     ///     )
@@ -1871,18 +1912,6 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
             ExtensionInfo::AllowEnforceValue,
         );
         opts
-    }
-    /// Convenience function for [`Self::second_factor`] passing an empty `Vec`.
-    ///
-    /// This MUST only be used when this is the first credential for a user.
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    #[must_use]
-    pub fn first_second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
-        rp_id: &'a RpId,
-        user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
-    ) -> Self {
-        Self::second_factor(rp_id, user, Vec::new())
     }
 }
 /// `PublicKeyCredentialCreationOptions` based on a [`UserHandle64`].
@@ -1975,7 +2004,7 @@ impl<
     ///         PublicKeyCredentialUserEntity {
     ///             name: "david.hilbert".try_into()?,
     ///             id: &UserHandle64::new(),
-    ///             display_name: Some("David Hilbert".try_into()?)
+    ///             display_name: "David Hilbert".try_into()?,
     ///         },
     ///         Vec::new()
     ///     )
@@ -2062,7 +2091,6 @@ pub struct RegistrationVerificationOptions<'origins, 'top_origins, O, T> {
     /// [`AuthenticatorAttachment`] must be sent iff `true`.
     pub require_authenticator_attachment: bool,
     /// [`CollectedClientData::from_client_data_json_relaxed`] is used to extract [`CollectedClientData`] iff `true`.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     pub client_data_json_relaxed: bool,
 }
@@ -2643,8 +2671,8 @@ mod tests {
     ))]
     use super::{
         super::{super::AggErr, ExtensionInfo},
-        Challenge, CredProtect, CredentialCreationOptions, FourToSixtyThree, PrfInput, RpId,
-        UserHandle,
+        Challenge, CredProtect, CredentialCreationOptions, DisplayName, FourToSixtyThree, PrfInput,
+        PublicKeyCredentialUserEntity, RpId, UserHandle,
     };
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
     use super::{
@@ -2652,7 +2680,7 @@ mod tests {
             super::bin::{Decode as _, Encode as _},
             AsciiDomain,
         },
-        Extension, PublicKeyCredentialUserEntity, RegistrationServerState,
+        Extension, RegistrationServerState,
     };
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     use super::{
@@ -2668,7 +2696,7 @@ mod tests {
             AuthTransports,
         },
         AuthenticatorAttachment, BackupReq, ExtensionErr, ExtensionReq, RegCeremonyErr,
-        Registration, RegistrationVerificationOptions, UserVerificationRequirement,
+        Registration, RegistrationVerificationOptions, UserVerificationRequirement, Username,
     };
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     use rsa::sha2::{Digest as _, Sha256};
@@ -2688,6 +2716,7 @@ mod tests {
     const CBOR_FALSE: u8 = CBOR_SIMPLE | 20;
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     const CBOR_TRUE: u8 = CBOR_SIMPLE | 21;
+    #[expect(clippy::panic_in_result_fn, reason = "OK in tests")]
     #[test]
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
     fn eddsa_reg_ser() -> Result<(), AggErr> {
@@ -2698,7 +2727,7 @@ mod tests {
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
-                display_name: None,
+                display_name: DisplayName::Blank,
             },
             Vec::new(),
         );
@@ -2735,6 +2764,7 @@ mod tests {
         prf: Option<bool>,
         hmac: HmacSecret,
         min_pin: Option<FourToSixtyThree>,
+        #[expect(clippy::option_option, reason = "fine")]
         cred_props: Option<Option<bool>>,
     }
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
@@ -2766,6 +2796,17 @@ mod tests {
         json.extend_from_slice(br#"{"type":"webauthn.create","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.as_slice());
         json
     }
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        clippy::indexing_slicing,
+        reason = "comments justify correctness"
+    )]
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "a lot to test"
+    )]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     fn generate_attestation_object(options: TestResponseOptions) -> Vec<u8> {
         let mut attestation_object = Vec::with_capacity(256);
@@ -2801,6 +2842,7 @@ mod tests {
                 b'a',
                 CBOR_BYTES | 24,
                 // Length.
+                // Addition won't overflow.
                 113 + if matches!(options.cred_protect, CredentialProtectionPolicy::None) {
                     if matches!(options.hmac, HmacSecret::None) {
                         options.min_pin.map_or(0, |_| 15)
@@ -2973,28 +3015,30 @@ mod tests {
             ]
             .as_slice(),
         );
-        attestation_object[30..62]
-            .copy_from_slice(Sha256::digest("example.com".as_bytes()).as_slice());
+        attestation_object[30..62].copy_from_slice(&Sha256::digest(b"example.com"));
         if matches!(options.cred_protect, CredentialProtectionPolicy::None) {
             if matches!(options.hmac, HmacSecret::None) {
                 if options.min_pin.is_some() {
-                    attestation_object.push(CBOR_MAP | 1)
+                    attestation_object.push(CBOR_MAP | 1);
                 }
             } else if options.min_pin.is_some() {
                 attestation_object.push(
+                    // Addition won't overflow.
                     CBOR_MAP
-                        | 2 + u8::from(matches!(options.hmac, HmacSecret::One | HmacSecret::Two)),
+                        | (2 + u8::from(matches!(options.hmac, HmacSecret::One | HmacSecret::Two))),
                 );
             } else {
                 attestation_object.push(
+                    // Addition won't overflow.
                     CBOR_MAP
-                        | 1 + u8::from(matches!(options.hmac, HmacSecret::One | HmacSecret::Two)),
+                        | (1 + u8::from(matches!(options.hmac, HmacSecret::One | HmacSecret::Two))),
                 );
             }
         } else {
             attestation_object.extend_from_slice(
                 [
-                    CBOR_MAP | 1 + match options.hmac { HmacSecret::None => 0, HmacSecret::NotEnabled | HmacSecret::Enabled => 1, HmacSecret::One | HmacSecret::Two => 2, } + u8::from(options.min_pin.is_some()),
+                    // Addition won't overflow.
+                    CBOR_MAP | (1 + match options.hmac { HmacSecret::None => 0, HmacSecret::NotEnabled | HmacSecret::Enabled => 1, HmacSecret::One | HmacSecret::Two => 2, } + u8::from(options.min_pin.is_some())),
                     // CBOR text of length 11.
                     CBOR_TEXT | 11,
                     b'c',
@@ -3008,9 +3052,10 @@ mod tests {
                     b'e',
                     b'c',
                     b't',
+                    // Addition won't overflow.
                     match options.cred_protect { CredentialProtectionPolicy::None => unreachable!("bug"), CredentialProtectionPolicy::UserVerificationOptional => 1, CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList => 2, CredentialProtectionPolicy::UserVerificationRequired => 3, },
                 ].as_slice()
-            )
+            );
         }
         if !matches!(options.hmac, HmacSecret::None) {
             attestation_object.extend_from_slice(
@@ -3093,6 +3138,7 @@ mod tests {
         }
         attestation_object
     }
+    #[expect(clippy::unwrap_in_result, clippy::unwrap_used, reason = "OK in tests")]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     fn validate(options: TestOptions) -> Result<(), AggErr> {
         let rp_id = RpId::Domain("example.com".to_owned().try_into()?);
@@ -3124,7 +3170,15 @@ mod tests {
             client_data_json_relaxed: false,
         };
         let user = UserHandle::from([0; 1]);
-        let mut opts = CredentialCreationOptions::first_passkey_with_blank_user_info(&rp_id, &user);
+        let mut opts = CredentialCreationOptions::passkey(
+            &rp_id,
+            PublicKeyCredentialUserEntity {
+                id: &user,
+                name: Username::try_from("blank").unwrap(),
+                display_name: DisplayName::Blank,
+            },
+            Vec::new(),
+        );
         opts.public_key.challenge = Challenge(0);
         opts.public_key.authenticator_selection.user_verification =
             UserVerificationRequirement::Preferred;
@@ -3164,10 +3218,11 @@ mod tests {
     /// Test all, and only, possible `UserNotVerified` errors.
     /// 4 * 3 * 5 * 2 * 13 * 5 * 3 * 5 * 4 * 4 = 1,872,000 tests.
     /// We ignore this due to how long it takes (around 30 seconds or so).
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
-    #[ignore]
+    #[ignore = "slow"]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
-    fn test_uv_required_err() {
+    fn uv_required_err() {
         const ALL_CRED_PROTECTION_OPTIONS: [CredentialProtectionPolicy; 4] = [
             CredentialProtectionPolicy::None,
             CredentialProtectionPolicy::UserVerificationOptional,
@@ -3229,6 +3284,7 @@ mod tests {
             Some((FourToSixtyThree::Five, ExtensionInfo::AllowEnforceValue)),
             Some((FourToSixtyThree::Five, ExtensionInfo::AllowDontEnforceValue)),
         ];
+        #[expect(clippy::option_option, reason = "fine")]
         const ALL_CRED_PROPS_OPTIONS: [Option<Option<bool>>; 4] =
             [None, Some(None), Some(Some(false)), Some(Some(true))];
         const ALL_MIN_PIN_OPTIONS: [Option<FourToSixtyThree>; 4] = [
@@ -3263,7 +3319,7 @@ mod tests {
                                                         min_pin,
                                                         cred_props,
                                                     },
-                                                }).map_or_else(|err| matches!(err, AggErr::RegCeremony(reg_err) if matches!(reg_err, RegCeremonyErr::UserNotVerified)), |_| false));
+                                                }).is_err_and(|err| matches!(err, AggErr::RegCeremony(reg_err) if matches!(reg_err, RegCeremonyErr::UserNotVerified))));
                                             }
                                         }
                                     }
@@ -3286,10 +3342,11 @@ mod tests {
     /// =
     /// 313,200 total tests.
     /// We ignore this due to how long it takes (around 6 seconds or so).
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
-    #[ignore]
+    #[ignore = "slow"]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
-    fn test_forbidden_cred_props() {
+    fn forbidden_cred_props() {
         const ALL_CRED_PROTECTION_OPTIONS: [CredentialProtectionPolicy; 4] = [
             CredentialProtectionPolicy::None,
             CredentialProtectionPolicy::UserVerificationOptional,
@@ -3350,6 +3407,7 @@ mod tests {
             Some((FourToSixtyThree::Five, ExtensionInfo::AllowEnforceValue)),
             Some((FourToSixtyThree::Five, ExtensionInfo::AllowDontEnforceValue)),
         ];
+        #[expect(clippy::option_option, reason = "fine")]
         const ALL_NON_EMPTY_CRED_PROPS_OPTIONS: [Option<Option<bool>>; 3] =
             [Some(None), Some(Some(false)), Some(Some(true))];
         const ALL_MIN_PIN_OPTIONS: [Option<FourToSixtyThree>; 4] = [
@@ -3383,13 +3441,13 @@ mod tests {
                                                     },
                                                     response: TestResponseOptions {
                                                         user_verified,
-                                                        hmac,
                                                         cred_protect,
                                                         prf,
+                                                        hmac,
                                                         min_pin,
                                                         cred_props,
                                                     },
-                                                }).map_or_else(|err| matches!(err, AggErr::RegCeremony(reg_err) if matches!(reg_err, RegCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::ForbiddenCredProps))), |_| false));
+                                                }).is_err_and(|err| matches!(err, AggErr::RegCeremony(reg_err) if matches!(reg_err, RegCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::ForbiddenCredProps)))));
                                             }
                                         }
                                     }
@@ -3401,9 +3459,10 @@ mod tests {
             }
         }
     }
+    #[expect(clippy::panic_in_result_fn, reason = "OK in tests")]
     #[test]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
-    fn test_prf() -> Result<(), AggErr> {
+    fn prf() -> Result<(), AggErr> {
         let mut opts = TestOptions {
             request: TestRequestOptions {
                 error_unsolicited: false,
@@ -3423,33 +3482,34 @@ mod tests {
         };
         validate(opts)?;
         opts.response.prf = Some(false);
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidPrfValue))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidPrfValue)))));
         opts.response.hmac = HmacSecret::NotEnabled;
         opts.response.prf = Some(true);
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidHmacSecretValue))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidHmacSecretValue)))));
         opts.request.prf_uv = PrfUvOptions::Prf(ExtensionInfo::AllowDontEnforceValue);
         opts.response.hmac = HmacSecret::Enabled;
         opts.response.prf = None;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::HmacSecretWithoutPrf))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::HmacSecretWithoutPrf)))));
         opts.response.hmac = HmacSecret::NotEnabled;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::HmacSecretWithoutPrf))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::HmacSecretWithoutPrf)))));
         opts.response.prf = Some(true);
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::PrfWithoutHmacSecret))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::PrfWithoutHmacSecret)))));
         opts.response.prf = Some(false);
         validate(opts)?;
         opts.request.prf_uv = PrfUvOptions::None(false);
         opts.response.user_verified = false;
         opts.response.hmac = HmacSecret::Enabled;
         opts.response.prf = Some(true);
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::HmacSecretWithoutUserVerified))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::HmacSecretWithoutUserVerified)))));
         opts.response.prf = None;
         opts.response.hmac = HmacSecret::None;
         validate(opts)?;
         Ok(())
     }
+    #[expect(clippy::panic_in_result_fn, reason = "OK in tests")]
     #[test]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
-    fn test_cred_protect() -> Result<(), AggErr> {
+    fn cred_protect() -> Result<(), AggErr> {
         let mut opts = TestOptions {
             request: TestRequestOptions {
                 error_unsolicited: false,
@@ -3473,12 +3533,12 @@ mod tests {
         validate(opts)?;
         opts.response.cred_protect =
             CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidCredProtectValue(CredProtect::UserVerificationRequired(false, ExtensionInfo::RequireEnforceValue), CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList)))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidCredProtectValue(CredProtect::UserVerificationRequired(false, ExtensionInfo::RequireEnforceValue), CredentialProtectionPolicy::UserVerificationOptionalWithCredentialIdList))))));
         opts.request.protect =
             CredProtect::UserVerificationOptional(true, ExtensionInfo::RequireEnforceValue);
         opts.response.user_verified = false;
         opts.response.cred_protect = CredentialProtectionPolicy::UserVerificationRequired;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::CredProtectUserVerificationRequiredWithoutUserVerified))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::CredProtectUserVerificationRequiredWithoutUserVerified)))));
         Ok(())
     }
 }

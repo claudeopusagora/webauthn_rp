@@ -468,10 +468,17 @@ mod tests {
     use rsa::sha2::{Digest as _, Sha256};
     use serde::de::{Error as _, Unexpected};
     use serde_json::Error;
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "a lot to test"
+    )]
     #[test]
     fn eddsa_authentication_deserialize_data_mismatch() {
         let c_data_json = serde_json::json!({}).to_string();
-        let auth_data = [
+        let auth_data: [u8; 37] = [
             // `rpIdHash`.
             0,
             0,
@@ -513,7 +520,7 @@ mod tests {
             0,
             0,
         ];
-        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
+        let b64_cdata_json = base64url_nopad::encode(c_data_json.as_bytes());
         let b64_adata = base64url_nopad::encode(auth_data.as_slice());
         let b64_sig = base64url_nopad::encode([].as_slice());
         let b64_user = base64url_nopad::encode(b"\x00".as_slice());
@@ -524,7 +531,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -536,11 +543,11 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |auth| auth.0.response.client_data_json
+            .is_ok_and(|auth| auth.0.response.client_data_json
                 == c_data_json.as_bytes()
                 && auth.0.response.authenticator_data_and_c_data_hash[..37] == auth_data
                 && auth.0.response.authenticator_data_and_c_data_hash[37..]
-                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
+                    == *Sha256::digest(c_data_json.as_bytes())
                 && matches!(
                     auth.0.authenticator_attachment,
                     AuthenticatorAttachment::CrossPlatform
@@ -549,11 +556,11 @@ mod tests {
         // `id` and `rawId` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Bytes(
-                base64url_nopad::decode("ABABABABABABABABABABAA".as_bytes())
+                base64url_nopad::decode(b"ABABABABABABABABABABAA")
                     .unwrap()
                     .as_slice(),
             ),
-            &format!("id and rawId to match: CredentialId({:?})", [0; 16]).as_str(),
+            &format!("id and rawId to match: CredentialId({:?})", [0u8; 16]).as_str(),
         )
         .to_string()
         .into_bytes();
@@ -563,7 +570,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "ABABABABABABABABABABAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -577,8 +584,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // missing `id`.
         err = Error::missing_field("id").to_string().into_bytes();
@@ -587,7 +595,7 @@ mod tests {
                 serde_json::json!({
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -601,8 +609,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `id`.
         err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
@@ -614,7 +623,7 @@ mod tests {
                     "id": null,
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -627,16 +636,17 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // missing `rawId`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -645,9 +655,9 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `rawId`.
         err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
@@ -659,7 +669,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": null,
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -672,8 +682,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `authenticatorData`.
         err = Error::missing_field("authenticatorData")
@@ -685,7 +696,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "signature": b64_sig,
                         "userHandle": b64_user,
                     },
@@ -697,8 +708,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `authenticatorData`.
         err = Error::invalid_type(Unexpected::Other("null"), &"AuthenticatorData")
@@ -710,7 +722,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": null,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -723,8 +735,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `signature`.
         err = Error::missing_field("signature").to_string().into_bytes();
@@ -734,7 +747,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "userHandle": b64_user,
                     },
@@ -746,8 +759,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `signature`.
         err = Error::invalid_type(Unexpected::Other("null"), &"base64url-encoded data")
@@ -759,7 +773,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": null,
                         "userHandle": b64_user,
@@ -772,17 +786,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `userHandle`.
-        assert!(
+        drop(
             serde_json::from_str::<NonDiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                     },
@@ -790,18 +805,18 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `userHandle`.
-        assert!(
+        drop(
             serde_json::from_str::<NonDiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": null,
@@ -810,9 +825,9 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `authenticatorAttachment`.
         assert!(
@@ -821,7 +836,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -833,7 +848,7 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |auth| matches!(
+            .is_ok_and(|auth| matches!(
                 auth.0.authenticator_attachment,
                 AuthenticatorAttachment::None
             ))
@@ -851,7 +866,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -865,8 +880,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `clientDataJSON`.
         err = Error::missing_field("clientDataJSON")
@@ -890,8 +906,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `clientDataJSON`.
         err = Error::invalid_type(Unexpected::Other("null"), &"base64url-encoded data")
@@ -916,8 +933,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `response`.
         err = Error::missing_field("response").to_string().into_bytes();
@@ -934,8 +952,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `response`.
         err = Error::invalid_type(Unexpected::Other("null"), &"AuthenticatorAssertion")
@@ -955,8 +974,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Empty `response`.
         err = Error::missing_field("clientDataJSON")
@@ -976,17 +996,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `clientExtensionResults`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -994,18 +1015,18 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `clientExtensionResults`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1014,18 +1035,18 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Missing `type`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1033,9 +1054,9 @@ mod tests {
                     "clientExtensionResults": {},
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `type`.
         err = Error::invalid_type(Unexpected::Other("null"), &"public-key")
@@ -1047,7 +1068,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1060,8 +1081,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Not exactly `public-type` `type`.
         err = Error::invalid_value(Unexpected::Str("Public-key"), &"public-key")
@@ -1073,7 +1095,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1086,8 +1108,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null`.
         err = Error::invalid_type(Unexpected::Other("null"), &"PublicKeyCredential")
@@ -1099,8 +1122,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Empty.
         err = Error::missing_field("response").to_string().into_bytes();
@@ -1110,17 +1134,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown field in `response`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1130,9 +1155,9 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Duplicate field in `response`.
         err = Error::duplicate_field("userHandle")
@@ -1145,7 +1170,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"signature\": \"{b64_sig}\",
                            \"userHandle\": \"{b64_user}\",
@@ -1160,17 +1185,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown field in `PublicKeyCredential`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1180,9 +1206,9 @@ mod tests {
                     "foo": true,
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Duplicate field in `PublicKeyCredential`.
         err = Error::duplicate_field("id").to_string().into_bytes();
@@ -1194,7 +1220,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"signature\": \"{b64_sig}\",
                            \"userHandle\": \"{b64_user}\"
@@ -1208,15 +1234,16 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Base case is valid.
         assert!(
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1227,11 +1254,11 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |auth| auth.0.response.client_data_json
+            .is_ok_and(|auth| auth.0.response.client_data_json
                 == c_data_json.as_bytes()
                 && auth.0.response.authenticator_data_and_c_data_hash[..37] == auth_data
                 && auth.0.response.authenticator_data_and_c_data_hash[37..]
-                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
+                    == *Sha256::digest(c_data_json.as_bytes())
                 && matches!(
                     auth.0.authenticator_attachment,
                     AuthenticatorAttachment::CrossPlatform
@@ -1242,7 +1269,7 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1255,8 +1282,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `id`.
         err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
@@ -1266,7 +1294,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": null,
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1278,8 +1306,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `authenticatorData`.
         err = Error::missing_field("authenticatorData")
@@ -1289,7 +1318,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "signature": b64_sig,
                     "userHandle": b64_user,
                     "clientExtensionResults": {},
@@ -1300,8 +1329,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `authenticatorData`.
         err = Error::invalid_type(Unexpected::Other("null"), &"AuthenticatorData")
@@ -1311,7 +1341,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": null,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1323,8 +1353,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `signature`.
         err = Error::missing_field("signature").to_string().into_bytes();
@@ -1332,7 +1363,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "userHandle": b64_user,
                     "clientExtensionResults": {},
@@ -1343,8 +1374,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `signature`.
         err = Error::invalid_type(Unexpected::Other("null"), &"base64url-encoded data")
@@ -1354,7 +1386,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": null,
                     "userHandle": b64_user,
@@ -1366,31 +1398,32 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `userHandle`.
-        assert!(
+        drop(
             serde_json::from_str::<NonDiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "clientExtensionResults": {},
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `userHandle`.
-        assert!(
+        drop(
             serde_json::from_str::<NonDiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": null,
@@ -1398,16 +1431,16 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `authenticatorAttachment`.
         assert!(
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1418,7 +1451,7 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |auth| matches!(
+            .is_ok_and(|auth| matches!(
                 auth.0.authenticator_attachment,
                 AuthenticatorAttachment::None
             ))
@@ -1434,7 +1467,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1447,8 +1480,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `clientDataJSON`.
         err = Error::missing_field("clientDataJSON")
@@ -1469,8 +1503,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `clientDataJSON`.
         err = Error::invalid_type(Unexpected::Other("null"), &"base64url-encoded data")
@@ -1492,8 +1527,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Empty.
         err = Error::missing_field("authenticatorData")
@@ -1505,8 +1541,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `clientExtensionResults`.
         err = Error::missing_field("clientExtensionResults")
@@ -1516,7 +1553,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1527,8 +1564,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `clientExtensionResults`.
         err = Error::invalid_type(Unexpected::Other("null"), &"ClientExtensionsOutputs")
@@ -1538,7 +1576,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1550,23 +1588,24 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
                     "clientExtensionResults": {},
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `type`.
         err = Error::invalid_type(Unexpected::Other("null"), &"public-key")
@@ -1576,7 +1615,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1588,8 +1627,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Not exactly `public-type` `type`.
         err = Error::invalid_value(Unexpected::Str("Public-key"), &"public-key")
@@ -1599,7 +1639,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1611,8 +1651,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null`.
         err = Error::invalid_type(Unexpected::Other("null"), &"CustomAuthentication")
@@ -1624,8 +1665,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown field.
         err = Error::unknown_field(
@@ -1648,7 +1690,7 @@ mod tests {
             serde_json::from_str::<DiscoverableCustomAuthentication<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "signature": b64_sig,
                     "userHandle": b64_user,
@@ -1661,8 +1703,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Duplicate field.
         err = Error::duplicate_field("userHandle")
@@ -1673,7 +1716,7 @@ mod tests {
                 format!(
                     "{{
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
-                       \"clientDataJSON\": \"{b64_cdata}\",
+                       \"clientDataJSON\": \"{b64_cdata_json}\",
                        \"authenticatorData\": \"{b64_adata}\",
                        \"signature\": \"{b64_sig}\",
                        \"userHandle\": \"{b64_user}\",
@@ -1687,14 +1730,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     fn client_extensions() {
         let c_data_json = serde_json::json!({}).to_string();
-        let auth_data = [
+        let auth_data: [u8; 37] = [
             // `rpIdHash`.
             0,
             0,
@@ -1736,7 +1783,7 @@ mod tests {
             0,
             0,
         ];
-        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
+        let b64_cdata_json = base64url_nopad::encode(c_data_json.as_bytes());
         let b64_adata = base64url_nopad::encode(auth_data.as_slice());
         let b64_sig = base64url_nopad::encode([].as_slice());
         let b64_user = base64url_nopad::encode(b"\x00".as_slice());
@@ -1747,7 +1794,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1759,24 +1806,24 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |auth| auth.0.response.client_data_json
+            .is_ok_and(|auth| auth.0.response.client_data_json
                 == c_data_json.as_bytes()
                 && auth.0.response.authenticator_data_and_c_data_hash[..37] == auth_data
                 && auth.0.response.authenticator_data_and_c_data_hash[37..]
-                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
+                    == *Sha256::digest(c_data_json.as_bytes())
                 && matches!(
                     auth.0.authenticator_attachment,
                     AuthenticatorAttachment::CrossPlatform
                 ))
         );
         // `null` `prf`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1787,18 +1834,18 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Unknown `clientExtensionResults`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1809,9 +1856,9 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Duplicate field.
         let mut err = Error::duplicate_field("prf").to_string().into_bytes();
@@ -1822,7 +1869,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"signature\": \"{b64_sig}\",
                            \"userHandle\": \"{b64_user}\"
@@ -1838,17 +1885,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `results`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1861,9 +1909,9 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Duplicate field in `prf`.
         err = Error::duplicate_field("results").to_string().into_bytes();
@@ -1874,7 +1922,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"signature\": \"{b64_sig}\",
                            \"userHandle\": \"{b64_user}\"
@@ -1892,17 +1940,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `first`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1915,18 +1964,18 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `first`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1941,18 +1990,18 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // `null` `second`.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -1968,9 +2017,9 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Non-`null` `first`.
         err = Error::invalid_type(Unexpected::Option, &"null")
@@ -1982,7 +2031,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -2001,8 +2050,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Non-`null` `second`.
         err = Error::invalid_type(Unexpected::Option, &"null")
@@ -2014,7 +2064,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -2034,8 +2084,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `enabled` is still not allowed.
         err = Error::unknown_field("enabled", ["results"].as_slice())
@@ -2047,7 +2098,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -2065,17 +2116,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown `prf` field.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -2089,18 +2141,18 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Unknown `results` field.
-        assert!(
+        drop(
             serde_json::from_str::<DiscoverableAuthenticationRelaxed<USER_HANDLE_MIN_LEN>>(
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "signature": b64_sig,
                         "userHandle": b64_user,
@@ -2116,9 +2168,9 @@ mod tests {
                     "type": "public-key"
                 })
                 .to_string()
-                .as_str()
+                .as_str(),
             )
-            .is_ok()
+            .unwrap(),
         );
         // Duplicate field in `results`.
         err = Error::duplicate_field("first").to_string().into_bytes();
@@ -2129,7 +2181,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"signature\": \"{b64_sig}\",
                            \"userHandle\": \"{b64_user}\"
@@ -2149,8 +2201,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
     }
 }

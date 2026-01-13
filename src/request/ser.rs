@@ -944,6 +944,3 @@ impl<'e> Deserialize<'e> for PrfHelper {
         deserializer.deserialize_struct("Prf", FIELDS, PrfHelperVisitor)
     }
 }
-/// Default RP ID to use containing the value `"example.invalid"` when an RP ID is not sent.
-pub(super) const DEFAULT_RP_ID: RpId =
-    RpId::StaticDomain(AsciiDomainStatic::new("example.invalid").unwrap());

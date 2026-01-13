@@ -206,7 +206,6 @@ pub enum AuthCeremonyErr {
     CollectedClientData(CollectedClientDataErr),
     /// [`AuthenticatorAssertion::client_data_json`] could not be parsed by
     /// [`CollectedClientData::from_client_data_json_relaxed`].
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     CollectedClientDataRelaxed(SerdeJsonErr),
     /// [`AuthenticatorAssertion::authenticator_data`] could not be parsed into an

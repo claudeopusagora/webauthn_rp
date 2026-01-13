@@ -1,6 +1,6 @@
 #[cfg(doc)]
 use super::{
-    hash::hash_set::FixedCapHashSet,
+    hash::hash_set::MaxLenHashSet,
     request::{
         Challenge,
         auth::{
@@ -12,9 +12,9 @@ use super::{
 };
 use core::hash::{BuildHasher, Hasher};
 pub use hashbrown;
-/// Fixed-capacity hash map.
+/// Hash map with an immutable maximum length that allocates exactly once.
 pub mod hash_map;
-/// Fixed-capacity hash set.
+/// Hash set with an immutable maximum length that allocates exactly once.
 pub mod hash_set;
 /// [`Hasher`] whose `write_*` methods simply store up to 64 bits of the passed argument _as is_ overwriting
 /// any previous state.
@@ -25,7 +25,7 @@ pub mod hash_set;
 ///
 /// [`RegistrationServerState`], [`DiscoverableAuthenticationServerState`], and
 /// [`NonDiscoverableAuthenticationServerState`] implement [`Hash`] by simply writing the
-/// contained [`Challenge`]; thus when they are stored in a hashed collection (e.g., [`FixedCapHashSet`]), one can
+/// contained [`Challenge`]; thus when they are stored in a hashed collection (e.g., [`MaxLenHashSet`]), one can
 /// optimize without fear by using this `Hasher` since `Challenge`s are immutable and can only ever be created on
 /// the server via [`Challenge::new`] (and equivalently [`Challenge::default`]). `RegistrationServerState`,
 /// `DiscoverableAuthenticationServerState`, and `NonDiscoverableAuthenticationServerState` are also immutable and
@@ -34,7 +34,7 @@ pub mod hash_set;
 /// [`NonDiscoverableCredentialRequestOptions::start_ceremony`] respectively. Since `Challenge` is already based on
 /// a random `u128`, other `Hasher`s will be slower and likely produce lower-quality hashes (and never
 /// higher quality).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct IdentityHasher(u64);
 // Note it is _not_ required for `write_*` methods to do the same thing as other `write_*` methods
 // (e.g., `Self::write_u64` may not be the same thing as 8 calls to `Self::write_u8`).
@@ -101,6 +101,18 @@ impl Hasher for IdentityHasher {
     fn write_i128(&mut self, i: i128) {
         self.write_u64(i as u64);
     }
+    /// Redirects to [`Self::write_u64`] on 64-bit platforms.
+    /// Sign-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`] on platforms of less than 64 bits.
+    /// Truncates `i` to a [`u64`] before redirecting to [`Self::write_u64`] on platforms of more than 64 bits.
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_sign_loss,
+        reason = "we simply need to convert into a u64 in a deterministic way"
+    )]
+    #[inline]
+    fn write_isize(&mut self, i: isize) {
+        self.write_u64(i as u64);
+    }
     /// Zero-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`].
     #[inline]
     fn write_u8(&mut self, i: u8) {
@@ -126,6 +138,17 @@ impl Hasher for IdentityHasher {
     fn write_u128(&mut self, i: u128) {
         self.write_u64(i as u64);
     }
+    /// Redirects to [`Self::write_u64`] on 64-bit platforms.
+    /// Zero-extends `i` to a [`u64`] before redirecting to [`Self::write_u64`] on platforms of less than 64 bits.
+    /// Truncates `i` to a [`u64`] before redirecting to [`Self::write_u64`] on platforms of more than 64 bits.
+    #[expect(
+        clippy::as_conversions,
+        reason = "we simply need to convert into a u64 in a deterministic way"
+    )]
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.write_u64(i as u64);
+    }
     /// This does nothing iff `bytes.len() < 8`; otherwise the first 8 bytes are converted
     /// to a [`u64`] that is written via [`Self::write_u64`];
     #[expect(clippy::host_endian_bytes, reason = "endianness does not matter")]
@@ -142,7 +165,7 @@ impl Hasher for IdentityHasher {
 ///
 /// This MUST only be used with hash maps with keys that are randomly generated on the server based on at least 64
 /// bits of entropy.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct BuildIdentityHasher;
 impl BuildHasher for BuildIdentityHasher {
     type Hasher = IdentityHasher;

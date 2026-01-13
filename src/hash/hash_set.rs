@@ -3,14 +3,18 @@ use super::{super::request::TimedCeremony, BuildIdentityHasher};
 use core::hash::Hasher;
 use core::hash::{BuildHasher, Hash};
 use hashbrown::{
-    Equivalent,
+    Equivalent, TryReserveError,
     hash_set::{Drain, Entry, ExtractIf, HashSet},
 };
 #[cfg(not(feature = "serializable_server_state"))]
 use std::time::Instant;
 #[cfg(feature = "serializable_server_state")]
 use std::time::SystemTime;
-/// `newtype` around [`HashSet`] that has maximum [`HashSet::capacity`].
+/// [`HashSet`] that has maximum [`HashSet::capacity`] and length and allocates exactly once.
+///
+/// Note due to how `HashSet` removes values, it's possible to insert a value after removing a value and cause
+/// a new allocation. To avoid this, we ensure that the allocated capacity is at least twice the size of
+/// the requested maximum length.
 ///
 /// This is useful in situations when the underlying values are expected to be removed, and one wants to ensure the
 /// set does not grow unbounded. When `T` is a [`TimedCeremony`], helper methods (e.g.,
@@ -18,24 +22,47 @@ use std::time::SystemTime;
 /// intended use case is for `T` to be based on a server-side randomly generated value; thus the default [`Hasher`]
 /// is [`BuildIdentityHasher`]. In the event this is not true, one MUST use a more appropriate `Hasher`.
 ///
-/// Only the mutable methods of `HashSet` are re-defined in order to ensure the capacity never grows. For all
-/// other methods, first call [`Self::as_ref`] or [`Self::into`].
+/// Only the mutable methods of `HashSet` are re-defined in order to ensure [`Self::max_len`] is never exceeded.
+/// For all other methods, first call [`Self::as_ref`] or [`Self::into`].
 ///
-/// [`Self::into`]: struct.FixedCapHashSet.html#impl-Into<U>-for-T
+/// [`Self::into`]: struct.MaxLenHashSet.html#impl-Into<U>-for-T
 #[derive(Debug)]
-pub struct FixedCapHashSet<T, S = BuildIdentityHasher>(HashSet<T, S>);
-impl<T> FixedCapHashSet<T, BuildIdentityHasher> {
-    /// [`HashSet::with_capacity_and_hasher`] using `capacity` and `BuildIdentityHasher`.
+pub struct MaxLenHashSet<T, S = BuildIdentityHasher>(HashSet<T, S>, usize);
+impl<T> MaxLenHashSet<T, BuildIdentityHasher> {
+    /// [`HashSet::with_capacity_and_hasher`] using `2 * max_len` and `BuildIdentityHasher`.
+    ///
+    /// Note since the actual capacity allocated may exceed the requested capacity, [`Self::max_len`] may exceed
+    /// `max_len`.
+    ///
+    /// # Panics
+    ///
+    /// `panic`s if `max_len > usize::MAX / 2`. Note since [`HashSet::with_capacity_and_hasher`] `panic`s
+    /// for much smaller values than `usize::MAX / 2`—even when `T` is a zero-sized type (ZST)—this is not an
+    /// additional `panic` than what would already occur. The only difference is the message reported.
     #[inline]
     #[must_use]
-    pub fn new(capacity: usize) -> Self {
-        Self(HashSet::with_capacity_and_hasher(
-            capacity,
-            BuildIdentityHasher,
-        ))
+    pub fn new(max_len: usize) -> Self {
+        Self::with_hasher(max_len, BuildIdentityHasher)
     }
 }
-impl<T, S> FixedCapHashSet<T, S> {
+impl<T, S> MaxLenHashSet<T, S> {
+    /// Capacity we allocate.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff `max_len > usize::MAX / 2`.
+    const fn requested_capacity(max_len: usize) -> Result<usize, TryReserveError> {
+        if max_len <= usize::MAX >> 1u8 {
+            Ok(max_len << 1u8)
+        } else {
+            Err(TryReserveError::CapacityOverflow)
+        }
+    }
+    /// Returns the immutable maximum length allowed by `self`.
+    #[inline]
+    pub const fn max_len(&self) -> usize {
+        self.1
+    }
     /// [`HashSet::clear`].
     #[inline]
     pub fn clear(&mut self) {
@@ -51,11 +78,26 @@ impl<T, S> FixedCapHashSet<T, S> {
     pub fn extract_if<F: FnMut(&T) -> bool>(&mut self, f: F) -> ExtractIf<'_, T, F> {
         self.0.extract_if(f)
     }
-    /// [`HashSet::with_capacity_and_hasher`].
+    /// [`HashSet::with_capacity_and_hasher`] using `2 * max_len` and `hasher`.
+    ///
+    /// Note since the actual capacity allocated may exceed the requested capacity, [`Self::max_len`] may exceed
+    /// `max_len`.
+    ///
+    /// # Panics
+    ///
+    /// `panic`s if `max_len > usize::MAX / 2`. Note since [`HashSet::with_capacity_and_hasher`] `panic`s
+    /// for much smaller values than `usize::MAX / 2`—even when `T` is a zero-sized type (ZST)—this is not an
+    /// additional `panic` than what would already occur. The only difference is the message reported.
+    #[expect(
+        clippy::expect_used,
+        reason = "purpose of this function is to panic if the hash set cannot be allocated"
+    )]
     #[inline]
     #[must_use]
-    pub fn with_hasher(capacity: usize, hasher: S) -> Self {
-        Self(HashSet::with_capacity_and_hasher(capacity, hasher))
+    pub fn with_hasher(max_len: usize, hasher: S) -> Self {
+        let set = HashSet::with_capacity_and_hasher(Self::requested_capacity(max_len).expect("HashSet::with_hasher must be passed a maximum length that does not exceed usize::MAX / 2"), hasher);
+        let len = set.capacity() >> 1u8;
+        Self(set, len)
     }
     /// [`HashSet::retain`].
     #[inline]
@@ -63,7 +105,7 @@ impl<T, S> FixedCapHashSet<T, S> {
         self.0.retain(f);
     }
 }
-impl<T: TimedCeremony, S> FixedCapHashSet<T, S> {
+impl<T: TimedCeremony, S> MaxLenHashSet<T, S> {
     /// Removes all expired ceremonies.
     #[inline]
     pub fn remove_expired_ceremonies(&mut self) {
@@ -76,15 +118,42 @@ impl<T: TimedCeremony, S> FixedCapHashSet<T, S> {
         let now = SystemTime::now();
         self.retain(|v| v.expiration() >= now);
     }
+    /// Removes the first encountered expired ceremony.
+    #[inline]
+    pub fn remove_first_expired_ceremony(&mut self) {
+        #[cfg(not(feature = "serializable_server_state"))]
+        let now = Instant::now();
+        #[cfg(feature = "serializable_server_state")]
+        let now = SystemTime::now();
+        drop(self.0.extract_if(|v| v.expiration() < now).next());
+    }
 }
-impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
+impl<T: Eq + Hash, S: BuildHasher> MaxLenHashSet<T, S> {
+    /// [`HashSet::with_hasher`] using `hasher` followed by [`HashSet::try_reserve`] using `2 * max_len`.
+    ///
+    /// Note since the actual capacity allocated may exceed the requested capacity, [`Self::max_len`] may exceed
+    /// `max_len`.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff `max_len > usize::MAX / 2` or [`HashSet::try_reserve`] does.
+    #[inline]
+    pub fn try_with_hasher(max_len: usize, hasher: S) -> Result<Self, TryReserveError> {
+        Self::requested_capacity(max_len).and_then(|additional| {
+            let mut set = HashSet::with_hasher(hasher);
+            set.try_reserve(additional).map(|()| {
+                let len = set.capacity() >> 1u8;
+                Self(set, len)
+            })
+        })
+    }
     /// [`HashSet::get_or_insert`].
     ///
-    /// `None` is returned iff [`HashSet::len`] `==` [`HashSet::capacity`] and `value` does not already exist in the
+    /// `None` is returned iff [`HashSet::len`] `==` [`Self::max_len`] and `value` does not already exist in the
     /// set.
     #[inline]
     pub fn get_or_insert(&mut self, value: T) -> Option<&T> {
-        if self.0.len() == self.0.capacity() {
+        if self.0.len() == self.1 {
             self.0.get(&value)
         } else {
             Some(self.0.get_or_insert(value))
@@ -92,7 +161,7 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
     }
     /// [`HashSet::get_or_insert_with`].
     ///
-    /// `None` is returned iff [`HashSet::len`] `==` [`HashSet::capacity`] and `value` does not already exist in the
+    /// `None` is returned iff [`HashSet::len`] `==` [`Self::max_len`] and `value` does not already exist in the
     /// set.
     #[inline]
     pub fn get_or_insert_with<Q: Equivalent<T> + Hash + ?Sized, F: FnOnce(&Q) -> T>(
@@ -100,7 +169,7 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
         value: &Q,
         f: F,
     ) -> Option<&T> {
-        if self.0.len() == self.0.capacity() {
+        if self.0.len() == self.1 {
             self.0.get(value)
         } else {
             Some(self.0.get_or_insert_with(value, f))
@@ -118,11 +187,11 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
     }
     /// [`HashSet::insert`].
     ///
-    /// `None` is returned iff [`HashSet::len`] `==` [`HashSet::capacity`] and `value` does not already exist in the
+    /// `None` is returned iff [`HashSet::len`] `==` [`Self::max_len`] and `value` does not already exist in the
     /// set.
     #[inline]
     pub fn insert(&mut self, value: T) -> Option<bool> {
-        let full = self.0.len() == self.0.capacity();
+        let full = self.0.len() == self.1;
         if let Entry::Vacant(ent) = self.0.entry(value) {
             if full {
                 None
@@ -136,7 +205,7 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
     }
     /// [`HashSet::replace`].
     ///
-    /// `None` is returned iff [`HashSet::len`] `==` [`HashSet::capacity`] and `value` does not already exist in the
+    /// `None` is returned iff [`HashSet::len`] `==` [`Self::max_len`] and `value` does not already exist in the
     /// set.
     #[inline]
     pub fn replace(&mut self, value: T) -> Option<Option<T>> {
@@ -144,7 +213,7 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
         // `replace` since there is no `OccupiedEntry::replace`.
         if self.0.contains(&value) {
             Some(self.0.replace(value))
-        } else if self.0.len() == self.0.capacity() {
+        } else if self.0.len() == self.1 {
             None
         } else {
             _ = self.0.insert(value);
@@ -153,11 +222,11 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
     }
     /// [`HashSet::entry`].
     ///
-    /// `None` is returned iff [`HashSet::len`] `==` [`HashSet::capacity`] and `value` does not already exist in the
+    /// `None` is returned iff [`HashSet::len`] `==` [`Self::max_len`] and `value` does not already exist in the
     /// set.
     #[inline]
     pub fn entry(&mut self, value: T) -> Option<Entry<'_, T, S>> {
-        let full = self.0.len() == self.0.capacity();
+        let full = self.0.len() == self.1;
         match self.0.entry(value) {
             ent @ Entry::Occupied(_) => Some(ent),
             ent @ Entry::Vacant(_) => {
@@ -170,11 +239,12 @@ impl<T: Eq + Hash, S: BuildHasher> FixedCapHashSet<T, S> {
         }
     }
 }
-impl<T: Eq + Hash + TimedCeremony, S: BuildHasher> FixedCapHashSet<T, S> {
-    /// [`Self::insert`] except the first expired ceremony is removed in the event there is no available capacity.
+impl<T: Eq + Hash + TimedCeremony, S: BuildHasher> MaxLenHashSet<T, S> {
+    /// [`Self::insert`] except the first encountered expired ceremony is removed in the event [`Self::max_len`]
+    /// items have been added.
     #[inline]
     pub fn insert_remove_expired(&mut self, value: T) -> Option<bool> {
-        if self.0.len() == self.0.capacity() {
+        if self.0.len() == self.1 {
             #[cfg(not(feature = "serializable_server_state"))]
             let now = Instant::now();
             #[cfg(feature = "serializable_server_state")]
@@ -188,22 +258,24 @@ impl<T: Eq + Hash + TimedCeremony, S: BuildHasher> FixedCapHashSet<T, S> {
             Some(self.0.insert(value))
         }
     }
-    /// [`Self::insert`] except all expired ceremones are removed in the event there is no available capacity.
+    /// [`Self::insert`] except all expired ceremones are removed in the event [`Self::max_len`] items have
+    /// been added.
     #[inline]
     pub fn insert_remove_all_expired(&mut self, value: T) -> Option<bool> {
-        if self.0.len() == self.0.capacity() {
+        if self.0.len() == self.1 {
             self.remove_expired_ceremonies();
         }
-        if self.0.len() == self.0.capacity() {
+        if self.0.len() == self.1 {
             self.0.contains(&value).then_some(false)
         } else {
             Some(self.0.insert(value))
         }
     }
-    /// [`Self::entry`] except the first expired ceremony is removed in the event there is no available capacity.
+    /// [`Self::entry`] except the first encountered expired ceremony is removed in the event [`Self::max_len`]
+    /// items have been added.
     #[inline]
     pub fn entry_remove_expired(&mut self, value: T) -> Option<Entry<'_, T, S>> {
-        if self.0.len() == self.0.capacity() {
+        if self.0.len() == self.1 {
             #[cfg(not(feature = "serializable_server_state"))]
             let now = Instant::now();
             #[cfg(feature = "serializable_server_state")]
@@ -219,13 +291,14 @@ impl<T: Eq + Hash + TimedCeremony, S: BuildHasher> FixedCapHashSet<T, S> {
             Some(self.0.entry(value))
         }
     }
-    /// [`Self::entry`] except all expired ceremones are removed in the event there is no available capacity.
+    /// [`Self::entry`] except all expired ceremones are removed in the event [`Self::max_len`] items have
+    /// been added.
     #[inline]
     pub fn entry_remove_all_expired(&mut self, value: T) -> Option<Entry<'_, T, S>> {
-        if self.0.len() == self.0.capacity() {
+        if self.0.len() == self.1 {
             self.remove_expired_ceremonies();
         }
-        if self.0.len() == self.0.capacity() {
+        if self.0.len() == self.1 {
             if let ent @ Entry::Occupied(_) = self.0.entry(value) {
                 Some(ent)
             } else {
@@ -236,27 +309,21 @@ impl<T: Eq + Hash + TimedCeremony, S: BuildHasher> FixedCapHashSet<T, S> {
         }
     }
 }
-impl<T, S> AsRef<HashSet<T, S>> for FixedCapHashSet<T, S> {
+impl<T, S> AsRef<HashSet<T, S>> for MaxLenHashSet<T, S> {
     #[inline]
     fn as_ref(&self) -> &HashSet<T, S> {
         &self.0
     }
 }
-impl<T, S> From<FixedCapHashSet<T, S>> for HashSet<T, S> {
+impl<T, S> From<MaxLenHashSet<T, S>> for HashSet<T, S> {
     #[inline]
-    fn from(value: FixedCapHashSet<T, S>) -> Self {
+    fn from(value: MaxLenHashSet<T, S>) -> Self {
         value.0
-    }
-}
-impl<T, S> From<HashSet<T, S>> for FixedCapHashSet<T, S> {
-    #[inline]
-    fn from(value: HashSet<T, S>) -> Self {
-        Self(value)
     }
 }
 #[cfg(test)]
 mod tests {
-    use super::{Equivalent, FixedCapHashSet, TimedCeremony};
+    use super::{Equivalent, MaxLenHashSet, TimedCeremony};
     use core::hash::{Hash, Hasher};
     #[cfg(not(feature = "serializable_server_state"))]
     use std::time::Instant;
@@ -309,28 +376,32 @@ mod tests {
     }
     #[test]
     fn hash_set_insert_removed() {
-        let mut set = FixedCapHashSet::new(8);
+        const REQ_MAX_LEN: usize = 8;
+        let mut set = MaxLenHashSet::new(REQ_MAX_LEN);
         let cap = set.as_ref().capacity();
+        let max_len = set.max_len();
+        assert_eq!(cap >> 1u8, max_len);
+        assert!(max_len >= REQ_MAX_LEN);
         let mut cer = Ceremony::default();
-        for i in 0..cap {
-            assert_eq!(set.as_ref().capacity(), cap);
+        for i in 0..max_len {
+            assert!(set.as_ref().capacity() <= cap);
             cer.id = i;
             assert_eq!(set.insert(cer), Some(true));
         }
-        assert_eq!(set.as_ref().capacity(), cap);
-        assert_eq!(set.as_ref().len(), cap);
-        for i in 0..cap {
+        assert!(set.as_ref().capacity() <= cap);
+        assert_eq!(set.as_ref().len(), max_len);
+        for i in 0..max_len {
             assert!(set.as_ref().contains(&i));
         }
         cer.id = cap;
         assert_eq!(set.insert_remove_expired(cer), Some(true));
-        assert_eq!(set.as_ref().capacity(), cap);
-        assert_eq!(set.as_ref().len(), cap);
+        assert!(set.as_ref().capacity() <= cap);
+        assert_eq!(set.as_ref().len(), max_len);
         let mut counter = 0;
-        for i in 0..cap {
+        for i in 0..max_len {
             counter += usize::from(set.as_ref().contains(&i));
         }
-        assert_eq!(counter, cap - 1);
-        assert!(set.as_ref().contains(&cap));
+        assert_eq!(counter, max_len - 1);
+        assert!(set.as_ref().contains(&(max_len - 1)));
     }
 }

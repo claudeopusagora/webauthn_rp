@@ -1,6 +1,6 @@
 #[cfg(doc)]
 use super::{
-    hash::hash_set::FixedCapHashSet,
+    hash::hash_set::MaxLenHashSet,
     request::{
         auth::{
             AllowedCredential, AllowedCredentials, CredentialSpecificExtension,
@@ -44,7 +44,7 @@ use url::Url as Uri;
 /// ```
 /// # use core::convert;
 /// # use webauthn_rp::{
-/// #     hash::hash_set::FixedCapHashSet,
+/// #     hash::hash_set::MaxLenHashSet,
 /// #     request::{
 /// #         auth::{AllowedCredentials, DiscoverableCredentialRequestOptions, NonDiscoverableCredentialRequestOptions},
 /// #         register::UserHandle64,
@@ -54,13 +54,13 @@ use url::Url as Uri;
 /// #     AggErr,
 /// # };
 /// const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
-/// let mut ceremonies = FixedCapHashSet::new(128);
+/// let mut ceremonies = MaxLenHashSet::new(128);
 /// let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID).start_ceremony()?;
 /// assert!(
 ///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
 /// );
 /// # #[cfg(feature = "custom")]
-/// let mut ceremonies_2 = FixedCapHashSet::new(128);
+/// let mut ceremonies_2 = MaxLenHashSet::new(128);
 /// # #[cfg(feature = "serde")]
 /// assert!(serde_json::to_string(&client).is_ok());
 /// let user_handle = get_user_handle();
@@ -107,10 +107,10 @@ pub mod error;
 /// ```
 /// # use core::convert;
 /// # use webauthn_rp::{
-/// #     hash::hash_set::FixedCapHashSet,
+/// #     hash::hash_set::MaxLenHashSet,
 /// #     request::{
 /// #         register::{
-/// #             CredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
+/// #             CredentialCreationOptions, DisplayName, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
 /// #         },
 /// #         PublicKeyCredentialDescriptor, RpId
 /// #     },
@@ -119,7 +119,7 @@ pub mod error;
 /// # };
 /// const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 /// # #[cfg(feature = "custom")]
-/// let mut ceremonies = FixedCapHashSet::new(128);
+/// let mut ceremonies = MaxLenHashSet::new(128);
 /// # #[cfg(feature = "custom")]
 /// let user_handle = get_user_handle();
 /// # #[cfg(feature = "custom")]
@@ -164,7 +164,7 @@ pub mod error;
 /// #     Ok(PublicKeyCredentialUserEntity {
 /// #         name: "foo".try_into()?,
 /// #         id: user,
-/// #         display_name: None,
+/// #         display_name: DisplayName::Blank,
 /// #     })
 /// }
 /// /// Fetch the `PublicKeyCredentialDescriptor`s associated with `user`.
@@ -181,12 +181,10 @@ pub mod error;
 /// ```
 pub mod register;
 /// Contains functionality to serialize data to a client.
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
 mod ser;
 /// Contains functionality to (de)serialize data needed for [`RegistrationServerState`],
 /// [`DiscoverableAuthenticationServerState`], and [`NonDiscoverableAuthenticationServerState`] to a data store.
-#[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 pub(super) mod ser_server_state;
 // `Challenge` must _never_ be constructable directly or indirectly; thus its tuple field must always be private,
@@ -688,7 +686,7 @@ impl RpId {
     }
     /// Validates `hash` is the same as the SHA-256 hash of `self`.
     fn validate_rp_id_hash<E>(&self, hash: &[u8]) -> Result<(), CeremonyErr<E>> {
-        if hash == Sha256::digest(self.as_ref()).as_slice() {
+        if *hash == *Sha256::digest(self.as_ref()) {
             Ok(())
         } else {
             Err(CeremonyErr::RpIdHashMismatch)
@@ -1668,7 +1666,6 @@ pub trait TimedCeremony {
     /// Returns the `Instant` the ceremony expires.
     ///
     /// Note when `serializable_server_state` is enabled, [`SystemTime`] is returned instead.
-    #[cfg_attr(docsrs, doc(cfg(not(feature = "serializable_server_state"))))]
     #[cfg(any(doc, not(feature = "serializable_server_state")))]
     fn expiration(&self) -> Instant;
     /// Returns the `SystemTime` the ceremony expires.
@@ -1732,7 +1729,7 @@ mod tests {
                 },
             },
         },
-        Challenge, Credentials, ExtensionInfo, ExtensionReq, PrfInput,
+        Challenge, Credentials as _, ExtensionInfo, ExtensionReq, PrfInput,
         PublicKeyCredentialDescriptor, RpId, UserVerificationRequirement,
         auth::{
             AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
@@ -1740,12 +1737,13 @@ mod tests {
             Extension as AuthExt, NonDiscoverableCredentialRequestOptions, PrfInputOwned,
         },
         register::{
-            CredProtect, CredentialCreationOptions, Extension as RegExt, FourToSixtyThree,
-            PublicKeyCredentialUserEntity, RegistrationVerificationOptions, UserHandle,
+            CredProtect, CredentialCreationOptions, DisplayName, Extension as RegExt,
+            FourToSixtyThree, PublicKeyCredentialUserEntity, RegistrationVerificationOptions,
+            UserHandle,
         },
     };
     #[cfg(feature = "custom")]
-    use ed25519_dalek::{Signer, SigningKey};
+    use ed25519_dalek::{Signer as _, SigningKey};
     #[cfg(feature = "custom")]
     use p256::{
         ecdsa::{DerSignature as P256DerSig, SigningKey as P256Key},
@@ -1757,9 +1755,9 @@ mod tests {
     use rsa::{
         BigUint, RsaPrivateKey,
         pkcs1v15::SigningKey as RsaKey,
-        sha2::{Digest, Sha256},
-        signature::{Keypair, SignatureEncoding},
-        traits::PublicKeyParts,
+        sha2::{Digest as _, Sha256},
+        signature::{Keypair as _, SignatureEncoding as _},
+        traits::PublicKeyParts as _,
     };
     use serde_json as _;
     #[cfg(feature = "custom")]
@@ -1809,10 +1807,13 @@ mod tests {
         let dom_254_no_trailing_dot = "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww";
         assert_eq!(dom_254_no_trailing_dot.len(), 254);
         assert!(AsciiDomainStatic::new(dom_254_no_trailing_dot).is_none());
-        assert!(AsciiDomainStatic::new("λ.com").is_none());
+        assert!(AsciiDomainStatic::new("\u{3bb}.com").is_none());
     }
     #[cfg(feature = "custom")]
     const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
+    #[expect(clippy::panic_in_result_fn, reason = "OK in tests")]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     #[cfg(feature = "custom")]
     fn eddsa_reg() -> Result<(), AggErr> {
@@ -1822,7 +1823,7 @@ mod tests {
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
-                display_name: None,
+                display_name: DisplayName::Blank,
             },
             Vec::new(),
         );
@@ -2135,13 +2136,11 @@ mod tests {
             ]
             .as_slice(),
         );
-        attestation_object
-            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        attestation_object.extend_from_slice(&Sha256::digest(client_data_json.as_slice()));
         let sig_key = SigningKey::from_bytes(&[0; 32]);
         let ver_key = sig_key.verifying_key();
         let pub_key = ver_key.as_bytes();
-        attestation_object[107..139]
-            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
+        attestation_object[107..139].copy_from_slice(&Sha256::digest(RP_ID.as_ref().as_bytes()));
         attestation_object[188..220].copy_from_slice(pub_key);
         let sig = sig_key.sign(&attestation_object[107..]);
         attestation_object[32..96].copy_from_slice(sig.to_bytes().as_slice());
@@ -2164,6 +2163,9 @@ mod tests {
         )?.static_state.credential_public_key, UncompressedPubKey::Ed25519(k) if k.into_inner() == pub_key));
         Ok(())
     }
+    #[expect(clippy::panic_in_result_fn, reason = "OK in tests")]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     #[cfg(feature = "custom")]
     fn eddsa_auth() -> Result<(), AggErr> {
@@ -2333,10 +2335,8 @@ mod tests {
             ]
             .as_slice(),
         );
-        authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
-        authenticator_data
-            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        authenticator_data[..32].copy_from_slice(&Sha256::digest(RP_ID.as_ref().as_bytes()));
+        authenticator_data.extend_from_slice(&Sha256::digest(client_data_json.as_slice()));
         let ed_priv = SigningKey::from([0; 32]);
         let sig = ed_priv.sign(authenticator_data.as_slice()).to_vec();
         authenticator_data.truncate(132);
@@ -2378,6 +2378,14 @@ mod tests {
         )?);
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     #[cfg(feature = "custom")]
     fn es256_reg() -> Result<(), AggErr> {
@@ -2387,7 +2395,7 @@ mod tests {
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
-                display_name: None,
+                display_name: DisplayName::Blank,
             },
             Vec::new(),
         );
@@ -2601,8 +2609,7 @@ mod tests {
             ]
             .as_slice(),
         );
-        attestation_object[30..62]
-            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
+        attestation_object[30..62].copy_from_slice(&Sha256::digest(RP_ID.as_ref().as_bytes()));
         let p256_key = P256Key::from_bytes(
             &[
                 137, 133, 36, 206, 163, 47, 255, 5, 76, 144, 163, 141, 40, 109, 108, 240, 246, 115,
@@ -2632,9 +2639,16 @@ mod tests {
                 },
             },
             &RegistrationVerificationOptions::<&str, &str>::default(),
-        )?.static_state.credential_public_key, UncompressedPubKey::P256(k) if k.x() == x.as_slice() && k.y() == y.as_slice()));
+        )?.static_state.credential_public_key, UncompressedPubKey::P256(k) if *k.x() == **x && *k.y() == **y));
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
     #[test]
     #[cfg(feature = "custom")]
     fn es256_auth() -> Result<(), AggErr> {
@@ -2691,10 +2705,8 @@ mod tests {
             ]
             .as_slice(),
         );
-        authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
-        authenticator_data
-            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        authenticator_data[..32].copy_from_slice(&Sha256::digest(RP_ID.as_ref().as_bytes()));
+        authenticator_data.extend_from_slice(&Sha256::digest(client_data_json.as_slice()));
         let p256_key = P256Key::from_bytes(
             &[
                 137, 133, 36, 206, 163, 47, 255, 5, 76, 144, 163, 141, 40, 109, 108, 240, 246, 115,
@@ -2745,6 +2757,14 @@ mod tests {
         )?);
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     #[cfg(feature = "custom")]
     fn es384_reg() -> Result<(), AggErr> {
@@ -2754,7 +2774,7 @@ mod tests {
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
-                display_name: None,
+                display_name: DisplayName::Blank,
             },
             Vec::new(),
         );
@@ -3002,8 +3022,7 @@ mod tests {
             ]
             .as_slice(),
         );
-        attestation_object[30..62]
-            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
+        attestation_object[30..62].copy_from_slice(&Sha256::digest(RP_ID.as_ref().as_bytes()));
         let p384_key = P384Key::from_bytes(
             &[
                 158, 99, 156, 49, 190, 211, 85, 167, 28, 2, 80, 57, 31, 22, 17, 38, 85, 78, 232,
@@ -3034,9 +3053,16 @@ mod tests {
                 },
             },
             &RegistrationVerificationOptions::<&str, &str>::default(),
-        )?.static_state.credential_public_key, UncompressedPubKey::P384(k) if k.x() == x.as_slice() && k.y() == y.as_slice()));
+        )?.static_state.credential_public_key, UncompressedPubKey::P384(k) if *k.x() == **x && *k.y() == **y));
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
     #[test]
     #[cfg(feature = "custom")]
     fn es384_auth() -> Result<(), AggErr> {
@@ -3093,10 +3119,8 @@ mod tests {
             ]
             .as_slice(),
         );
-        authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
-        authenticator_data
-            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        authenticator_data[..32].copy_from_slice(&Sha256::digest(RP_ID.as_ref().as_bytes()));
+        authenticator_data.extend_from_slice(&Sha256::digest(client_data_json.as_slice()));
         let p384_key = P384Key::from_bytes(
             &[
                 158, 99, 156, 49, 190, 211, 85, 167, 28, 2, 80, 57, 31, 22, 17, 38, 85, 78, 232,
@@ -3148,6 +3172,15 @@ mod tests {
         )?);
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
+    #[expect(clippy::many_single_char_names, reason = "fine")]
     #[test]
     #[cfg(feature = "custom")]
     fn rs256_reg() -> Result<(), AggErr> {
@@ -3157,7 +3190,7 @@ mod tests {
             PublicKeyCredentialUserEntity {
                 name: "foo".try_into()?,
                 id: &id,
-                display_name: None,
+                display_name: DisplayName::Blank,
             },
             Vec::new(),
         );
@@ -3564,8 +3597,7 @@ mod tests {
             ]
             .as_slice(),
         );
-        attestation_object[31..63]
-            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
+        attestation_object[31..63].copy_from_slice(&Sha256::digest(RP_ID.as_ref().as_bytes()));
         let n = [
             111, 183, 124, 133, 38, 167, 70, 148, 44, 50, 30, 60, 121, 14, 38, 37, 96, 114, 107,
             195, 248, 64, 79, 36, 237, 140, 43, 27, 94, 74, 102, 152, 135, 102, 184, 150, 186, 206,
@@ -3582,7 +3614,7 @@ mod tests {
             72, 93, 53, 65, 111, 59, 242, 122, 160, 244, 162, 126, 38, 235, 156, 47, 88, 39, 132,
             153, 79, 0, 133, 78, 7, 218, 165, 241,
         ];
-        let e = 65537;
+        let e = 0x0001_0001;
         let d = [
             145, 79, 21, 97, 233, 3, 192, 194, 177, 68, 181, 80, 120, 197, 23, 44, 185, 74, 144, 0,
             132, 149, 139, 11, 16, 224, 4, 112, 236, 94, 238, 97, 121, 124, 213, 145, 24, 253, 168,
@@ -3635,8 +3667,8 @@ mod tests {
             .unwrap(),
         )
         .verifying_key();
-        let n = rsa_key.as_ref().n().to_bytes_be();
-        attestation_object[113..369].copy_from_slice(n.as_slice());
+        let n_other = rsa_key.as_ref().n().to_bytes_be();
+        attestation_object[113..369].copy_from_slice(n_other.as_slice());
         assert!(matches!(opts.start_ceremony()?.0.verify(
             RP_ID,
             &Registration {
@@ -3652,9 +3684,17 @@ mod tests {
                 },
             },
             &RegistrationVerificationOptions::<&str, &str>::default(),
-        )?.static_state.credential_public_key, UncompressedPubKey::Rsa(k) if *k.n() == n.as_slice() && k.e() == e));
+        )?.static_state.credential_public_key, UncompressedPubKey::Rsa(k) if *k.n() == n_other.as_slice() && k.e() == e));
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     #[cfg(feature = "custom")]
     fn rs256_auth() -> Result<(), AggErr> {
@@ -3711,10 +3751,8 @@ mod tests {
             ]
             .as_slice(),
         );
-        authenticator_data[..32]
-            .copy_from_slice(Sha256::digest(RP_ID.as_ref().as_bytes()).as_slice());
-        authenticator_data
-            .extend_from_slice(Sha256::digest(client_data_json.as_slice()).as_slice());
+        authenticator_data[..32].copy_from_slice(&Sha256::digest(RP_ID.as_ref().as_bytes()));
+        authenticator_data.extend_from_slice(&Sha256::digest(client_data_json.as_slice()));
         let n = [
             111, 183, 124, 133, 38, 167, 70, 148, 44, 50, 30, 60, 121, 14, 38, 37, 96, 114, 107,
             195, 248, 64, 79, 36, 237, 140, 43, 27, 94, 74, 102, 152, 135, 102, 184, 150, 186, 206,
@@ -3731,7 +3769,7 @@ mod tests {
             72, 93, 53, 65, 111, 59, 242, 122, 160, 244, 162, 126, 38, 235, 156, 47, 88, 39, 132,
             153, 79, 0, 133, 78, 7, 218, 165, 241,
         ];
-        let e = 65537;
+        let e = 0x0001_0001;
         let d = [
             145, 79, 21, 97, 233, 3, 192, 194, 177, 68, 181, 80, 120, 197, 23, 44, 185, 74, 144, 0,
             132, 149, 139, 11, 16, 224, 4, 112, 236, 94, 238, 97, 121, 124, 213, 145, 24, 253, 168,

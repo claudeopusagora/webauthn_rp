@@ -16,18 +16,18 @@
 //!
 //! ## `webauthn_rp` in action
 //!
-//! ```no_run
+//! ```
 //! use core::convert;
 //! use webauthn_rp::{
 //!     AuthenticatedCredential64, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
 //!     DiscoverableCredentialRequestOptions, CredentialCreationOptions64, RegisteredCredential64,
 //!     Registration, RegistrationServerState64,
-//!     hash::hash_set::FixedCapHashSet,
+//!     hash::hash_set::MaxLenHashSet,
 //!     request::{
 //!         PublicKeyCredentialDescriptor, RpId,
 //!         auth::AuthenticationVerificationOptions,
 //!         register::{
-//!             Nickname, PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
+//!             DisplayName, PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
 //!             UserHandle64, Username,
 //!         },
 //!     },
@@ -91,7 +91,7 @@
 //! struct AccountReg<'a, 'b> {
 //!     registration: Registration,
 //!     user_name: Username<'a>,
-//!     user_display_name: Nickname<'b>,
+//!     user_display_name: DisplayName<'b>,
 //! }
 //! # #[cfg(feature = "serde")]
 //! impl<'de: 'a + 'b, 'a, 'b> Deserialize<'de> for AccountReg<'a, 'b> {
@@ -110,12 +110,14 @@
 //! /// will be used for subsequent credential registrations.
 //! # #[cfg(feature = "serde_relaxed")]
 //! fn start_account_creation(
-//!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
+//!     reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 //! ) -> Result<Vec<u8>, AppErr> {
 //!     let user_id = UserHandle64::new();
+//!     let user_name = Username::try_from("blank").unwrap();
+//!     let user_display_name = DisplayName::Blank;
 //!     let (server, client) =
-//!         CredentialCreationOptions64::first_passkey_with_blank_user_info(
-//!             RP_ID, &user_id,
+//!         CredentialCreationOptions64::passkey(
+//!             RP_ID, PublicKeyCredentialUserEntity64 { id: &user_id, name: user_name, display_name: user_display_name, }, Vec::new()
 //!         )
 //!         .start_ceremony()
 //!         .unwrap_or_else(|_e| {
@@ -139,7 +141,7 @@
 //! /// authenticator.
 //! # #[cfg(feature = "serde_relaxed")]
 //! fn finish_account_creation(
-//!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
+//!     reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 //!     client_data: &[u8],
 //! ) -> Result<(), AppErr> {
 //!     let account = serde_json::from_slice::<AccountReg<'_, '_>>(client_data)?;
@@ -165,7 +167,7 @@
 //! # #[cfg(feature = "serde_relaxed")]
 //! fn start_cred_registration(
 //!     user_id: &UserHandle64,
-//!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
+//!     reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 //! ) -> Result<Vec<u8>, AppErr> {
 //!     let (entity, creds) = select_user_info(user_id)?.ok_or(AppErr::NoAccount)?;
 //!     let (server, client) = CredentialCreationOptions64::passkey(RP_ID, entity, creds)
@@ -191,7 +193,7 @@
 //! /// authenticator.
 //! # #[cfg(feature = "serde_relaxed")]
 //! fn finish_cred_registration(
-//!     reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
+//!     reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 //!     client_data: &[u8],
 //! ) -> Result<(), AppErr> {
 //!     // `Registration::from_json_custom` is available iff `serde_relaxed` is enabled.
@@ -211,7 +213,7 @@
 //! /// Starts the passkey authentication ceremony.
 //! # #[cfg(feature = "serde_relaxed")]
 //! fn start_auth(
-//!     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
+//!     auth_ceremonies: &mut MaxLenHashSet<DiscoverableAuthenticationServerState>,
 //! ) -> Result<Vec<u8>, AppErr> {
 //!     let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID)
 //!         .start_ceremony()
@@ -230,7 +232,7 @@
 //! /// Finishes the passkey authentication ceremony.
 //! # #[cfg(feature = "serde_relaxed")]
 //! fn finish_auth(
-//!     auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
+//!     auth_ceremonies: &mut MaxLenHashSet<DiscoverableAuthenticationServerState>,
 //!     client_data: &[u8],
 //! ) -> Result<(), AppErr> {
 //!     // `DiscoverableAuthentication64::from_json_custom` is available iff `serde_relaxed` is enabled.
@@ -275,11 +277,11 @@
 //! /// # Errors
 //! ///
 //! /// Errors iff fetching the data errors.
-//! fn select_user_info(
+//! fn select_user_info<'name, 'display_name>(
 //!     user_id: &UserHandle64,
 //! ) -> Result<
 //!     Option<(
-//!         PublicKeyCredentialUserEntity64<'static, 'static, '_>,
+//!         PublicKeyCredentialUserEntity64<'name, 'display_name, '_>,
 //!         Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
 //!     )>,
 //!     AppErr,
@@ -428,7 +430,7 @@
 //!       increasing. If data resides in memory, a monotonic [`Instant`] can be used instead.
 //!
 //! It is for those reasons data like [`RegistrationServerState`] are not serializable by default and require the
-//! use of in-memory collections (e.g., [`FixedCapHashSet`]). To better ensure OOM is not a concern, RPs should set
+//! use of in-memory collections (e.g., [`MaxLenHashSet`]). To better ensure OOM is not a concern, RPs should set
 //! reasonable timeouts. Since ceremonies can only be completed by moving data (e.g.,
 //! [`RegistrationServerState::verify`]), ceremony completion is guaranteed to free up the memory used—
 //! `RegistrationServerState` instances are as small as 48 bytes on `x86_64-unknown-linux-gnu` platforms. To avoid
@@ -500,6 +502,14 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #[cfg(not(any(feature = "custom", all(feature = "bin", feature = "serde"))))]
 compile_error!("'custom' must be enabled or both 'bin' and 'serde' must be enabled");
+#[cfg(all(doc, feature = "serde"))]
+use crate::request::register::ser::{
+    PublicKeyCredentialCreationOptionsOwned, PublicKeyCredentialUserEntityOwned,
+};
+#[cfg(feature = "serde")]
+use crate::request::register::ser::{
+    PublicKeyCredentialCreationOptionsOwnedErr, PublicKeyCredentialUserEntityOwnedErr,
+};
 #[cfg(feature = "serializable_server_state")]
 use crate::request::{
     auth::ser_server_state::{
@@ -515,13 +525,13 @@ use crate::response::error::CredentialIdErr;
 use crate::response::ser_relaxed::SerdeJsonErr;
 #[cfg(doc)]
 use crate::{
-    hash::hash_set::FixedCapHashSet,
+    hash::hash_set::MaxLenHashSet,
     request::{
         AsciiDomain, DomainOrigin, Port, PublicKeyCredentialDescriptor, RpId, Scheme,
         TimedCeremony, Url,
         auth::{AllowedCredential, AllowedCredentials, PublicKeyCredentialRequestOptions},
         register::{
-            CoseAlgorithmIdentifier, Nickname, PublicKeyCredentialCreationOptions,
+            CoseAlgorithmIdentifier, DisplayName, Nickname, PublicKeyCredentialCreationOptions,
             PublicKeyCredentialUserEntity, UserHandle16, UserHandle64, Username,
         },
     },
@@ -537,7 +547,7 @@ use crate::{
 };
 #[cfg(feature = "bin")]
 use crate::{
-    request::register::bin::{DecodeNicknameErr, DecodeUsernameErr},
+    request::register::bin::{DecodeDisplayNameErr, DecodeUsernameErr},
     response::{
         bin::DecodeAuthTransportsErr,
         register::bin::{DecodeDynamicStateErr, DecodeStaticStateErr},
@@ -586,10 +596,9 @@ use std::time::SystemTimeError;
 #[cfg(doc)]
 use std::time::{Instant, SystemTime};
 /// Contains functionality to (de)serialize data to a data store.
-#[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
 pub mod bin;
-/// Contains functionality for fixed-capacity hash maps and sets.
+/// Contains functionality for maximum-length hash maps and sets that allocate exactly once.
 pub mod hash;
 /// Functionality for starting ceremonies.
 ///
@@ -1046,7 +1055,6 @@ impl<'cred, 'user, const USER_LEN: usize, PublicKey>
     /// Errors iff the passed arguments are invalid. Read [`CredentialErr`]
     /// for more information.
     #[expect(single_use_lifetimes, reason = "false positive")]
-    #[cfg_attr(docsrs, doc(cfg(any(feature = "bin", feature = "custom"))))]
     #[cfg(any(feature = "bin", feature = "custom"))]
     #[inline]
     pub fn new<'a: 'cred, 'b: 'user>(
@@ -1147,67 +1155,61 @@ pub enum AggErr {
     CollectedClientData(CollectedClientDataErr),
     /// Variant when [`CollectedClientData::from_client_data_json_relaxed`] errors or any of the [`Deserialize`]
     /// implementations error when relying on [`Deserializer`] or [`StreamDeserializer`].
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     SerdeJson(SerdeJsonErr),
     /// Variant when [`Aaguid::try_from`] errors.
     Aaguid(AaguidErr),
     /// Variant when [`AuthTransports::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
     #[cfg(feature = "bin")]
     DecodeAuthTransports(DecodeAuthTransportsErr),
     /// Variant when [`StaticState::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
     #[cfg(feature = "bin")]
     DecodeStaticState(DecodeStaticStateErr),
     /// Variant when [`DynamicState::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
     #[cfg(feature = "bin")]
     DecodeDynamicState(DecodeDynamicStateErr),
-    /// Variant when [`Nickname::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
+    /// Variant when [`DisplayName::decode`] errors.
     #[cfg(feature = "bin")]
-    DecodeNickname(DecodeNicknameErr),
+    DecodeDisplayName(DecodeDisplayNameErr),
     /// Variant when [`Username::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
     #[cfg(feature = "bin")]
     DecodeUsername(DecodeUsernameErr),
     /// Variant when [`RegistrationServerState::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
     DecodeRegistrationServerState(DecodeRegistrationServerStateErr),
     /// Variant when [`DiscoverableAuthenticationServerState::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
     DecodeDiscoverableAuthenticationServerState(DecodeDiscoverableAuthenticationServerStateErr),
     /// Variant when [`NonDiscoverableAuthenticationServerState::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
     DecodeNonDiscoverableAuthenticationServerState(
         DecodeNonDiscoverableAuthenticationServerStateErr,
     ),
     /// Variant when [`RegistrationServerState::encode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
     EncodeRegistrationServerState(SystemTimeError),
     /// Variant when [`DiscoverableAuthenticationServerState::encode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
     EncodeDiscoverableAuthenticationServerState(SystemTimeError),
     /// Variant when [`NonDiscoverableAuthenticationServerState::encode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
     #[cfg(feature = "serializable_server_state")]
     EncodeNonDiscoverableAuthenticationServerState(
         EncodeNonDiscoverableAuthenticationServerStateErr,
     ),
     /// Variant when [`AuthenticatedCredential::new`] errors.
-    #[cfg_attr(docsrs, doc(cfg(any(feature = "bin", feature = "custom"))))]
     #[cfg(any(feature = "bin", feature = "custom"))]
     Credential(CredentialErr),
     /// Variant when [`CredentialId::try_from`] or [`CredentialId::decode`] errors.
-    #[cfg_attr(docsrs, doc(cfg(any(feature = "bin", feature = "custom"))))]
     #[cfg(any(feature = "bin", feature = "custom"))]
     CredentialId(CredentialIdErr),
+    /// Variant when [`PublicKeyCredentialUserEntityOwned`] errors when converted into a
+    /// [`PublicKeyCredentialUserEntity`].
+    #[cfg(feature = "serde")]
+    PublicKeyCredentialUserEntityOwned(PublicKeyCredentialUserEntityOwnedErr),
+    /// Variant when [`PublicKeyCredentialCreationOptionsOwned`] errors when converted into a
+    /// [`PublicKeyCredentialCreationOptions`].
+    #[cfg(feature = "serde")]
+    PublicKeyCredentialCreationOptionsOwned(PublicKeyCredentialCreationOptionsOwnedErr),
 }
 impl From<AsciiDomainErr> for AggErr {
     #[inline]
@@ -1305,7 +1307,6 @@ impl From<CollectedClientDataErr> for AggErr {
         Self::CollectedClientData(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
 #[cfg(feature = "serde_relaxed")]
 impl From<SerdeJsonErr> for AggErr {
     #[inline]
@@ -1319,7 +1320,6 @@ impl From<AaguidErr> for AggErr {
         Self::Aaguid(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
 impl From<DecodeAuthTransportsErr> for AggErr {
     #[inline]
@@ -1327,7 +1327,6 @@ impl From<DecodeAuthTransportsErr> for AggErr {
         Self::DecodeAuthTransports(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
 impl From<DecodeStaticStateErr> for AggErr {
     #[inline]
@@ -1335,7 +1334,6 @@ impl From<DecodeStaticStateErr> for AggErr {
         Self::DecodeStaticState(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
 impl From<DecodeDynamicStateErr> for AggErr {
     #[inline]
@@ -1343,15 +1341,13 @@ impl From<DecodeDynamicStateErr> for AggErr {
         Self::DecodeDynamicState(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
-impl From<DecodeNicknameErr> for AggErr {
+impl From<DecodeDisplayNameErr> for AggErr {
     #[inline]
-    fn from(value: DecodeNicknameErr) -> Self {
-        Self::DecodeNickname(value)
+    fn from(value: DecodeDisplayNameErr) -> Self {
+        Self::DecodeDisplayName(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "bin")))]
 #[cfg(feature = "bin")]
 impl From<DecodeUsernameErr> for AggErr {
     #[inline]
@@ -1359,7 +1355,6 @@ impl From<DecodeUsernameErr> for AggErr {
         Self::DecodeUsername(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 impl From<DecodeRegistrationServerStateErr> for AggErr {
     #[inline]
@@ -1367,7 +1362,6 @@ impl From<DecodeRegistrationServerStateErr> for AggErr {
         Self::DecodeRegistrationServerState(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 impl From<DecodeDiscoverableAuthenticationServerStateErr> for AggErr {
     #[inline]
@@ -1375,7 +1369,6 @@ impl From<DecodeDiscoverableAuthenticationServerStateErr> for AggErr {
         Self::DecodeDiscoverableAuthenticationServerState(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 impl From<DecodeNonDiscoverableAuthenticationServerStateErr> for AggErr {
     #[inline]
@@ -1383,7 +1376,6 @@ impl From<DecodeNonDiscoverableAuthenticationServerStateErr> for AggErr {
         Self::DecodeNonDiscoverableAuthenticationServerState(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 impl From<EncodeNonDiscoverableAuthenticationServerStateErr> for AggErr {
     #[inline]
@@ -1391,7 +1383,6 @@ impl From<EncodeNonDiscoverableAuthenticationServerStateErr> for AggErr {
         Self::EncodeNonDiscoverableAuthenticationServerState(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(any(feature = "bin", feature = "custom"))))]
 #[cfg(any(feature = "bin", feature = "custom"))]
 impl From<CredentialErr> for AggErr {
     #[inline]
@@ -1399,12 +1390,25 @@ impl From<CredentialErr> for AggErr {
         Self::Credential(value)
     }
 }
-#[cfg_attr(docsrs, doc(cfg(any(feature = "bin", feature = "custom"))))]
 #[cfg(any(feature = "bin", feature = "custom"))]
 impl From<CredentialIdErr> for AggErr {
     #[inline]
     fn from(value: CredentialIdErr) -> Self {
         Self::CredentialId(value)
+    }
+}
+#[cfg(feature = "serde")]
+impl From<PublicKeyCredentialUserEntityOwnedErr> for AggErr {
+    #[inline]
+    fn from(value: PublicKeyCredentialUserEntityOwnedErr) -> Self {
+        Self::PublicKeyCredentialUserEntityOwned(value)
+    }
+}
+#[cfg(feature = "serde")]
+impl From<PublicKeyCredentialCreationOptionsOwnedErr> for AggErr {
+    #[inline]
+    fn from(value: PublicKeyCredentialCreationOptionsOwnedErr) -> Self {
+        Self::PublicKeyCredentialCreationOptionsOwned(value)
     }
 }
 impl Display for AggErr {
@@ -1437,7 +1441,7 @@ impl Display for AggErr {
             #[cfg(feature = "bin")]
             Self::DecodeDynamicState(err) => err.fmt(f),
             #[cfg(feature = "bin")]
-            Self::DecodeNickname(err) => err.fmt(f),
+            Self::DecodeDisplayName(err) => err.fmt(f),
             #[cfg(feature = "bin")]
             Self::DecodeUsername(err) => err.fmt(f),
             #[cfg(feature = "serializable_server_state")]
@@ -1456,6 +1460,10 @@ impl Display for AggErr {
             Self::Credential(err) => err.fmt(f),
             #[cfg(any(feature = "bin", feature = "custom"))]
             Self::CredentialId(err) => err.fmt(f),
+            #[cfg(feature = "serde")]
+            Self::PublicKeyCredentialUserEntityOwned(err) => err.fmt(f),
+            #[cfg(feature = "serde")]
+            Self::PublicKeyCredentialCreationOptionsOwned(err) => err.fmt(f),
         }
     }
 }

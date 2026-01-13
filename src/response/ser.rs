@@ -861,15 +861,15 @@ where
     /// # #[cfg(feature = "bin")]
     /// # use webauthn_rp::bin::Decode;
     /// # use webauthn_rp::{
-    /// #     request::{register::{Nickname, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MIN_LEN, Username}, AsciiDomain, RpId},
+    /// #     request::{register::{DisplayName, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MIN_LEN, Username}, AsciiDomain, RpId},
     /// #     response::CurrentUserDetailsOptions,
     /// #     AggErr,
     /// # };
     /// /// Retrieves the `PublicKeyCredentialUserEntity` info associated with `user_id` from the database.
     /// # #[cfg(feature = "bin")]
-    /// fn get_user_info(user_id: UserHandle<USER_HANDLE_MIN_LEN>) -> Result<(Username<'static>, Option<Nickname<'static>>), AggErr> {
+    /// fn get_user_info(user_id: UserHandle<USER_HANDLE_MIN_LEN>) -> Result<(Username<'static>, DisplayName<'static>), AggErr> {
     ///     // ⋮
-    /// #     Ok((Username::decode("foo").unwrap(), Some(Nickname::decode("foo").unwrap())))
+    /// #     Ok((Username::decode("foo").unwrap(), DisplayName::decode("foo").unwrap()))
     /// }
     /// /// Retrieves the `UserHandle` from a session cookie.
     /// # #[cfg(feature = "custom")]

@@ -1,7 +1,7 @@
 extern crate alloc;
 use super::{
     super::super::bin::{Decode, Encode},
-    Nickname, NicknameErr, UserHandle, Username, UsernameErr,
+    DisplayName, Nickname, NicknameErr, UserHandle, Username, UsernameErr,
 };
 use alloc::borrow::Cow;
 use core::{
@@ -31,7 +31,7 @@ where
         Ok(Self(input))
     }
 }
-impl Encode for Nickname<'_> {
+impl Encode for DisplayName<'_> {
     type Output<'a>
         = &'a str
     where
@@ -42,41 +42,44 @@ impl Encode for Nickname<'_> {
         Ok(self.as_ref())
     }
 }
-/// Error returned from [`Nickname::decode`].
+/// Error returned from [`DisplayName::decode`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DecodeNicknameErr {
+pub enum DecodeDisplayNameErr {
     /// Variant returned when the encoded data could not be decoded
-    /// into a [`Nickname`].
+    /// into a [`DisplayName`].
     Nickname(NicknameErr),
-    /// Variant returned when the [`Nickname`] was not encoded
+    /// Variant returned when the [`DisplayName`] was not encoded
     /// into its canonical form.
     NotCanonical,
 }
-impl Display for DecodeNicknameErr {
+impl Display for DecodeDisplayNameErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Nickname(e) => e.fmt(f),
-            Self::NotCanonical => f.write_str("Nickname was not encoded in its canonical form"),
+            Self::NotCanonical => f.write_str("DisplayName was not encoded in its canonical form"),
         }
     }
 }
-impl Error for DecodeNicknameErr {}
-impl<'b> Decode for Nickname<'b> {
+impl Error for DecodeDisplayNameErr {}
+impl<'b> Decode for DisplayName<'b> {
     type Input<'a> = &'b str;
-    type Err = DecodeNicknameErr;
+    type Err = DecodeDisplayNameErr;
     #[inline]
     fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
-        match Nickname::try_from(input).map_err(DecodeNicknameErr::Nickname) {
-            Ok(v) => match v.0 {
-                Cow::Borrowed(name) => {
-                    if name == input {
-                        Ok(Self(Cow::Borrowed(input)))
-                    } else {
-                        Err(DecodeNicknameErr::NotCanonical)
+        match DisplayName::try_from(input).map_err(DecodeDisplayNameErr::Nickname) {
+            Ok(v) => match v {
+                DisplayName::Blank => Ok(Self::Blank),
+                DisplayName::Nickname(name) => match name.0 {
+                    Cow::Borrowed(val) => {
+                        if val == input {
+                            Ok(Self::Nickname(Nickname(Cow::Borrowed(input))))
+                        } else {
+                            Err(DecodeDisplayNameErr::NotCanonical)
+                        }
                     }
-                }
-                Cow::Owned(_) => Err(DecodeNicknameErr::NotCanonical),
+                    Cow::Owned(_) => Err(DecodeDisplayNameErr::NotCanonical),
+                },
             },
             Err(e) => Err(e),
         }

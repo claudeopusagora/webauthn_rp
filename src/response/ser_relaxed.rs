@@ -17,11 +17,9 @@ use serde::de::{Deserialize, Deserializer, Error, IgnoredAny, MapAccess, Unexpec
 #[cfg(doc)]
 use serde_json::de;
 /// Category returned by [`SerdeJsonErr::classify`].
-#[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
 pub use serde_json::error::Category;
 /// Error returned by [`CollectedClientData::from_client_data_json_relaxed`] or any of the [`Deserialize`]
 /// implementations when relying on [`de::Deserializer`] or [`de::StreamDeserializer`].
-#[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
 pub use serde_json::error::Error as SerdeJsonErr;
 /// "Relaxed" [`ClientDataJsonParser`].
 ///
@@ -290,23 +288,13 @@ impl<'de: 'a, 'a, const R: bool> Visitor<'de> for RelaxedHelper<'a, R> {
                     {
                         Ok(OriginWrapper(Origin(String::from_utf8_lossy(v))))
                     }
-                    #[expect(unsafe_code, reason = "safety comment justifies its use")]
                     fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
                     where
                         E: Error,
                     {
-                        Ok(OriginWrapper(Origin(
-                            match String::from_utf8_lossy(v.as_slice()) {
-                                Cow::Borrowed(_) => {
-                                    // SAFETY:
-                                    // `String::from_utf8_lossy` returns `Cow::Borrowed` iff the input was valid
-                                    //  UTF-8.
-                                    let val = unsafe { String::from_utf8_unchecked(v) };
-                                    Cow::Owned(val)
-                                }
-                                Cow::Owned(val) => Cow::Owned(val),
-                            },
-                        )))
+                        Ok(OriginWrapper(Origin(Cow::Owned(
+                            String::from_utf8_lossy(v.as_slice()).into_owned(),
+                        ))))
                     }
                     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
                     where
@@ -422,13 +410,16 @@ impl<'de> Deserialize<'de> for AuthenticationExtensionsPrfValuesRelaxed {
 }
 #[cfg(test)]
 mod tests {
-    use super::{ClientDataJsonParser, Cow, RelaxedClientDataJsonParser};
+    use super::{ClientDataJsonParser as _, Cow, RelaxedClientDataJsonParser};
     use serde::de::{Error as _, Unexpected};
     use serde_json::Error;
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
+    #[expect(clippy::little_endian_bytes, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     fn relaxed_client_data_json() {
         // Base case is correct.
-        let input = serde_json::json!({
+        let mut input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -437,21 +428,21 @@ mod tests {
         })
         .to_string();
         assert!(
-            RelaxedClientDataJsonParser::<true>::parse(input.as_bytes()).map_or(false, |c| {
+            RelaxedClientDataJsonParser::<true>::parse(input.as_bytes()).is_ok_and(|c| {
                 c.cross_origin
                     && c.challenge.0
+                    // challenges are sent little-endian
                         == u128::from_le_bytes([
                             0, 16, 1, 0, 16, 1, 0, 16, 1, 0, 16, 1, 0, 16, 1, 0,
                         ])
                     && matches!(c.origin.0, Cow::Borrowed(o) if o == "https://example.com")
-                    && c.top_origin.map_or(
-                        false,
+                    && c.top_origin.is_some_and(
                         |t| matches!(t.0, Cow::Borrowed(o) if o == "https://example.org"),
                     )
             })
         );
         // Base case is correct.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": "https://example.com",
@@ -460,21 +451,21 @@ mod tests {
         })
         .to_string();
         assert!(
-            RelaxedClientDataJsonParser::<false>::parse(input.as_bytes()).map_or(false, |c| {
+            RelaxedClientDataJsonParser::<false>::parse(input.as_bytes()).is_ok_and(|c| {
                 c.cross_origin
                     && c.challenge.0
+                    // challenges are sent little-endian
                         == u128::from_le_bytes([
                             0, 16, 1, 0, 16, 1, 0, 16, 1, 0, 16, 1, 0, 16, 1, 0,
                         ])
                     && matches!(c.origin.0, Cow::Borrowed(o) if o == "https://example.com")
-                    && c.top_origin.map_or(
-                        false,
+                    && c.top_origin.is_some_and(
                         |t| matches!(t.0, Cow::Borrowed(o) if o == "https://example.org"),
                     )
             })
         );
         // Unknown keys are allowed.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -483,9 +474,9 @@ mod tests {
             "foo": true
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::parse(input.as_bytes()).is_ok());
+        drop(RelaxedClientDataJsonParser::<true>::parse(input.as_bytes()).unwrap());
         // Duplicate keys are forbidden.
-        let input = "{
+        let mut input_str = "{
             \"challenge\": \"ABABABABABABABABABABAA\",
             \"type\": \"webauthn.create\",
             \"origin\": \"https://example.com\",
@@ -497,14 +488,15 @@ mod tests {
             .to_string()
             .into_bytes();
         assert_eq!(
-            RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
+            RelaxedClientDataJsonParser::<true>::parse(input_str.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `crossOrigin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -514,10 +506,10 @@ mod tests {
         .to_string();
         assert!(
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
-                .map_or(false, |c| !c.cross_origin)
+                .is_ok_and(|c| !c.cross_origin)
         );
         // Missing `crossOrigin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -526,10 +518,10 @@ mod tests {
         .to_string();
         assert!(
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
-                .map_or(false, |c| !c.cross_origin)
+                .is_ok_and(|c| !c.cross_origin)
         );
         // `null` `topOrigin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -539,10 +531,10 @@ mod tests {
         .to_string();
         assert!(
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
-                .map_or(false, |c| c.top_origin.is_none())
+                .is_ok_and(|c| c.top_origin.is_none())
         );
         // Missing `topOrigin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -551,7 +543,7 @@ mod tests {
         .to_string();
         assert!(
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
-                .map_or(false, |c| c.top_origin.is_none())
+                .is_ok_and(|c| c.top_origin.is_none())
         );
         // `null` `challenge`.
         err = Error::invalid_type(
@@ -560,7 +552,7 @@ mod tests {
         )
         .to_string()
         .into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": null,
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -572,12 +564,13 @@ mod tests {
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `challenge`.
         err = Error::missing_field("challenge").to_string().into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "type": "webauthn.create",
             "origin": "https://example.com",
             "crossOrigin": true,
@@ -588,8 +581,9 @@ mod tests {
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `type`.
         err = Error::invalid_type(
@@ -598,7 +592,7 @@ mod tests {
         )
         .to_string()
         .into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": null,
             "origin": "https://example.com",
@@ -610,12 +604,13 @@ mod tests {
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `type`.
         err = Error::missing_field("type").to_string().into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "origin": "https://example.com",
             "crossOrigin": true,
@@ -626,14 +621,15 @@ mod tests {
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `origin`.
         err = Error::invalid_type(Unexpected::Other("null"), &"OriginWrapper")
             .to_string()
             .into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": null,
@@ -645,12 +641,13 @@ mod tests {
             RelaxedClientDataJsonParser::<false>::parse(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `origin`.
         err = Error::missing_field("origin").to_string().into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "crossOrigin": true,
@@ -661,14 +658,15 @@ mod tests {
             RelaxedClientDataJsonParser::<false>::parse(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // Mismatched `type`.
         err = Error::invalid_value(Unexpected::Str("webauthn.create"), &"webauthn.get")
             .to_string()
             .into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -680,14 +678,15 @@ mod tests {
             RelaxedClientDataJsonParser::<false>::parse(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // Mismatched `type`.
         err = Error::invalid_value(Unexpected::Str("webauthn.get"), &"webauthn.create")
             .to_string()
             .into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": "https://example.com",
@@ -699,11 +698,12 @@ mod tests {
             RelaxedClientDataJsonParser::<true>::parse(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // `crossOrigin` can be `false` even when `topOrigin` exists.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": "https://example.com",
@@ -711,40 +711,41 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<false>::parse(input.as_bytes()).is_ok());
+        drop(RelaxedClientDataJsonParser::<false>::parse(input.as_bytes()).unwrap());
         // `crossOrigin` can be `true` even when `topOrigin` does not exist.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": "https://example.com",
             "crossOrigin": true,
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<false>::parse(input.as_bytes()).is_ok());
+        drop(RelaxedClientDataJsonParser::<false>::parse(input.as_bytes()).unwrap());
         // BOM is removed.
-        let input = "\u{feff}{
+        input_str = "\u{feff}{
             \"challenge\": \"ABABABABABABABABABABAA\",
             \"type\": \"webauthn.create\",
             \"origin\": \"https://example.com\",
             \"crossOrigin\": true,
             \"topOrigin\": \"https://example.org\"
         }";
-        assert!(RelaxedClientDataJsonParser::<true>::parse(input.as_bytes()).is_ok());
+        drop(RelaxedClientDataJsonParser::<true>::parse(input_str.as_bytes()).unwrap());
         // Invalid Unicode is replaced.
-        let input = b"{
+        let mut input_bytes = b"{
             \"challenge\": \"ABABABABABABABABABABAA\",
             \"type\": \"webauthn.create\",
             \"origin\": \"https://\xffexample.com\",
             \"crossOrigin\": true,
             \"topOrigin\": \"https://example.org\"
-        }";
+        }"
+        .as_slice();
         assert!(
-            RelaxedClientDataJsonParser::<true>::parse(input.as_slice()).map_or(false, |c| {
+            RelaxedClientDataJsonParser::<true>::parse(input_bytes).is_ok_and(|c| {
                 matches!(c.origin.0, Cow::Owned(o) if o == "https://\u{fffd}example.com")
             })
         );
         // Escape characters are de-escaped.
-        let input = b"{
+        input_bytes = b"{
             \"challenge\": \"ABABABABABABABABABABAA\",
             \"type\": \"webauthn\\u002ecreate\",
             \"origin\": \"https://examp\\\\le.com\",
@@ -752,15 +753,18 @@ mod tests {
             \"topOrigin\": \"https://example.org\"
         }";
         assert!(
-            RelaxedClientDataJsonParser::<true>::parse(input.as_slice()).map_or(false, |c| {
+            RelaxedClientDataJsonParser::<true>::parse(input_bytes).is_ok_and(|c| {
                 matches!(c.origin.0, Cow::Owned(o) if o == "https://examp\\le.com")
             })
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
+    #[expect(clippy::little_endian_bytes, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     fn relaxed_challenge() {
         // Base case is correct.
-        let input = serde_json::json!({
+        let mut input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -769,9 +773,9 @@ mod tests {
         })
         .to_string();
         assert!(
-            RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).map_or(
-                false,
+            RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok_and(
                 |c| {
+                    // `Challenges` are sent in little-endian.
                     c.0 == u128::from_le_bytes([
                         0, 16, 1, 0, 16, 1, 0, 16, 1, 0, 16, 1, 0, 16, 1, 0,
                     ])
@@ -779,7 +783,7 @@ mod tests {
             )
         );
         // Base case is correct.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": "https://example.com",
@@ -788,9 +792,9 @@ mod tests {
         })
         .to_string();
         assert!(
-            RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).map_or(
-                false,
+            RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).is_ok_and(
                 |c| {
+                    // `Challenges` are sent in little-endian.
                     c.0 == u128::from_le_bytes([
                         0, 16, 1, 0, 16, 1, 0, 16, 1, 0, 16, 1, 0, 16, 1, 0,
                     ])
@@ -798,7 +802,7 @@ mod tests {
             )
         );
         // Unknown keys are allowed.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -807,9 +811,9 @@ mod tests {
             "foo": true
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).unwrap();
         // Duplicate keys are ignored.
-        let input = "{
+        let mut input_str = "{
             \"challenge\": \"ABABABABABABABABABABAA\",
             \"type\": \"webauthn.create\",
             \"origin\": \"https://example.com\",
@@ -817,9 +821,9 @@ mod tests {
             \"topOrigin\": \"https://example.org\",
             \"crossOrigin\": true
         }";
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input_str.as_bytes()).unwrap();
         // `null` `crossOrigin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -827,18 +831,18 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).unwrap();
         // Missing `crossOrigin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).unwrap();
         // `null` `topOrigin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -846,16 +850,16 @@ mod tests {
             "topOrigin": null
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).unwrap();
         // Missing `topOrigin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
             "crossOrigin": true,
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).unwrap();
         // `null` `challenge`.
         let mut err = Error::invalid_type(
             Unexpected::Other("null"),
@@ -863,7 +867,7 @@ mod tests {
         )
         .to_string()
         .into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": null,
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -875,12 +879,13 @@ mod tests {
             RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `challenge`.
         err = Error::missing_field("challenge").to_string().into_bytes();
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "type": "webauthn.create",
             "origin": "https://example.com",
             "crossOrigin": true,
@@ -891,11 +896,12 @@ mod tests {
             RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `type`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": null,
             "origin": "https://example.com",
@@ -903,18 +909,18 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).unwrap();
         // Missing `type`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "origin": "https://example.com",
             "crossOrigin": true,
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).unwrap();
         // `null` `origin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": null,
@@ -922,18 +928,18 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).unwrap();
         // Missing `origin`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "crossOrigin": true,
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).unwrap();
         // Mismatched `type`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.create",
             "origin": "https://example.com",
@@ -941,9 +947,9 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).unwrap();
         // Mismatched `type`.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": "https://example.com",
@@ -951,9 +957,9 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).unwrap();
         // `crossOrigin` can be `false` even when `topOrigin` exists.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": "https://example.com",
@@ -961,42 +967,43 @@ mod tests {
             "topOrigin": "https://example.org"
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).unwrap();
         // `crossOrigin` can be `true` even when `topOrigin` does not exist.
-        let input = serde_json::json!({
+        input = serde_json::json!({
             "challenge": "ABABABABABABABABABABAA",
             "type": "webauthn.get",
             "origin": "https://example.com",
             "crossOrigin": true,
         })
         .to_string();
-        assert!(RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<false>::get_sent_challenge(input.as_bytes()).unwrap();
         // BOM is removed.
-        let input = "\u{feff}{
+        input_str = "\u{feff}{
             \"challenge\": \"ABABABABABABABABABABAA\",
             \"type\": \"webauthn.create\",
             \"origin\": \"https://example.com\",
             \"crossOrigin\": true,
             \"topOrigin\": \"https://example.org\"
         }";
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_bytes()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input_str.as_bytes()).unwrap();
         // Invalid Unicode is replaced.
-        let input = b"{
+        let mut input_bytes = b"{
             \"challenge\": \"ABABABABABABABABABABAA\",
             \"type\": \"webauthn.create\",
             \"origin\": \"https://\xffexample.com\",
             \"crossOrigin\": true,
             \"topOrigin\": \"https://example.org\"
-        }";
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_slice()).is_ok());
+        }"
+        .as_slice();
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input_bytes).unwrap();
         // Escape characters are de-escaped.
-        let input = b"{
+        input_bytes = b"{
             \"challenge\": \"ABABABABABABABABABABAA\",
             \"type\": \"webauthn\\u002ecreate\",
             \"origin\": \"https://examp\\\\le.com\",
             \"crossOrigin\": true,
             \"topOrigin\": \"https://example.org\"
         }";
-        assert!(RelaxedClientDataJsonParser::<true>::get_sent_challenge(input.as_slice()).is_ok());
+        _ = RelaxedClientDataJsonParser::<true>::get_sent_challenge(input_bytes).unwrap();
     }
 }

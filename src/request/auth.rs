@@ -43,12 +43,10 @@ use std::time::SystemTime;
 /// Contains error types.
 pub mod error;
 /// Contains functionality to serialize data to a client.
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[cfg(feature = "serde")]
 pub mod ser;
 /// Contains functionality to (de)serialize [`DiscoverableAuthenticationServerState`] and
 /// [`NonDiscoverableAuthenticationServerState`] to a data store.
-#[cfg_attr(docsrs, doc(cfg(feature = "serializable_server_state")))]
 #[cfg(feature = "serializable_server_state")]
 pub mod ser_server_state;
 /// Controls how [signature counter](https://www.w3.org/TR/webauthn-3/#signature-counter) is enforced.
@@ -89,7 +87,7 @@ impl SignatureCounterEnforcement {
 ///
 /// When relying on [`NonDiscoverableCredentialRequestOptions`], it's recommended to use credential-specific PRF
 /// inputs that are continuously rolled over. One uses this type for such a thing.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PrfInputOwned {
     /// [`first`](https://www.w3.org/TR/webauthn-3/#dom-authenticationextensionsprfvalues-first).
     pub first: Vec<u8>,
@@ -1029,7 +1027,6 @@ pub struct AuthenticationVerificationOptions<'origins, 'top_origins, O, T> {
     /// Dictates what happens when [`AuthenticatorData::sign_count`] is not updated to a strictly greater value.
     pub sig_counter_enforcement: SignatureCounterEnforcement,
     /// [`CollectedClientData::from_client_data_json_relaxed`] is used to extract [`CollectedClientData`] iff `true`.
-    #[cfg_attr(docsrs, doc(cfg(feature = "serde_relaxed")))]
     #[cfg(feature = "serde_relaxed")]
     pub client_data_json_relaxed: bool,
 }
@@ -1654,6 +1651,7 @@ mod tests {
     const CBOR_TEXT: u8 = 0b011_00000;
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     const CBOR_MAP: u8 = 0b101_00000;
+    #[expect(clippy::panic_in_result_fn, reason = "OK in tests")]
     #[test]
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
     fn eddsa_auth_ser() -> Result<(), AggErr> {
@@ -1749,6 +1747,9 @@ mod tests {
         json.extend_from_slice(br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.as_slice());
         json
     }
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::type_complexity, reason = "fine")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     fn generate_authenticator_data_public_key_sig(
         opts: TestResponseOptions,
@@ -1816,8 +1817,7 @@ mod tests {
             ]
             .as_slice(),
         );
-        authenticator_data[..32]
-            .copy_from_slice(Sha256::digest("example.com".as_bytes()).as_slice());
+        authenticator_data[..32].copy_from_slice(&Sha256::digest(b"example.com"));
         match opts.hmac {
             HmacSecret::None => {}
             HmacSecret::One => {
@@ -1871,7 +1871,7 @@ mod tests {
         }
         let len = authenticator_data.len();
         authenticator_data
-            .extend_from_slice(Sha256::digest(generate_client_data_json().as_slice()).as_slice());
+            .extend_from_slice(&Sha256::digest(generate_client_data_json().as_slice()));
         let sig_key = SigningKey::from_bytes(&[0; 32]);
         let sig = sig_key.sign(authenticator_data.as_slice()).to_vec();
         authenticator_data.truncate(len);
@@ -1916,7 +1916,7 @@ mod tests {
             PrfUvOptions::None(required) => {
                 if required {
                     opts.public_key.user_verification = UserVerificationRequirement::Required;
-                };
+                }
             }
             PrfUvOptions::Prf(input) => {
                 opts.public_key.user_verification = UserVerificationRequirement::Required;
@@ -1967,9 +1967,9 @@ mod tests {
     /// 4 * 5 * 3 * 2 * 5 = 600 tests.
     /// We ignore this due to how long it takes (around 4 seconds or so).
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
-    #[ignore]
+    #[ignore = "slow"]
     #[test]
-    fn test_uv_required_err() {
+    fn uv_required_err() {
         const ALL_CRED_PROTECT_OPTIONS: [CredentialProtectionPolicy; 4] = [
             CredentialProtectionPolicy::None,
             CredentialProtectionPolicy::UserVerificationOptional,
@@ -2032,7 +2032,7 @@ mod tests {
                                     hmac,
                                 },
                                 cred: TestCredOptions { cred_protect, prf, },
-                            }).map_or_else(|err| matches!(err, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::UserNotVerified)), |_| false));
+                            }).is_err_and(|err| matches!(err, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::UserNotVerified))));
                         }
                     }
                 }
@@ -2043,7 +2043,7 @@ mod tests {
     /// 4 * 5 * 2 * 2 = 80 tests.
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     #[test]
-    fn test_forbidden_hmac() {
+    fn forbidden_hmac() {
         const ALL_CRED_PROTECT_OPTIONS: [CredentialProtectionPolicy; 4] = [
             CredentialProtectionPolicy::None,
             CredentialProtectionPolicy::UserVerificationOptional,
@@ -2073,15 +2073,16 @@ mod tests {
                                 hmac,
                             },
                             cred: TestCredOptions { cred_protect, prf, },
-                        }).map_or_else(|err| matches!(err, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::ForbiddenHmacSecret))), |_| false));
+                        }).is_err_and(|err| matches!(err, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::ForbiddenHmacSecret)))));
                     }
                 }
             }
         }
     }
+    #[expect(clippy::panic_in_result_fn, reason = "OK in tests")]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     #[test]
-    fn test_prf() -> Result<(), AggErr> {
+    fn prf() -> Result<(), AggErr> {
         let mut opts = TestOptions {
             request: TestRequestOptions {
                 error_unsolicited: false,
@@ -2111,7 +2112,7 @@ mod tests {
             ExtensionReq::Require,
         ));
         opts.cred.prf = PrfCredOptions::TrueHmacTrue;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::MissingHmacSecret))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::MissingHmacSecret)))));
         opts.response.hmac = HmacSecret::One;
         opts.request.prf_uv = PrfUvOptions::Prf((
             PrfInput {
@@ -2121,16 +2122,16 @@ mod tests {
             ExtensionReq::Allow,
         ));
         opts.cred.prf = PrfCredOptions::TrueNoHmac;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::HmacSecretForNonHmacSecretCredential))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::HmacSecretForNonHmacSecretCredential)))));
         opts.response.hmac = HmacSecret::Two;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidHmacSecretValue(OneOrTwo::One, OneOrTwo::Two)))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::InvalidHmacSecretValue(OneOrTwo::One, OneOrTwo::Two))))));
         opts.response.hmac = HmacSecret::One;
         opts.cred.prf = PrfCredOptions::FalseNoHmac;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::HmacSecretForNonHmacSecretCredential))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::HmacSecretForNonHmacSecretCredential)))));
         opts.response.user_verified = false;
         opts.request.prf_uv = PrfUvOptions::None(false);
         opts.cred.prf = PrfCredOptions::TrueHmacTrue;
-        assert!(validate(opts).map_or_else(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::UserNotVerifiedHmacSecret))), |_| false));
+        assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::AuthCeremony(auth_err) if matches!(auth_err, AuthCeremonyErr::Extension(ext_err) if matches!(ext_err, ExtensionErr::UserNotVerifiedHmacSecret)))));
         Ok(())
     }
 }

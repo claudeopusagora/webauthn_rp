@@ -1,18 +1,14 @@
-#[cfg(doc)]
-use super::ExtensionReq;
 use super::{
-    super::{
-        super::response::ser::Null,
-        ser::{DEFAULT_RP_ID, PrfHelper},
-    },
+    super::{super::response::ser::Null, ser::PrfHelper},
     AllowedCredential, AllowedCredentials, Challenge, CredentialMediationRequirement,
     Credentials as _, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions,
-    Extension, FIVE_MINUTES, Hint, NonDiscoverableAuthenticationClientState,
+    Extension, ExtensionReq, FIVE_MINUTES, Hint, NonDiscoverableAuthenticationClientState,
     NonDiscoverableCredentialRequestOptions, PrfInput, PrfInputOwned,
     PublicKeyCredentialRequestOptions, RpId, UserVerificationRequirement,
 };
 use core::{
-    fmt::{self, Formatter},
+    error::Error as E,
+    fmt::{self, Display, Formatter},
     num::NonZeroU32,
 };
 use serde::{
@@ -525,22 +521,33 @@ pub struct ExtensionOwned {
     /// See [`Extension::prf`].
     pub prf: Option<PrfInputOwned>,
 }
-impl<'a: 'prf_first + 'prf_second, 'prf_first, 'prf_second> From<&'a ExtensionOwned>
-    for Extension<'prf_first, 'prf_second>
-{
+impl ExtensionOwned {
+    /// Returns an `Extension` based on `self`.
     #[inline]
-    fn from(value: &'a ExtensionOwned) -> Self {
-        Self {
-            prf: value.prf.as_ref().map(|input| {
+    #[must_use]
+    pub fn as_extension(&self) -> Extension<'_, '_> {
+        Extension {
+            prf: self.prf.as_ref().map(|prf| {
                 (
                     PrfInput {
-                        first: input.first.as_slice(),
-                        second: input.second.as_deref(),
+                        first: &prf.first,
+                        second: prf.second.as_deref(),
                     },
-                    input.ext_req,
+                    prf.ext_req,
                 )
             }),
         }
+    }
+    /// Returns an `Extension` based on `self` and `prf`.
+    ///
+    /// Note `prf` is used _unconditionally_ regardless if [`Self::prf`] is `Some`.
+    #[inline]
+    #[must_use]
+    pub const fn with_prf<'prf_first, 'prf_second>(
+        &self,
+        prf: (PrfInput<'prf_first, 'prf_second>, ExtensionReq),
+    ) -> Extension<'prf_first, 'prf_second> {
+        Extension { prf: Some(prf) }
     }
 }
 impl<'de> Deserialize<'de> for ExtensionOwned {
@@ -650,13 +657,25 @@ impl<'de> Deserialize<'de> for ExtensionOwned {
         deserializer.deserialize_struct("ExtensionOwned", FIELDS, ExtensionOwnedVisitor)
     }
 }
-/// Similar to [`PublicKeyCredentialRequestOptions`] except the fields are based on owned data.
+/// Error returned by [`PublicKeyCredentialRequestOptionsOwned::as_options`] when
+/// [`PublicKeyCredentialRequestOptionsOwned::rp_id`] is `None`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PublicKeyCredentialRequestOptionsOwnedErr;
+impl Display for PublicKeyCredentialRequestOptionsOwnedErr {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("request options did not have an RP ID")
+    }
+}
+impl E for PublicKeyCredentialRequestOptionsOwnedErr {}
+/// Similar to [`PublicKeyCredentialRequestOptions`] except the fields are based on owned data, and
+/// [`Self::rp_id`] is optional.
 ///
 /// This is primarily useful to assist [`ClientCredentialRequestOptions::deserialize`],
 #[derive(Debug)]
 pub struct PublicKeyCredentialRequestOptionsOwned {
     /// See [`PublicKeyCredentialRequestOptions::rp_id`].
-    pub rp_id: RpId,
+    pub rp_id: Option<RpId>,
     /// See [`PublicKeyCredentialRequestOptions::timeout`].
     pub timeout: NonZeroU32,
     /// See [`PublicKeyCredentialRequestOptions::user_verification`].
@@ -667,18 +686,93 @@ pub struct PublicKeyCredentialRequestOptionsOwned {
     pub extensions: ExtensionOwned,
 }
 impl PublicKeyCredentialRequestOptionsOwned {
-    /// Creates a `PublicKeyCredentialRequestOptions` based on the contained data and randomly-generated
-    /// [`Challenge`].
+    /// Returns a `PublicKeyCredentialRequestOptions` based on `self`.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`Self::rp_id`] is `None`.
+    #[inline]
+    pub fn as_options(
+        &self,
+    ) -> Result<
+        PublicKeyCredentialRequestOptions<'_, '_, '_>,
+        PublicKeyCredentialRequestOptionsOwnedErr,
+    > {
+        self.rp_id
+            .as_ref()
+            .ok_or(PublicKeyCredentialRequestOptionsOwnedErr)
+            .map(|rp_id| PublicKeyCredentialRequestOptions {
+                challenge: Challenge::new(),
+                timeout: self.timeout,
+                rp_id,
+                user_verification: self.user_verification,
+                hints: self.hints,
+                extensions: self.extensions.as_extension(),
+            })
+    }
+    /// Returns a `PublicKeyCredentialRequestOptions` based on `self` and `rp_id`.
+    ///
+    /// Note `rp_id` is used _unconditionally_ regardless if [`Self::rp_id`] is `Some`.
     #[inline]
     #[must_use]
-    pub fn into_options(&self) -> PublicKeyCredentialRequestOptions<'_, '_, '_> {
+    pub fn with_rp_id<'rp_id>(
+        &self,
+        rp_id: &'rp_id RpId,
+    ) -> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
         PublicKeyCredentialRequestOptions {
-            rp_id: &self.rp_id,
             challenge: Challenge::new(),
             timeout: self.timeout,
+            rp_id,
             user_verification: self.user_verification,
             hints: self.hints,
-            extensions: (&self.extensions).into(),
+            extensions: self.extensions.as_extension(),
+        }
+    }
+    /// Returns a `PublicKeyCredentialRequestOptions` based on `self`, `exclude_credentials`, and `extensions`.
+    ///
+    /// Note `extensions` is used _unconditionally_ regardless of what [`Self::extensions`] is.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`Self::rp_id`] is `None`.
+    #[inline]
+    pub fn with_extensions<'prf_first, 'prf_second>(
+        &self,
+        extensions: Extension<'prf_first, 'prf_second>,
+    ) -> Result<
+        PublicKeyCredentialRequestOptions<'_, 'prf_first, 'prf_second>,
+        PublicKeyCredentialRequestOptionsOwnedErr,
+    > {
+        self.rp_id
+            .as_ref()
+            .ok_or(PublicKeyCredentialRequestOptionsOwnedErr)
+            .map(|rp_id| PublicKeyCredentialRequestOptions {
+                challenge: Challenge::new(),
+                timeout: self.timeout,
+                rp_id,
+                user_verification: self.user_verification,
+                hints: self.hints,
+                extensions,
+            })
+    }
+    /// Returns a `PublicKeyCredentialRequestOptions` based on `self`, `rp_id`, and `extensions`.
+    ///
+    /// Note `rp_id` and `extensions` are used _unconditionally_ regardless if [`Self::rp_id`] is `Some` or what
+    /// [`Self::extensions`] is.
+    #[inline]
+    #[must_use]
+    pub fn with_rp_id_and_extensions<'rp_id, 'prf_first, 'prf_second>(
+        &self,
+        rp_id: &'rp_id RpId,
+        extensions: Extension<'prf_first, 'prf_second>,
+    ) -> PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
+        PublicKeyCredentialRequestOptions {
+            challenge: Challenge::new(),
+            timeout: self.timeout,
+            rp_id,
+            user_verification: self.user_verification,
+            hints: self.hints,
+            extensions,
         }
     }
 }
@@ -686,7 +780,7 @@ impl Default for PublicKeyCredentialRequestOptionsOwned {
     #[inline]
     fn default() -> Self {
         Self {
-            rp_id: DEFAULT_RP_ID,
+            rp_id: None,
             timeout: FIVE_MINUTES,
             user_verification: UserVerificationRequirement::Preferred,
             hints: Hint::default(),
@@ -706,13 +800,9 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRequestOptionsOwned {
     /// exists, it must be `null` or empty.
     ///
     /// If [`timeout`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptionsjson-timeout) exists,
-    /// it must be `null` or positive.
+    /// it must be `null` or positive. If `timeout` is missing or is `null`, then [`FIVE_MINUTES`] will be used.
     ///
-    /// In the event there is no RP ID defined, the value `"example.invalid"` will be used.
-    ///
-    /// For any field that does not exist or is `null`, the corresponding [`Default`] `impl` will be used. For
-    /// `user_verification`, [`UserVerificationRequirement::Preferred`] will be used. For `timeout`,
-    /// [`FIVE_MINUTES`] will be used.
+    /// If `userVerification` is missing or is `null`, then [`UserVerificationRequirement::Required`] will be used.
     ///
     /// Unknown or duplicate fields lead to an error.
     #[expect(clippy::too_many_lines, reason = "131 lines is fine")]
@@ -797,7 +887,7 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRequestOptionsOwned {
                             if rp.is_some() {
                                 return Err(Error::duplicate_field(RP_ID));
                             }
-                            rp = map.next_value::<Option<RpId>>().map(Some)?;
+                            rp = map.next_value::<Option<_>>().map(Some)?;
                         }
                         Field::UserVerification => {
                             if user_veri.is_some() {
@@ -838,7 +928,7 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRequestOptionsOwned {
                     }
                 }
                 Ok(PublicKeyCredentialRequestOptionsOwned {
-                    rp_id: rp.flatten().unwrap_or(DEFAULT_RP_ID),
+                    rp_id: rp.flatten(),
                     user_verification: user_veri
                         .flatten()
                         .unwrap_or(UserVerificationRequirement::Preferred),
@@ -870,10 +960,7 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRequestOptionsOwned {
 ///
 /// It's common to tailor an authentication ceremony based on a user's environment. The options that should be
 /// used are then sent to the server. To facilitate this, [`Self::deserialize`] can be used to deserialize the data
-/// sent from the client. Upon successful deserialization, [`Self::into_discoverable_options`] and
-/// [`Self::into_non_discoverable_options`] can then be used to construct the
-/// appropriate [`DiscoverableCredentialRequestOptions`] and [`NonDiscoverableCredentialRequestOptions`]
-/// respectively.
+/// sent from the client.
 ///
 /// Note one may want to change some of the [`Extension`] data since [`ExtensionReq::Allow`] is unconditionally
 /// used. Read [`ExtensionOwned::deserialize`] for more information.
@@ -888,43 +975,6 @@ pub struct ClientCredentialRequestOptions {
     /// See [`DiscoverableCredentialRequestOptions::public_key`] and
     /// See [`NonDiscoverableCredentialRequestOptions::options`].
     pub public_key: PublicKeyCredentialRequestOptionsOwned,
-}
-impl ClientCredentialRequestOptions {
-    /// Creates a `DiscoverableCredentialRequestOptions` based on the contained data where
-    /// [`DiscoverableCredentialRequestOptions::public_key`] is constructed via
-    /// [`PublicKeyCredentialRequestOptionsOwned::into_options`].
-    #[inline]
-    #[must_use]
-    pub fn into_discoverable_options(&self) -> DiscoverableCredentialRequestOptions<'_, '_, '_> {
-        DiscoverableCredentialRequestOptions {
-            mediation: self.mediation,
-            public_key: self.public_key.into_options(),
-        }
-    }
-    /// Creates a `NonDiscoverableCredentialRequestOptions` based on the contained data where
-    /// [`NonDiscoverableCredentialRequestOptions::options`] is constructed via
-    /// [`PublicKeyCredentialRequestOptionsOwned::into_options`].
-    #[inline]
-    #[must_use]
-    pub fn into_non_discoverable_options(
-        &self,
-        allow_credentials: AllowedCredentials,
-    ) -> NonDiscoverableCredentialRequestOptions<'_, '_, '_> {
-        NonDiscoverableCredentialRequestOptions {
-            mediation: self.mediation,
-            options: self.public_key.into_options(),
-            allow_credentials,
-        }
-    }
-}
-impl Default for ClientCredentialRequestOptions {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            mediation: CredentialMediationRequirement::default(),
-            public_key: PublicKeyCredentialRequestOptionsOwned::default(),
-        }
-    }
 }
 impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
     /// Deserializes a `struct` according to the following pseudo-schema:
@@ -1027,29 +1077,38 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
 mod test {
     use super::{
         super::ExtensionReq, ClientCredentialRequestOptions, CredentialMediationRequirement,
-        DEFAULT_RP_ID, ExtensionOwned, FIVE_MINUTES, Hint, NonZeroU32,
-        PublicKeyCredentialRequestOptionsOwned, UserVerificationRequirement,
+        ExtensionOwned, FIVE_MINUTES, Hint, NonZeroU32, PublicKeyCredentialRequestOptionsOwned,
+        UserVerificationRequirement,
     };
     use serde_json::Error;
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::cognitive_complexity, reason = "a lot to test")]
     #[test]
     fn client_options() -> Result<(), Error> {
         let mut err =
             serde_json::from_str::<ClientCredentialRequestOptions>(r#"{"bob":true}"#).unwrap_err();
         assert_eq!(
-            err.to_string()[..56],
-            *"unknown field `bob`, expected `mediation` or `publicKey`"
+            err.to_string().get(..56),
+            Some("unknown field `bob`, expected `mediation` or `publicKey`")
         );
         err = serde_json::from_str::<ClientCredentialRequestOptions>(
             r#"{"mediation":"required","mediation":"required"}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..27], *"duplicate field `mediation`");
-        let mut options = serde_json::from_str::<ClientCredentialRequestOptions>(r#"{}"#)?;
+        assert_eq!(
+            err.to_string().get(..27),
+            Some("duplicate field `mediation`")
+        );
+        let mut options = serde_json::from_str::<ClientCredentialRequestOptions>("{}")?;
         assert!(matches!(
             options.mediation,
             CredentialMediationRequirement::Required
         ));
-        assert_eq!(options.public_key.rp_id, DEFAULT_RP_ID);
+        assert!(options.public_key.rp_id.is_none());
         assert_eq!(options.public_key.timeout, FIVE_MINUTES);
         assert!(matches!(
             options.public_key.user_verification,
@@ -1064,7 +1123,7 @@ mod test {
             options.mediation,
             CredentialMediationRequirement::Required
         ));
-        assert_eq!(options.public_key.rp_id, DEFAULT_RP_ID);
+        assert!(options.public_key.rp_id.is_none());
         assert_eq!(options.public_key.timeout, FIVE_MINUTES);
         assert!(matches!(
             options.public_key.user_verification,
@@ -1073,7 +1132,7 @@ mod test {
         assert!(matches!(options.public_key.hints, Hint::None));
         assert!(options.public_key.extensions.prf.is_none());
         options = serde_json::from_str::<ClientCredentialRequestOptions>(r#"{"publicKey":{}}"#)?;
-        assert_eq!(options.public_key.rp_id, DEFAULT_RP_ID);
+        assert!(options.public_key.rp_id.is_none());
         assert_eq!(options.public_key.timeout, FIVE_MINUTES);
         assert!(matches!(
             options.public_key.user_verification,
@@ -1088,7 +1147,12 @@ mod test {
             options.mediation,
             CredentialMediationRequirement::Conditional
         ));
-        assert_eq!(options.public_key.rp_id.as_ref(), "example.com");
+        assert!(
+            options
+                .public_key
+                .rp_id
+                .is_some_and(|val| val.as_ref() == "example.com")
+        );
         assert_eq!(options.public_key.timeout, FIVE_MINUTES);
         assert!(matches!(
             options.public_key.user_verification,
@@ -1099,55 +1163,63 @@ mod test {
                 .public_key
                 .extensions
                 .prf
-                .map_or(false, |prf| prf.first.is_empty()
+                .is_some_and(|prf| prf.first.is_empty()
                     && prf.second.is_some_and(|p| p.is_empty())
                     && matches!(prf.ext_req, ExtensionReq::Allow))
         );
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::cognitive_complexity, reason = "a lot to test")]
     #[test]
     fn key_options() -> Result<(), Error> {
         let mut err =
             serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(r#"{"bob":true}"#)
                 .unwrap_err();
         assert_eq!(
-            err.to_string()[..130],
-            *"unknown field `bob`, expected one of `rpId`, `userVerification`, `challenge`, `timeout`, `allowCredentials`, `hints`, `extensions`"
+            err.to_string().get(..130),
+            Some(
+                "unknown field `bob`, expected one of `rpId`, `userVerification`, `challenge`, `timeout`, `allowCredentials`, `hints`, `extensions`"
+            )
         );
         err = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"rpId":"example.com","rpId":"example.com"}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..22], *"duplicate field `rpId`");
+        assert_eq!(err.to_string().get(..22), Some("duplicate field `rpId`"));
         err = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"challenge":"AAAAAAAAAAAAAAAAAAAAAA"}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..41],
-            *"invalid type: Option value, expected null"
+            err.to_string().get(..41),
+            Some("invalid type: Option value, expected null")
         );
         err = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"allowCredentials":[{"type":"public-key","transports":["usb"],"id":"AAAAAAAAAAAAAAAAAAAAAA"}]}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..19], *"trailing characters");
+        assert_eq!(err.to_string().get(..19), Some("trailing characters"));
         err = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(r#"{"timeout":0}"#)
             .unwrap_err();
         assert_eq!(
-            err.to_string()[..50],
-            *"invalid value: integer `0`, expected a nonzero u32"
+            err.to_string().get(..50),
+            Some("invalid value: integer `0`, expected a nonzero u32")
         );
         err = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"timeout":4294967296}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..59],
-            *"invalid value: integer `4294967296`, expected a nonzero u32"
+            err.to_string().get(..59),
+            Some("invalid value: integer `4294967296`, expected a nonzero u32")
         );
-        let mut key = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(r#"{}"#)?;
-        assert_eq!(key.rp_id, DEFAULT_RP_ID);
+        let mut key = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>("{}")?;
+        assert!(key.rp_id.is_none());
         assert_eq!(key.timeout, FIVE_MINUTES);
         assert!(matches!(
             key.user_verification,
@@ -1158,7 +1230,7 @@ mod test {
         key = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"rpId":null,"timeout":null,"allowCredentials":null,"userVerification":null,"extensions":null,"hints":null,"challenge":null}"#,
         )?;
-        assert_eq!(key.rp_id, DEFAULT_RP_ID);
+        assert!(key.rp_id.is_none());
         assert_eq!(key.timeout, FIVE_MINUTES);
         assert!(matches!(
             key.user_verification,
@@ -1182,14 +1254,14 @@ mod test {
         key = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"rpId":"example.com","timeout":300000,"allowCredentials":[],"userVerification":"required","extensions":{"prf":{"eval":{"first":"","second":""}}},"hints":["security-key"],"challenge":null}"#,
         )?;
-        assert_eq!(key.rp_id.as_ref(), "example.com");
+        assert!(key.rp_id.is_some_and(|val| val.as_ref() == "example.com"));
         assert_eq!(key.timeout, FIVE_MINUTES);
         assert!(matches!(
             key.user_verification,
             UserVerificationRequirement::Required
         ));
         assert!(matches!(key.hints, Hint::SecurityKey));
-        assert!(key.extensions.prf.map_or(false, |prf| prf.first.is_empty()
+        assert!(key.extensions.prf.is_some_and(|prf| prf.first.is_empty()
             && prf.second.is_some_and(|p| p.is_empty())
             && matches!(prf.ext_req, ExtensionReq::Allow)));
         key = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
@@ -1198,32 +1270,37 @@ mod test {
         assert_eq!(key.timeout, NonZeroU32::MAX);
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
     #[test]
     fn extension() -> Result<(), Error> {
         let mut err = serde_json::from_str::<ExtensionOwned>(r#"{"bob":true}"#).unwrap_err();
         assert_eq!(
-            err.to_string()[..35],
-            *"unknown field `bob`, expected `prf`"
+            err.to_string().get(..35),
+            Some("unknown field `bob`, expected `prf`")
         );
         err = serde_json::from_str::<ExtensionOwned>(
             r#"{"prf":{"eval":{"first":"","second":""}},"prf":{"eval":{"first":"","second":""}}}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..21], *"duplicate field `prf`");
+        assert_eq!(err.to_string().get(..21), Some("duplicate field `prf`"));
         err = serde_json::from_str::<ExtensionOwned>(r#"{"prf":{"eval":{"first":null}}}"#)
             .unwrap_err();
         assert_eq!(
-            err.to_string()[..51],
-            *"invalid type: null, expected base64url-encoded data"
+            err.to_string().get(..51),
+            Some("invalid type: null, expected base64url-encoded data")
         );
         let mut ext =
             serde_json::from_str::<ExtensionOwned>(r#"{"prf":{"eval":{"first":"","second":""}}}"#)?;
-        assert!(ext.prf.map_or(false, |prf| prf.first.is_empty()
+        assert!(ext.prf.is_some_and(|prf| prf.first.is_empty()
             && prf.second.is_some_and(|v| v.is_empty())
             && matches!(prf.ext_req, ExtensionReq::Allow)));
         ext = serde_json::from_str::<ExtensionOwned>(r#"{"prf":null}"#)?;
         assert!(ext.prf.is_none());
-        ext = serde_json::from_str::<ExtensionOwned>(r#"{}"#)?;
+        ext = serde_json::from_str::<ExtensionOwned>("{}")?;
         assert!(ext.prf.is_none());
         Ok(())
     }

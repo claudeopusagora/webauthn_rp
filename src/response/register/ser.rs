@@ -1389,9 +1389,9 @@ mod tests {
             Registration, RsaPubKey, UncompressedP256PubKey, UncompressedP384PubKey, cbor,
         },
         CoseAlgorithmIdentifier,
-        spki::SubjectPublicKeyInfo,
+        spki::SubjectPublicKeyInfo as _,
     };
-    use ed25519_dalek::{VerifyingKey, pkcs8::EncodePublicKey};
+    use ed25519_dalek::{VerifyingKey, pkcs8::EncodePublicKey as _};
     use p256::{
         EncodedPoint as P256Pt, PublicKey as P256PubKey, SecretKey as P256Key,
         elliptic_curve::sec1::{FromEncodedPoint as _, ToEncodedPoint as _},
@@ -1400,10 +1400,11 @@ mod tests {
     use rsa::{
         BigUint, RsaPrivateKey,
         sha2::{Digest as _, Sha256},
-        traits::PublicKeyParts,
+        traits::PublicKeyParts as _,
     };
     use serde::de::{Error as _, Unexpected};
     use serde_json::Error;
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
     #[test]
     fn ed25519_spki() {
         assert!(
@@ -1414,9 +1415,10 @@ mod tests {
                     .unwrap()
                     .as_bytes()
             )
-            .map_or(false, |k| k.0 == [1; 32])
+            .is_ok_and(|k| k.0 == [1; 32])
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
     #[test]
     fn p256_spki() {
         let key = P256Key::from_bytes(
@@ -1430,13 +1432,11 @@ mod tests {
         .public_key();
         let enc_key = key.to_encoded_point(false);
         assert!(
-            UncompressedP256PubKey::from_der(key.to_public_key_der().unwrap().as_bytes()).map_or(
-                false,
-                |k| k.0 == enc_key.x().unwrap().as_slice()
-                    && k.1 == enc_key.y().unwrap().as_slice()
-            )
+            UncompressedP256PubKey::from_der(key.to_public_key_der().unwrap().as_bytes())
+                .is_ok_and(|k| *k.0 == **enc_key.x().unwrap() && *k.1 == **enc_key.y().unwrap())
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
     #[test]
     fn p384_spki() {
         let key = P384Key::from_bytes(
@@ -1451,13 +1451,11 @@ mod tests {
         .public_key();
         let enc_key = key.to_encoded_point(false);
         assert!(
-            UncompressedP384PubKey::from_der(key.to_public_key_der().unwrap().as_bytes()).map_or(
-                false,
-                |k| k.0 == enc_key.x().unwrap().as_slice()
-                    && k.1 == enc_key.y().unwrap().as_slice()
-            )
+            UncompressedP384PubKey::from_der(key.to_public_key_der().unwrap().as_bytes())
+                .is_ok_and(|k| *k.0 == **enc_key.x().unwrap() && *k.1 == **enc_key.y().unwrap())
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
     #[test]
     fn rsa_spki() {
         let n = [
@@ -1476,7 +1474,7 @@ mod tests {
             72, 93, 53, 65, 111, 59, 242, 122, 160, 244, 162, 126, 38, 235, 156, 47, 88, 39, 132,
             153, 79, 0, 133, 78, 7, 218, 165, 241,
         ];
-        let e = 65537u32;
+        let e = 0x0001_0001u32;
         let d = [
             145, 79, 21, 97, 233, 3, 192, 194, 177, 68, 181, 80, 120, 197, 23, 44, 185, 74, 144, 0,
             132, 149, 139, 11, 16, 224, 4, 112, 236, 94, 238, 97, 121, 124, 213, 145, 24, 253, 168,
@@ -1529,14 +1527,20 @@ mod tests {
         .to_public_key();
         assert!(
             RsaPubKey::from_der(key.to_public_key_der().unwrap().as_bytes())
-                .map_or(false, |k| k.0 == key.n().to_bytes_be()
-                    && BigUint::from(k.1) == *key.e())
+                .is_ok_and(|k| k.0 == key.n().to_bytes_be() && BigUint::from(k.1) == *key.e())
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "a lot to test"
+    )]
     #[test]
     fn eddsa_registration_deserialize_data_mismatch() {
         let c_data_json = serde_json::json!({}).to_string();
-        let att_obj = [
+        let att_obj: [u8; 143] = [
             cbor::MAP_3,
             cbor::TEXT_3,
             b'f',
@@ -1696,8 +1700,10 @@ mod tests {
             .unwrap()
             .to_public_key_der()
             .unwrap();
-        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
-        let b64_adata = base64url_nopad::encode(&att_obj[att_obj.len() - 113..]);
+        let b64_cdata_json = base64url_nopad::encode(c_data_json.as_bytes());
+        let att_obj_len = att_obj.len();
+        let auth_data_start = att_obj_len - 113;
+        let b64_adata = base64url_nopad::encode(&att_obj[auth_data_start..]);
         let b64_key = base64url_nopad::encode(pub_key.as_bytes());
         let b64_aobj = base64url_nopad::encode(att_obj.as_slice());
         // Base case is valid.
@@ -1707,11 +1713,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": ["ble", "usb", "hybrid", "internal", "nfc", "smart-card"],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "authenticatorAttachment": "cross-platform",
@@ -1721,28 +1727,28 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg.response.client_data_json
-                == c_data_json.as_bytes()
-                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                    == att_obj
-                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-                && reg.response.transports.count() == 6
-                && matches!(
-                    reg.authenticator_attachment,
-                    AuthenticatorAttachment::CrossPlatform
-                )
-                && reg.client_extension_results.cred_props.is_none()
-                && reg.client_extension_results.prf.is_none())
+            .is_ok_and(
+                |reg| reg.response.client_data_json == c_data_json.as_bytes()
+                    && reg.response.attestation_object_and_c_data_hash[..att_obj_len] == att_obj
+                    && reg.response.attestation_object_and_c_data_hash[att_obj_len..]
+                        == *Sha256::digest(c_data_json.as_bytes())
+                    && reg.response.transports.count() == 6
+                    && matches!(
+                        reg.authenticator_attachment,
+                        AuthenticatorAttachment::CrossPlatform
+                    )
+                    && reg.client_extension_results.cred_props.is_none()
+                    && reg.client_extension_results.prf.is_none()
+            )
         );
         // `id` and `rawId` mismatch.
         let mut err = Error::invalid_value(
             Unexpected::Bytes(
-                base64url_nopad::decode("ABABABABABABABABABABAA".as_bytes())
+                base64url_nopad::decode(b"ABABABABABABABABABABAA")
                     .unwrap()
                     .as_slice(),
             ),
-            &format!("id and rawId to match: CredentialId({:?})", [0; 16]).as_str(),
+            &format!("id and rawId to match: CredentialId({:?})", [0u8; 16]).as_str(),
         )
         .to_string()
         .into_bytes();
@@ -1752,11 +1758,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "ABABABABABABABABABABAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1767,8 +1773,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // missing `id`.
         err = Error::missing_field("id").to_string().into_bytes();
@@ -1777,11 +1784,11 @@ mod tests {
                 serde_json::json!({
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1792,8 +1799,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `id`.
         err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
@@ -1805,11 +1813,11 @@ mod tests {
                     "id": null,
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1820,8 +1828,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // missing `rawId`.
         err = Error::missing_field("rawId").to_string().into_bytes();
@@ -1830,11 +1839,11 @@ mod tests {
                 serde_json::json!({
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1845,8 +1854,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `rawId`.
         err = Error::invalid_type(Unexpected::Other("null"), &"CredentialId")
@@ -1858,11 +1868,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": null,
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1873,18 +1883,19 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `id` and the credential id in authenticator data mismatch.
         err = Error::invalid_value(
             Unexpected::Bytes(
                 base64url_nopad
-                    ::decode("ABABABABABABABABABABAA".as_bytes())
+                    ::decode(b"ABABABABABABABABABABAA")
                     .unwrap()
                     .as_slice(),
             ),
-            &format!("id, rawId, and the credential id in the attested credential data to all match: {:?}", [0; 16]).as_str(),
+            &format!("id, rawId, and the credential id in the attested credential data to all match: {:?}", [0u8; 16]).as_str(),
         )
         .to_string().into_bytes();
         assert_eq!(
@@ -1893,11 +1904,11 @@ mod tests {
                     "id": "ABABABABABABABABABABAA",
                     "rawId": "ABABABABABABABABABABAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1908,16 +1919,17 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `authenticatorData` mismatches `authData` in attestation object.
         let mut bad_auth = [0; 113];
-        bad_auth.copy_from_slice(&att_obj[att_obj.len() - 113..]);
+        bad_auth.copy_from_slice(&att_obj[auth_data_start..]);
         bad_auth[113 - 32..].copy_from_slice([0; 32].as_slice());
         err = Error::invalid_value(
             Unexpected::Bytes(bad_auth.as_slice()),
-            &format!("authenticator data to match the authenticator data portion of attestation object: {:?}", &att_obj[att_obj.len() - bad_auth.len()..]).as_str(),
+            &format!("authenticator data to match the authenticator data portion of attestation object: {:?}", &att_obj[att_obj_len - bad_auth.len()..]).as_str(),
         )
         .to_string().into_bytes();
         assert_eq!(
@@ -1926,11 +1938,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": base64url_nopad::encode(bad_auth.as_slice()),
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1941,8 +1953,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `authenticatorData`.
         err = Error::missing_field("authenticatorData")
@@ -1954,10 +1967,10 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1968,8 +1981,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `authenticatorData`.
         err = Error::invalid_type(Unexpected::Other("null"), &"authenticatorData")
@@ -1981,11 +1995,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "transports": [],
                         "authenticatorData": null,
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -1996,12 +2010,13 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `publicKeyAlgorithm` mismatch.
         err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
+            Unexpected::Other(format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Eddsa).as_str()
         )
         .to_string().into_bytes();
@@ -2011,11 +2026,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -7,
+                        "publicKeyAlgorithm": -7i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2026,8 +2041,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `publicKeyAlgorithm`.
         err = Error::missing_field("publicKeyAlgorithm")
@@ -2039,7 +2055,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -2053,8 +2069,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `publicKeyAlgorithm`.
         err = Error::invalid_type(Unexpected::Other("null"), &"publicKeyAlgorithm")
@@ -2066,7 +2083,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -2081,8 +2098,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `publicKey` mismatch.
         err = Error::invalid_value(
@@ -2099,11 +2117,11 @@ mod tests {
                 "id": "AAAAAAAAAAAAAAAAAAAAAA",
                 "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                 "response": {
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "transports": [],
                     "publicKey": base64url_nopad::encode(VerifyingKey::from_bytes(&[0; 32]).unwrap().to_public_key_der().unwrap().as_bytes()),
-                    "publicKeyAlgorithm": -8,
+                    "publicKeyAlgorithm": -8i8,
                     "attestationObject": b64_aobj,
                 },
                 "clientExtensionResults": {},
@@ -2112,8 +2130,8 @@ mod tests {
             .to_string()
             .as_str()
             )
-            .unwrap_err().to_string().into_bytes()[..err.len()],
-            err
+            .unwrap_err().to_string().into_bytes().get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `publicKey` when using EdDSA, ES256, or RS256.
         err = Error::missing_field("publicKey").to_string().into_bytes();
@@ -2123,10 +2141,10 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2137,8 +2155,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `publicKey` when using EdDSA, ES256, or RS256.
         err = Error::invalid_type(Unexpected::Other("null"), &"publicKey")
@@ -2150,11 +2169,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": null,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2165,8 +2184,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `transports`.
         err = Error::missing_field("transports").to_string().into_bytes();
@@ -2176,10 +2196,10 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2190,8 +2210,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Duplicate `transports` are allowed.
         assert!(
@@ -2200,11 +2221,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": ["usb", "usb"],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2213,7 +2234,7 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg.response.transports.count() == 1)
+            .is_ok_and(|reg| reg.response.transports.count() == 1)
         );
         // `null` `transports`.
         err = Error::invalid_type(Unexpected::Other("null"), &"transports")
@@ -2225,11 +2246,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": null,
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2240,8 +2261,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown `transports`.
         err = Error::invalid_value(
@@ -2256,11 +2278,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": ["Usb"],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2271,8 +2293,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `authenticatorAttachment`.
         assert!(
@@ -2281,11 +2304,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "authenticatorAttachment": null,
@@ -2295,10 +2318,7 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| matches!(
-                reg.authenticator_attachment,
-                AuthenticatorAttachment::None
-            ))
+            .is_ok_and(|reg| matches!(reg.authenticator_attachment, AuthenticatorAttachment::None))
         );
         // Unknown `authenticatorAttachment`.
         err = Error::invalid_value(
@@ -2313,11 +2333,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "authenticatorAttachment": "Platform",
@@ -2329,8 +2349,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `clientDataJSON`.
         err = Error::missing_field("clientDataJSON")
@@ -2345,7 +2366,7 @@ mod tests {
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2356,8 +2377,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `clientDataJSON`.
         err = Error::invalid_type(Unexpected::Other("null"), &"base64url-encoded data")
@@ -2373,7 +2395,7 @@ mod tests {
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2384,8 +2406,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `attestationObject`.
         err = Error::missing_field("attestationObject")
@@ -2397,11 +2420,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                     },
                     "clientExtensionResults": {},
                     "type": "public-key"
@@ -2411,8 +2434,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `attestationObject`.
         err = Error::invalid_type(
@@ -2427,11 +2451,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": null,
                     },
                     "clientExtensionResults": {},
@@ -2442,8 +2466,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `response`.
         err = Error::missing_field("response").to_string().into_bytes();
@@ -2460,8 +2485,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `response`.
         err = Error::invalid_type(Unexpected::Other("null"), &"AuthenticatorAttestation")
@@ -2481,8 +2507,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Empty `response`.
         err = Error::missing_field("clientDataJSON")
@@ -2502,8 +2529,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `clientExtensionResults`.
         err = Error::missing_field("clientExtensionResults")
@@ -2515,11 +2543,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "type": "public-key"
@@ -2529,8 +2557,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `clientExtensionResults`.
         err = Error::invalid_type(
@@ -2545,11 +2574,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": null,
@@ -2560,8 +2589,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `type`.
         err = Error::missing_field("type").to_string().into_bytes();
@@ -2571,11 +2601,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2585,8 +2615,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `type`.
         err = Error::invalid_type(Unexpected::Other("null"), &"public-key")
@@ -2598,11 +2629,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2613,8 +2644,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Not exactly `public-type` `type`.
         err = Error::invalid_value(Unexpected::Str("Public-key"), &"public-key")
@@ -2626,11 +2658,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2641,8 +2673,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null`.
         err = Error::invalid_type(Unexpected::Other("null"), &"PublicKeyCredential")
@@ -2652,8 +2685,9 @@ mod tests {
             serde_json::from_str::<Registration>(serde_json::json!(null).to_string().as_str())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // Empty.
         err = Error::missing_field("response").to_string().into_bytes();
@@ -2661,8 +2695,9 @@ mod tests {
             serde_json::from_str::<Registration>(serde_json::json!({}).to_string().as_str())
                 .unwrap_err()
                 .to_string()
-                .into_bytes()[..err.len()],
-            err
+                .into_bytes()
+                .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown field in `response`.
         err = Error::unknown_field(
@@ -2685,11 +2720,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                         "foo": true,
                     },
@@ -2701,8 +2736,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Duplicate field in `response`.
         err = Error::duplicate_field("transports")
@@ -2715,7 +2751,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"transports\": [],
                            \"publicKey\": \"{b64_key}\",
@@ -2732,8 +2768,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown field in `PublicKeyCredential`.
         err = Error::unknown_field(
@@ -2756,11 +2793,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj
                     },
                     "clientExtensionResults": {},
@@ -2772,8 +2809,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Duplicate field in `PublicKeyCredential`.
         err = Error::duplicate_field("id").to_string().into_bytes();
@@ -2785,7 +2823,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"transports\": [],
                            \"publicKey\": \"{b64_key}\",
@@ -2801,14 +2839,22 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "a lot to test"
+    )]
     #[test]
     fn client_extensions() {
         let c_data_json = serde_json::json!({}).to_string();
-        let att_obj = [
+        let att_obj: [u8; 143] = [
             cbor::MAP_3,
             cbor::TEXT_3,
             b'f',
@@ -2968,7 +3014,7 @@ mod tests {
             .unwrap()
             .to_public_key_der()
             .unwrap();
-        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
+        let b64_cdata_json = base64url_nopad::encode(c_data_json.as_bytes());
         let b64_adata = base64url_nopad::encode(&att_obj[att_obj.len() - 113..]);
         let b64_key = base64url_nopad::encode(pub_key.as_bytes());
         let b64_aobj = base64url_nopad::encode(att_obj.as_slice());
@@ -2979,11 +3025,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -2992,16 +3038,16 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg.response.client_data_json
-                == c_data_json.as_bytes()
-                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                    == att_obj
-                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-                && reg.response.transports.is_empty()
-                && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
-                && reg.client_extension_results.cred_props.is_none()
-                && reg.client_extension_results.prf.is_none())
+            .is_ok_and(
+                |reg| reg.response.client_data_json == c_data_json.as_bytes()
+                    && reg.response.attestation_object_and_c_data_hash[..att_obj.len()] == att_obj
+                    && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
+                        == *Sha256::digest(c_data_json.as_bytes())
+                    && reg.response.transports.is_empty()
+                    && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
+                    && reg.client_extension_results.cred_props.is_none()
+                    && reg.client_extension_results.prf.is_none()
+            )
         );
         // `null` `credProps`.
         assert!(
@@ -3010,11 +3056,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3025,10 +3071,7 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
-                .client_extension_results
-                .cred_props
-                .is_none()
+            .is_ok_and(|reg| reg.client_extension_results.cred_props.is_none()
                 && reg.client_extension_results.prf.is_none())
         );
         // `null` `prf`.
@@ -3038,11 +3081,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3053,10 +3096,7 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
-                .client_extension_results
-                .cred_props
-                .is_none()
+            .is_ok_and(|reg| reg.client_extension_results.cred_props.is_none()
                 && reg.client_extension_results.prf.is_none())
         );
         // Unknown `clientExtensionResults`.
@@ -3069,11 +3109,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3088,8 +3128,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Duplicate field.
         err = Error::duplicate_field("credProps").to_string().into_bytes();
@@ -3100,7 +3141,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"transports\": [],
                            \"publicKey\": \"{b64_key}\",
@@ -3118,8 +3159,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `rk`.
         assert!(
@@ -3128,11 +3170,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3145,10 +3187,10 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
+            .is_ok_and(|reg| reg
                 .client_extension_results
                 .cred_props
-                .map_or(false, |props| props.rk.is_none())
+                .is_some_and(|props| props.rk.is_none())
                 && reg.client_extension_results.prf.is_none())
         );
         // Missing `rk`.
@@ -3158,11 +3200,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3173,10 +3215,10 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
+            .is_ok_and(|reg| reg
                 .client_extension_results
                 .cred_props
-                .map_or(false, |props| props.rk.is_none())
+                .is_some_and(|props| props.rk.is_none())
                 && reg.client_extension_results.prf.is_none())
         );
         // `true` rk`.
@@ -3186,11 +3228,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3203,10 +3245,10 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
+            .is_ok_and(|reg| reg
                 .client_extension_results
                 .cred_props
-                .map_or(false, |props| props.rk.unwrap_or_default())
+                .is_some_and(|props| props.rk.unwrap_or_default())
                 && reg.client_extension_results.prf.is_none())
         );
         // `false` rk`.
@@ -3216,11 +3258,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3233,10 +3275,10 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
+            .is_ok_and(|reg| reg
                 .client_extension_results
                 .cred_props
-                .map_or(false, |props| props.rk.map_or(false, |rk| !rk))
+                .is_some_and(|props| props.rk.is_some_and(|rk| !rk))
                 && reg.client_extension_results.prf.is_none())
         );
         // Invalid `rk`.
@@ -3249,16 +3291,16 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
                         "credProps": {
-                            "rk": 3
+                            "rk": 3u8
                         }
                     },
                     "type": "public-key"
@@ -3268,8 +3310,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown `credProps` field.
         err = Error::unknown_field("Rk", ["rk"].as_slice())
@@ -3281,11 +3324,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3300,8 +3343,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Duplicate field in `credProps`.
         err = Error::duplicate_field("rk").to_string().into_bytes();
@@ -3312,7 +3356,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"transports\": [],
                            \"publicKey\": \"{b64_key}\",
@@ -3332,8 +3376,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `enabled`.
         err = Error::invalid_type(Unexpected::Other("null"), &"a boolean")
@@ -3345,11 +3390,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3364,8 +3409,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `enabled`.
         err = Error::missing_field("enabled").to_string().into_bytes();
@@ -3375,11 +3421,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3392,8 +3438,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `true` `enabled`.
         assert!(
@@ -3402,11 +3449,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3419,14 +3466,11 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
-                .client_extension_results
-                .cred_props
-                .is_none()
+            .is_ok_and(|reg| reg.client_extension_results.cred_props.is_none()
                 && reg
                     .client_extension_results
                     .prf
-                    .map_or(false, |prf| prf.enabled))
+                    .is_some_and(|prf| prf.enabled))
         );
         // `false` `enabled`.
         assert!(
@@ -3435,11 +3479,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3452,14 +3496,11 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
-                .client_extension_results
-                .cred_props
-                .is_none()
+            .is_ok_and(|reg| reg.client_extension_results.cred_props.is_none()
                 && reg
                     .client_extension_results
                     .prf
-                    .map_or(false, |prf| !prf.enabled))
+                    .is_some_and(|prf| !prf.enabled))
         );
         // Invalid `enabled`.
         err = Error::invalid_type(Unexpected::Unsigned(3), &"a boolean")
@@ -3471,16 +3512,16 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
                         "prf": {
-                            "enabled": 3
+                            "enabled": 3u8
                         }
                     },
                     "type": "public-key"
@@ -3490,8 +3531,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `results` with `enabled` `true`.
         assert!(
@@ -3500,11 +3542,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3518,14 +3560,11 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
-                .client_extension_results
-                .cred_props
-                .is_none()
+            .is_ok_and(|reg| reg.client_extension_results.cred_props.is_none()
                 && reg
                     .client_extension_results
                     .prf
-                    .map_or(false, |prf| prf.enabled))
+                    .is_some_and(|prf| prf.enabled))
         );
         // `null` `results` with `enabled` `false`.
         err = Error::custom(
@@ -3539,11 +3578,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3559,8 +3598,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Duplicate field in `prf`.
         err = Error::duplicate_field("enabled").to_string().into_bytes();
@@ -3571,7 +3611,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"transports\": [],
                            \"publicKey\": \"{b64_key}\",
@@ -3591,8 +3631,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `first`.
         err = Error::missing_field("first").to_string().into_bytes();
@@ -3602,11 +3643,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3622,8 +3663,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `first`.
         assert!(
@@ -3632,11 +3674,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3652,14 +3694,11 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
-                .client_extension_results
-                .cred_props
-                .is_none()
+            .is_ok_and(|reg| reg.client_extension_results.cred_props.is_none()
                 && reg
                     .client_extension_results
                     .prf
-                    .map_or(false, |prf| prf.enabled))
+                    .is_some_and(|prf| prf.enabled))
         );
         // `null` `second`.
         assert!(
@@ -3668,11 +3707,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3689,14 +3728,11 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg
-                .client_extension_results
-                .cred_props
-                .is_none()
+            .is_ok_and(|reg| reg.client_extension_results.cred_props.is_none()
                 && reg
                     .client_extension_results
                     .prf
-                    .map_or(false, |prf| prf.enabled))
+                    .is_some_and(|prf| prf.enabled))
         );
         // Non-`null` `first`.
         err = Error::invalid_type(Unexpected::Option, &"null")
@@ -3708,11 +3744,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3730,8 +3766,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Non-`null` `second`.
         err = Error::invalid_type(Unexpected::Option, &"null")
@@ -3743,11 +3780,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3766,8 +3803,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown `prf` field.
         err = Error::unknown_field("Results", ["enabled", "results"].as_slice())
@@ -3779,11 +3817,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3799,8 +3837,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Unknown `results` field.
         err = Error::unknown_field("Second", ["first", "second"].as_slice())
@@ -3812,11 +3851,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {
@@ -3835,8 +3874,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Duplicate field in `results`.
         err = Error::duplicate_field("first").to_string().into_bytes();
@@ -3847,7 +3887,7 @@ mod tests {
                        \"id\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"rawId\": \"AAAAAAAAAAAAAAAAAAAAAA\",
                        \"response\": {{
-                           \"clientDataJSON\": \"{b64_cdata}\",
+                           \"clientDataJSON\": \"{b64_cdata_json}\",
                            \"authenticatorData\": \"{b64_adata}\",
                            \"transports\": [],
                            \"publicKey\": \"{b64_key}\",
@@ -3870,14 +3910,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     fn es256_registration_deserialize_data_mismatch() {
         let c_data_json = serde_json::json!({}).to_string();
-        let mut att_obj = [
+        let mut att_obj: [u8; 178] = [
             cbor::MAP_3,
             cbor::TEXT_3,
             b'f',
@@ -4082,10 +4126,12 @@ mod tests {
         let enc_key = key.to_encoded_point(false);
         let pub_key = key.to_public_key_der().unwrap();
         let att_obj_len = att_obj.len();
-        att_obj[att_obj_len - 67..att_obj_len - 35]
-            .copy_from_slice(enc_key.x().unwrap().as_slice());
-        att_obj[att_obj_len - 32..].copy_from_slice(enc_key.y().unwrap().as_slice());
-        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
+        let x_start = att_obj_len - 67;
+        let y_meta_start = x_start + 32;
+        let y_start = y_meta_start + 3;
+        att_obj[x_start..y_meta_start].copy_from_slice(enc_key.x().unwrap());
+        att_obj[y_start..].copy_from_slice(enc_key.y().unwrap());
+        let b64_cdata_json = base64url_nopad::encode(c_data_json.as_bytes());
         let b64_adata = base64url_nopad::encode(&att_obj[att_obj.len() - 148..]);
         let b64_key = base64url_nopad::encode(pub_key.as_bytes());
         let b64_aobj = base64url_nopad::encode(att_obj.as_slice());
@@ -4096,11 +4142,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -7,
+                        "publicKeyAlgorithm": -7i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4109,20 +4155,20 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg.response.client_data_json
-                == c_data_json.as_bytes()
-                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                    == att_obj
-                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-                && reg.response.transports.is_empty()
-                && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
-                && reg.client_extension_results.cred_props.is_none()
-                && reg.client_extension_results.prf.is_none())
+            .is_ok_and(
+                |reg| reg.response.client_data_json == c_data_json.as_bytes()
+                    && reg.response.attestation_object_and_c_data_hash[..att_obj.len()] == att_obj
+                    && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
+                        == *Sha256::digest(c_data_json.as_bytes())
+                    && reg.response.transports.is_empty()
+                    && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
+                    && reg.client_extension_results.cred_props.is_none()
+                    && reg.client_extension_results.prf.is_none()
+            )
         );
         // `publicKeyAlgorithm` mismatch.
         let mut err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
+            Unexpected::Other(format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Es256).as_str()
         )
         .to_string().into_bytes();
@@ -4132,11 +4178,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4147,8 +4193,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `publicKeyAlgorithm`.
         err = Error::missing_field("publicKeyAlgorithm")
@@ -4160,7 +4207,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -4174,8 +4221,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `publicKeyAlgorithm`.
         err = Error::invalid_type(Unexpected::Other("null"), &"publicKeyAlgorithm")
@@ -4187,7 +4235,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -4202,8 +4250,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `publicKey` mismatch.
         let bad_pub_key = P256PubKey::from_encoded_point(&P256Pt::from_affine_coordinates(
@@ -4224,8 +4273,8 @@ mod tests {
             Unexpected::Bytes([0; 32].as_slice()),
             &format!(
                 "DER-encoded public key to match the public key within the attestation object: P256(UncompressedP256PubKey({:?}, {:?}))",
-                &att_obj[att_obj.len() - 67..att_obj.len() - 35],
-                &att_obj[att_obj.len() - 32..],
+                &att_obj[x_start..y_meta_start],
+                &att_obj[y_start..],
             )
             .as_str(),
         )
@@ -4235,11 +4284,11 @@ mod tests {
                 "id": "AAAAAAAAAAAAAAAAAAAAAA",
                 "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                 "response": {
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "transports": [],
                     "publicKey": base64url_nopad::encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
-                    "publicKeyAlgorithm": -7,
+                    "publicKeyAlgorithm": -7i8,
                     "attestationObject": b64_aobj,
                 },
                 "clientExtensionResults": {},
@@ -4248,8 +4297,8 @@ mod tests {
             .to_string()
             .as_str()
             )
-            .unwrap_err().to_string().into_bytes()[..err.len()],
-            err
+            .unwrap_err().to_string().into_bytes().get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `publicKey` when using EdDSA, ES256, or RS256.
         err = Error::missing_field("publicKey").to_string().into_bytes();
@@ -4259,10 +4308,10 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
-                        "publicKeyAlgorithm": -7,
+                        "publicKeyAlgorithm": -7i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4273,8 +4322,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `publicKey` when using EdDSA, ES256, or RS256.
         err = Error::invalid_type(Unexpected::Other("null"), &"publicKey")
@@ -4286,11 +4336,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": null,
-                        "publicKeyAlgorithm": -7,
+                        "publicKeyAlgorithm": -7i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4301,14 +4351,22 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
     }
+    #[expect(
+        clippy::assertions_on_result_states,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     fn es384_registration_deserialize_data_mismatch() {
         let c_data_json = serde_json::json!({}).to_string();
-        let mut att_obj = [
+        let mut att_obj: [u8; 211] = [
             cbor::MAP_3,
             cbor::TEXT_3,
             b'f',
@@ -4547,11 +4605,13 @@ mod tests {
         let enc_key = key.to_encoded_point(false);
         let pub_key = key.to_public_key_der().unwrap();
         let att_obj_len = att_obj.len();
-        att_obj[att_obj_len - 99..att_obj_len - 51]
-            .copy_from_slice(enc_key.x().unwrap().as_slice());
-        att_obj[att_obj_len - 48..].copy_from_slice(enc_key.y().unwrap().as_slice());
-        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
-        let b64_adata = base64url_nopad::encode(&att_obj[att_obj.len() - 181..]);
+        let x_start = att_obj_len - 99;
+        let y_meta_start = x_start + 48;
+        let y_start = y_meta_start + 3;
+        att_obj[x_start..y_meta_start].copy_from_slice(enc_key.x().unwrap());
+        att_obj[y_start..].copy_from_slice(enc_key.y().unwrap());
+        let b64_cdata_json = base64url_nopad::encode(c_data_json.as_bytes());
+        let b64_adata = base64url_nopad::encode(&att_obj[att_obj_len - 181..]);
         let b64_key = base64url_nopad::encode(pub_key.as_bytes());
         let b64_aobj = base64url_nopad::encode(att_obj.as_slice());
         // Base case is valid.
@@ -4561,11 +4621,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -35,
+                        "publicKeyAlgorithm": -35i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4574,20 +4634,20 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg.response.client_data_json
-                == c_data_json.as_bytes()
-                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                    == att_obj
-                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-                && reg.response.transports.is_empty()
-                && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
-                && reg.client_extension_results.cred_props.is_none()
-                && reg.client_extension_results.prf.is_none())
+            .is_ok_and(
+                |reg| reg.response.client_data_json == c_data_json.as_bytes()
+                    && reg.response.attestation_object_and_c_data_hash[..att_obj.len()] == att_obj
+                    && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
+                        == *Sha256::digest(c_data_json.as_bytes())
+                    && reg.response.transports.is_empty()
+                    && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
+                    && reg.client_extension_results.cred_props.is_none()
+                    && reg.client_extension_results.prf.is_none()
+            )
         );
         // `publicKeyAlgorithm` mismatch.
         let mut err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
+            Unexpected::Other(format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Es384).as_str()
         )
         .to_string().into_bytes();
@@ -4597,11 +4657,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -7,
+                        "publicKeyAlgorithm": -7i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4612,8 +4672,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `publicKeyAlgorithm`.
         err = Error::missing_field("publicKeyAlgorithm")
@@ -4625,7 +4686,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -4639,8 +4700,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `publicKeyAlgorithm`.
         err = Error::invalid_type(Unexpected::Other("null"), &"publicKeyAlgorithm")
@@ -4652,7 +4714,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -4667,8 +4729,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `publicKey` mismatch.
         let bad_pub_key = P384PubKey::from_encoded_point(&P384Pt::from_affine_coordinates(
@@ -4691,8 +4754,8 @@ mod tests {
             Unexpected::Bytes([0; 32].as_slice()),
             &format!(
                 "DER-encoded public key to match the public key within the attestation object: P384(UncompressedP384PubKey({:?}, {:?}))",
-                &att_obj[att_obj.len() - 99..att_obj.len() - 51],
-                &att_obj[att_obj.len() - 48..],
+                &att_obj[x_start..y_meta_start],
+                &att_obj[y_start..],
             )
             .as_str(),
         )
@@ -4702,11 +4765,11 @@ mod tests {
                 "id": "AAAAAAAAAAAAAAAAAAAAAA",
                 "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                 "response": {
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "transports": [],
                     "publicKey": base64url_nopad::encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
-                    "publicKeyAlgorithm": -35,
+                    "publicKeyAlgorithm": -35i8,
                     "attestationObject": b64_aobj,
                 },
                 "clientExtensionResults": {},
@@ -4715,8 +4778,8 @@ mod tests {
             .to_string()
             .as_str()
             )
-            .unwrap_err().to_string().into_bytes()[..err.len()],
-            err
+            .unwrap_err().to_string().into_bytes().get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `publicKey` is allowed when not using EdDSA, ES256, or RS256.
         assert!(
@@ -4725,10 +4788,10 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
-                        "publicKeyAlgorithm": -35,
+                        "publicKeyAlgorithm": -35i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4741,7 +4804,7 @@ mod tests {
         );
         // `publicKeyAlgorithm` mismatch when `publicKey` does not exist.
         err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
+            Unexpected::Other(format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Es384).as_str()
         )
         .to_string().into_bytes();
@@ -4751,10 +4814,10 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
-                        "publicKeyAlgorithm": -7,
+                        "publicKeyAlgorithm": -7i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4765,8 +4828,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `publicKey` is allowed when not using EdDSA, ES256, or RS256.
         assert!(
@@ -4775,11 +4839,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": null,
-                        "publicKeyAlgorithm": -35,
+                        "publicKeyAlgorithm": -35i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4792,7 +4856,7 @@ mod tests {
         );
         // `publicKeyAlgorithm` mismatch when `publicKey` is null.
         err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
+            Unexpected::Other(format!("{:?}", CoseAlgorithmIdentifier::Es256).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Es384).as_str()
         )
         .to_string().into_bytes();
@@ -4802,11 +4866,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": null,
-                        "publicKeyAlgorithm": -7,
+                        "publicKeyAlgorithm": -7i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -4817,14 +4881,18 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
     }
+    #[expect(clippy::unwrap_used, reason = "OK in tests")]
+    #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[test]
     fn rs256_registration_deserialize_data_mismatch() {
         let c_data_json = serde_json::json!({}).to_string();
-        let mut att_obj = [
+        let mut att_obj: [u8; 374] = [
             cbor::MAP_3,
             cbor::TEXT_3,
             b'f',
@@ -5228,7 +5296,7 @@ mod tests {
             72, 93, 53, 65, 111, 59, 242, 122, 160, 244, 162, 126, 38, 235, 156, 47, 88, 39, 132,
             153, 79, 0, 133, 78, 7, 218, 165, 241,
         ];
-        let e = 65537u32;
+        let e = 0x0001_0001u32;
         let d = [
             145, 79, 21, 97, 233, 3, 192, 194, 177, 68, 181, 80, 120, 197, 23, 44, 185, 74, 144, 0,
             132, 149, 139, 11, 16, 224, 4, 112, 236, 94, 238, 97, 121, 124, 213, 145, 24, 253, 168,
@@ -5281,10 +5349,13 @@ mod tests {
         .to_public_key();
         let pub_key = key.to_public_key_der().unwrap();
         let att_obj_len = att_obj.len();
-        att_obj[att_obj_len - 261..att_obj_len - 5]
-            .copy_from_slice(key.n().to_bytes_be().as_slice());
-        let b64_cdata = base64url_nopad::encode(c_data_json.as_bytes());
-        let b64_adata = base64url_nopad::encode(&att_obj[att_obj.len() - 343..]);
+        let n_start_idx = att_obj_len - 261;
+        let e_meta_start_idx = n_start_idx + 256;
+        // Correct and won't `panic`.
+        att_obj[n_start_idx..e_meta_start_idx].copy_from_slice(key.n().to_bytes_be().as_slice());
+        let b64_cdata_json = base64url_nopad::encode(c_data_json.as_bytes());
+        // Won't `panic`.
+        let b64_adata = base64url_nopad::encode(&att_obj[31..]);
         let b64_key = base64url_nopad::encode(pub_key.as_bytes());
         let b64_aobj = base64url_nopad::encode(att_obj.as_slice());
         // Base case is valid.
@@ -5294,11 +5365,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -257,
+                        "publicKeyAlgorithm": -257i16,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -5307,20 +5378,20 @@ mod tests {
                 .to_string()
                 .as_str()
             )
-            .map_or(false, |reg| reg.response.client_data_json
-                == c_data_json.as_bytes()
-                && reg.response.attestation_object_and_c_data_hash[..att_obj.len()]
-                    == att_obj
-                && reg.response.attestation_object_and_c_data_hash[att_obj.len()..]
-                    == *Sha256::digest(c_data_json.as_bytes()).as_slice()
-                && reg.response.transports.is_empty()
-                && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
-                && reg.client_extension_results.cred_props.is_none()
-                && reg.client_extension_results.prf.is_none())
+            .is_ok_and(
+                |reg| reg.response.client_data_json == c_data_json.as_bytes()
+                    && reg.response.attestation_object_and_c_data_hash[..att_obj_len] == att_obj
+                    && reg.response.attestation_object_and_c_data_hash[att_obj_len..]
+                        == *Sha256::digest(c_data_json.as_bytes())
+                    && reg.response.transports.is_empty()
+                    && matches!(reg.authenticator_attachment, AuthenticatorAttachment::None)
+                    && reg.client_extension_results.cred_props.is_none()
+                    && reg.client_extension_results.prf.is_none()
+            )
         );
         // `publicKeyAlgorithm` mismatch.
         let mut err = Error::invalid_value(
-            Unexpected::Other(&format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
+            Unexpected::Other(format!("{:?}", CoseAlgorithmIdentifier::Eddsa).as_str()),
             &format!("public key algorithm to match the algorithm associated with the public key within the attestation object: {:?}", CoseAlgorithmIdentifier::Rs256).as_str()
         )
         .to_string().into_bytes();
@@ -5330,11 +5401,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
-                        "publicKeyAlgorithm": -8,
+                        "publicKeyAlgorithm": -8i8,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -5345,8 +5416,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `publicKeyAlgorithm`.
         err = Error::missing_field("publicKeyAlgorithm")
@@ -5358,7 +5430,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -5372,8 +5444,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `publicKeyAlgorithm`.
         err = Error::invalid_type(Unexpected::Other("null"), &"publicKeyAlgorithm")
@@ -5385,7 +5458,7 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": b64_key,
@@ -5400,8 +5473,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `publicKey` mismatch.
         let bad_pub_key = RsaPrivateKey::from_components(
@@ -5425,7 +5499,7 @@ mod tests {
                 ]
                 .as_slice(),
             ),
-            65537u32.into(),
+            0x0001_0001u32.into(),
             BigUint::from_bytes_le(
                 [
                     129, 93, 123, 251, 104, 29, 84, 203, 116, 100, 75, 237, 111, 160, 12, 100, 172,
@@ -5481,7 +5555,8 @@ mod tests {
             Unexpected::Bytes([0; 32].as_slice()),
             &format!(
                 "DER-encoded public key to match the public key within the attestation object: Rsa(RsaPubKey({:?}, 65537))",
-                &att_obj[att_obj.len() - 261..att_obj.len() - 5],
+                // Correct and won't `panic`.
+                &att_obj[n_start_idx..e_meta_start_idx],
             )
             .as_str(),
         )
@@ -5491,11 +5566,11 @@ mod tests {
                 "id": "AAAAAAAAAAAAAAAAAAAAAA",
                 "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                 "response": {
-                    "clientDataJSON": b64_cdata,
+                    "clientDataJSON": b64_cdata_json,
                     "authenticatorData": b64_adata,
                     "transports": [],
                     "publicKey": base64url_nopad::encode(bad_pub_key.to_public_key_der().unwrap().as_bytes()),
-                    "publicKeyAlgorithm": -257,
+                    "publicKeyAlgorithm": -257i16,
                     "attestationObject": b64_aobj,
                 },
                 "clientExtensionResults": {},
@@ -5504,8 +5579,8 @@ mod tests {
             .to_string()
             .as_str()
             )
-            .unwrap_err().to_string().into_bytes()[..err.len()],
-            err
+            .unwrap_err().to_string().into_bytes().get(..err.len()),
+            Some(err.as_slice())
         );
         // Missing `publicKey` when using EdDSA, ES256, or RS256.
         err = Error::missing_field("publicKey").to_string().into_bytes();
@@ -5515,10 +5590,10 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
-                        "publicKeyAlgorithm": -257,
+                        "publicKeyAlgorithm": -257i16,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -5529,8 +5604,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
         // `null` `publicKey` when using EdDSA, ES256, or RS256.
         err = Error::invalid_type(Unexpected::Other("null"), &"publicKey")
@@ -5542,11 +5618,11 @@ mod tests {
                     "id": "AAAAAAAAAAAAAAAAAAAAAA",
                     "rawId": "AAAAAAAAAAAAAAAAAAAAAA",
                     "response": {
-                        "clientDataJSON": b64_cdata,
+                        "clientDataJSON": b64_cdata_json,
                         "authenticatorData": b64_adata,
                         "transports": [],
                         "publicKey": null,
-                        "publicKeyAlgorithm": -257,
+                        "publicKeyAlgorithm": -257i16,
                         "attestationObject": b64_aobj,
                     },
                     "clientExtensionResults": {},
@@ -5557,8 +5633,9 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .into_bytes()[..err.len()],
-            err
+            .into_bytes()
+            .get(..err.len()),
+            Some(err.as_slice())
         );
     }
 }

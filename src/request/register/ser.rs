@@ -3,12 +3,12 @@ use super::{
     super::{
         super::response::ser::{Null, Type},
         auth::PrfInputOwned,
-        ser::{DEFAULT_RP_ID, PrfHelper},
+        ser::PrfHelper,
     },
     AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, Challenge, CoseAlgorithmIdentifier,
     CoseAlgorithmIdentifiers, CredProtect, CredentialCreationOptions,
-    CredentialMediationRequirement, CrossPlatformHint, Extension, ExtensionInfo, ExtensionReq,
-    FIVE_MINUTES, FourToSixtyThree, Hint, Nickname, PlatformHint, PrfInput,
+    CredentialMediationRequirement, CrossPlatformHint, DisplayName, Extension, ExtensionInfo,
+    ExtensionReq, FIVE_MINUTES, FourToSixtyThree, Hint, Nickname, PlatformHint, PrfInput,
     PublicKeyCredentialCreationOptions, PublicKeyCredentialDescriptor,
     PublicKeyCredentialUserEntity, RegistrationClientState, ResidentKeyRequirement, RpId,
     UserHandle, UserVerificationRequirement, Username,
@@ -20,7 +20,8 @@ use alloc::borrow::Cow;
 use core::str::FromStr;
 use core::{
     convert,
-    fmt::{self, Formatter},
+    error::Error as E,
+    fmt::{self, Display, Formatter},
     marker::PhantomData,
     num::NonZeroU32,
     str,
@@ -48,6 +49,27 @@ impl Serialize for Nickname<'_> {
         S: Serializer,
     {
         serializer.serialize_str(self.0.as_ref())
+    }
+}
+impl Serialize for DisplayName<'_> {
+    /// Serializes `self` as a [`prim@str`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::register::DisplayName;
+    /// assert_eq!(
+    ///     serde_json::to_string(&DisplayName::try_from("Terence Tao")?).unwrap(),
+    ///     r#""Terence Tao""#
+    /// );
+    /// # Ok::<_, webauthn_rp::AggErr>(())
+    /// ```
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_ref())
     }
 }
 impl Serialize for Username<'_> {
@@ -264,7 +286,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::register::{PublicKeyCredentialUserEntity, UserHandle};
+    /// # use webauthn_rp::request::register::{DisplayName, PublicKeyCredentialUserEntity, UserHandle};
     /// # #[cfg(feature = "custom")]
     /// // We create this manually purely for example. One should almost always
     /// // randomly generate this (e.g., `UserHandle::new`).
@@ -274,7 +296,7 @@ where
     ///     serde_json::to_string(&PublicKeyCredentialUserEntity {
     ///         name: "georg.cantor".try_into()?,
     ///         id: &id,
-    ///         display_name: Some("Гео́рг Ка́нтор".try_into()?),
+    ///         display_name: "Гео́рг Ка́нтор".try_into()?,
     ///     }).unwrap(),
     ///     r#"{"name":"georg.cantor","id":"AA","displayName":"Гео́рг Ка́нтор"}"#
     /// );
@@ -285,7 +307,7 @@ where
     ///     serde_json::to_string(&PublicKeyCredentialUserEntity {
     ///         name: "georg.cantor".try_into()?,
     ///         id: &id,
-    ///         display_name: None,
+    ///         display_name: DisplayName::Blank,
     ///     }).unwrap(),
     ///     r#"{"name":"georg.cantor","id":"AA","displayName":""}"#
     /// );
@@ -301,11 +323,8 @@ where
             .and_then(|mut ser| {
                 ser.serialize_field(NAME, &self.name).and_then(|()| {
                     ser.serialize_field(ID, &self.id).and_then(|()| {
-                        ser.serialize_field(
-                            DISPLAY_NAME,
-                            self.display_name.as_ref().map_or("", |val| val.as_ref()),
-                        )
-                        .and_then(|()| ser.end())
+                        ser.serialize_field(DISPLAY_NAME, &self.display_name)
+                            .and_then(|()| ser.end())
                     })
                 })
             })
@@ -840,7 +859,7 @@ where
     /// creds.push(PublicKeyCredentialDescriptor { id, transports });
     /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
     /// let user_handle = UserHandle64::new();
-    /// let mut options = CredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: &user_handle, display_name: Some("Pierre de Fermat".try_into()?) }, creds);
+    /// let mut options = CredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: &user_handle, display_name: "Pierre de Fermat".try_into()?, }, creds);
     /// options.public_key.authenticator_selection.authenticator_attachment = AuthenticatorAttachmentReq::None(Hint::SecurityKey);
     /// options.public_key.extensions.min_pin_length = Some((FourToSixtyThree::Sixteen, ExtensionInfo::RequireEnforceValue));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
@@ -963,6 +982,53 @@ impl<'de: 'a, 'a> Deserialize<'de> for Nickname<'a> {
             }
         }
         deserializer.deserialize_str(NicknameVisitor(PhantomData))
+    }
+}
+impl<'de: 'a, 'a> Deserialize<'de> for DisplayName<'a> {
+    /// Deserializes [`prim@str`] and parses it according to [`Self::try_from`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::register::DisplayName;
+    /// assert_eq!(
+    ///     serde_json::from_str::<DisplayName>(r#""Alexander Grothendieck""#)?.as_ref(),
+    ///     "Alexander Grothendieck"
+    /// );
+    /// # Ok::<_, serde_json::Error>(())
+    ///```
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        /// `Visitor` for `DisplayName`.
+        struct DisplayNameVisitor<'b>(PhantomData<fn() -> &'b ()>);
+        impl<'d: 'b, 'b> Visitor<'d> for DisplayNameVisitor<'b> {
+            type Value = DisplayName<'b>;
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+                formatter.write_str("DisplayName")
+            }
+            fn visit_borrowed_str<E>(self, v: &'d str) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                DisplayName::try_from(v).map_err(E::custom)
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                if v.is_empty() {
+                    Ok(DisplayName::Blank)
+                } else {
+                    Nickname::try_from(v).map_err(E::custom).map(|name| {
+                        DisplayName::Nickname(Nickname(Cow::Owned(name.0.into_owned())))
+                    })
+                }
+            }
+        }
+        deserializer.deserialize_str(DisplayNameVisitor(PhantomData))
     }
 }
 impl<'de: 'a, 'a> Deserialize<'de> for Username<'a> {
@@ -1116,7 +1182,7 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifier {
 /// Helper to deserialize `PublicKeyCredentialRpEntity` with an optional `RpId`.
 ///
 /// Used in [`ClientCredentialCreationOptions::deserialize`].
-struct PublicKeyCredentialRpEntityHelper(RpId);
+struct PublicKeyCredentialRpEntityHelper(Option<RpId>);
 impl<'de> Deserialize<'de> for PublicKeyCredentialRpEntityHelper {
     /// Conforms to the following schema:
     ///
@@ -1127,7 +1193,8 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRpEntityHelper {
     /// }
     /// ```
     ///
-    /// None of the fields are required.
+    /// None of the fields are required, and missing fields are interpreted the same as fields
+    /// with `null` values.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -1226,9 +1293,7 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRpEntityHelper {
                         }
                     }
                 }
-                Ok(PublicKeyCredentialRpEntityHelper(
-                    id.flatten().unwrap_or(DEFAULT_RP_ID),
-                ))
+                Ok(PublicKeyCredentialRpEntityHelper(id.flatten()))
             }
         }
         /// Fields for `PublicKeyCredentialRpEntityHelper`.
@@ -1240,48 +1305,131 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRpEntityHelper {
         )
     }
 }
-/// Similar to [`PublicKeyCredentialUserEntity`] except the [`UserHandle`] is owned.
+/// Similar to [`PublicKeyCredentialUserEntity`] except the [`UserHandle`] is owned, and all fields are
+/// optional.
 ///
 /// This is primarily useful to assist [`ClientCredentialCreationOptions::deserialize`].
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PublicKeyCredentialUserEntityOwned<'name, 'display_name, const LEN: usize> {
     /// See [`PublicKeyCredentialUserEntity::name`].
-    pub name: Username<'name>,
+    pub name: Option<Username<'name>>,
     /// See [`PublicKeyCredentialUserEntity::id`].
-    pub id: UserHandle<LEN>,
+    pub id: Option<UserHandle<LEN>>,
     /// See [`PublicKeyCredentialUserEntity::display_name`].
-    pub display_name: Option<Nickname<'display_name>>,
+    pub display_name: Option<DisplayName<'display_name>>,
 }
-impl<'a: 'name + 'display_name + 'id, 'name, 'display_name, 'id, const LEN: usize>
-    From<&'a PublicKeyCredentialUserEntityOwned<'_, '_, LEN>>
-    for PublicKeyCredentialUserEntity<'name, 'display_name, 'id, LEN>
-{
+/// Error returned when converting a [`PublicKeyCredentialUserEntityOwned`] into a
+/// [`PublicKeyCredentialUserEntity`] (e.g., via [`PublicKeyCredentialUserEntityOwned::with_id`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PublicKeyCredentialUserEntityOwnedErr {
+    /// Variant returned when [`PublicKeyCredentialUserEntityOwned::name`] is `None`.
+    MissingName,
+    /// Variant returned when [`PublicKeyCredentialUserEntityOwned::id`] is `None`.
+    MissingId,
+    /// Variant returned when [`PublicKeyCredentialUserEntityOwned::display_name`] is `None`.
+    MissingDisplayName,
+}
+impl Display for PublicKeyCredentialUserEntityOwnedErr {
     #[inline]
-    fn from(value: &'a PublicKeyCredentialUserEntityOwned<'_, '_, LEN>) -> Self {
-        Self {
-            name: (&value.name).into(),
-            id: &value.id,
-            display_name: value.display_name.as_ref().map(Into::into),
-        }
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::MissingName => "user entity info did not have a username",
+            Self::MissingId => "user entity info did not have a user handle",
+            Self::MissingDisplayName => "user entity info did not have a user display name",
+        })
     }
 }
-impl<const LEN: usize> Default for PublicKeyCredentialUserEntityOwned<'_, '_, LEN>
-where
-    UserHandle<LEN>: Default,
-{
+impl E for PublicKeyCredentialUserEntityOwnedErr {}
+impl<const LEN: usize> PublicKeyCredentialUserEntityOwned<'_, '_, LEN> {
+    /// Returns a `PublicKeyCredentialUserEntity` based on `self`.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff any of the fields in `self` are `None`.
     #[inline]
-    fn default() -> Self {
-        Self {
-            name: Username::blank(),
-            id: UserHandle::default(),
-            display_name: None,
-        }
+    pub fn as_entity(
+        &self,
+    ) -> Result<PublicKeyCredentialUserEntity<'_, '_, '_, LEN>, PublicKeyCredentialUserEntityOwnedErr>
+    {
+        self.name
+            .as_ref()
+            .ok_or(PublicKeyCredentialUserEntityOwnedErr::MissingName)
+            .and_then(|username| {
+                self.id
+                    .as_ref()
+                    .ok_or(PublicKeyCredentialUserEntityOwnedErr::MissingId)
+                    .and_then(|id| {
+                        self.display_name
+                            .as_ref()
+                            .ok_or(PublicKeyCredentialUserEntityOwnedErr::MissingDisplayName)
+                            .map(|display| PublicKeyCredentialUserEntity {
+                                name: username.into(),
+                                id,
+                                display_name: display.into(),
+                            })
+                    })
+            })
+    }
+    /// Returns a `PublicKeyCredentialUserEntity` based on `self` and `id`.
+    ///
+    /// Note `id` is used _unconditionally_ regardless if [`Self::id`] is `Some`.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`Self::name`] or [`Self::display_name`] are `None`.
+    #[inline]
+    pub fn with_id<'id>(
+        &self,
+        id: &'id UserHandle<LEN>,
+    ) -> Result<
+        PublicKeyCredentialUserEntity<'_, '_, 'id, LEN>,
+        PublicKeyCredentialUserEntityOwnedErr,
+    > {
+        self.name
+            .as_ref()
+            .ok_or(PublicKeyCredentialUserEntityOwnedErr::MissingName)
+            .and_then(|username| {
+                self.display_name
+                    .as_ref()
+                    .ok_or(PublicKeyCredentialUserEntityOwnedErr::MissingDisplayName)
+                    .map(|display| PublicKeyCredentialUserEntity {
+                        name: username.into(),
+                        id,
+                        display_name: display.into(),
+                    })
+            })
+    }
+    /// Returns a `PublicKeyCredentialUserEntity` based on `self`, `name`, and `display_name`.
+    ///
+    /// Note `name` and `display_name` are used _unconditionally_ regardless if [`Self::name`] or
+    /// [`Self::display_name`] are `Some`.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`Self::id`] is `None`.
+    #[inline]
+    pub fn with_name_and_display_name<'name, 'display_name>(
+        &self,
+        name: Username<'name>,
+        display_name: DisplayName<'display_name>,
+    ) -> Result<
+        PublicKeyCredentialUserEntity<'name, 'display_name, '_, LEN>,
+        PublicKeyCredentialUserEntityOwnedErr,
+    > {
+        self.id
+            .as_ref()
+            .ok_or(PublicKeyCredentialUserEntityOwnedErr::MissingId)
+            .map(|id| PublicKeyCredentialUserEntity {
+                name,
+                id,
+                display_name,
+            })
     }
 }
 impl<'de: 'name + 'display_name, 'name, 'display_name, const LEN: usize> Deserialize<'de>
     for PublicKeyCredentialUserEntityOwned<'name, 'display_name, LEN>
 where
-    UserHandle<LEN>: Default,
+    UserHandle<LEN>: Deserialize<'de>,
 {
     /// Deserializes a `struct` according to
     /// [`PublicKeyCredentialUserEntityJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialuserentityjson).
@@ -1292,26 +1440,21 @@ where
     /// [`name`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-name) is deserialized
     /// according to [`Username::deserialize`], and
     /// [`displayName`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-displayname) is
-    /// deserialized according to [`Nickname::deserialize`] where `""` is deserialized to `None` (since
-    /// blank strings are not valid `Nickname`s).
+    /// deserialized according to [`DisplayName::deserialize`].
     ///
-    /// In the event `id` does not exist, a randomly generated `UserHandle` will be used. In the event `name`
-    /// does not exist, `"blank"` will be used. In the event `displayName` does not exist, `None` will
-    /// be used.
-    ///
-    /// Unknown or duplicate fields lead to an error.
+    /// Unknown or duplicate fields lead to an error. Missing fields are interpreted the same as if the field
+    /// were assigned `null`.
     ///
     /// # Examples
     ///
     /// ```
     /// # use webauthn_rp::request::register::ser::PublicKeyCredentialUserEntityOwned;
     /// let val = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 16>>(r#"{"name":"paul.erdos","displayName":"Erdős Pál"}"#)?;
-    /// assert_eq!(val.name.as_ref(), "paul.erdos");
-    /// assert_eq!(val.display_name.as_ref().map(|v| v.as_ref()), Some("Erdős Pál"));
-    /// assert_ne!(val.id.as_slice(), [0; 16]);
+    /// assert!(val.name.is_some_and(|name| name.as_ref() == "paul.erdos"));
+    /// assert!(val.display_name.is_some_and(|display| display.as_ref() == "Erdős Pál"));
+    /// assert!(val.id.is_none());
     /// # Ok::<_, serde_json::Error>(())
     /// ```
-    #[expect(clippy::too_many_lines, reason = "122 is fine")]
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -1324,13 +1467,12 @@ where
         impl<'d: 'a + 'b, 'a, 'b, const L: usize> Visitor<'d>
             for PublicKeyCredentialUserEntityOwnedVisitor<'a, 'b, L>
         where
-            UserHandle<L>: Default,
+            UserHandle<L>: Deserialize<'d>,
         {
             type Value = PublicKeyCredentialUserEntityOwned<'a, 'b, L>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("PublicKeyCredentialUserEntityOwned")
             }
-            #[expect(clippy::too_many_lines, reason = "102 is fine")]
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
             where
                 A: MapAccess<'d>,
@@ -1371,48 +1513,6 @@ where
                         deserializer.deserialize_identifier(FieldVisitor)
                     }
                 }
-                /// Helper to deserialize `displayName`.
-                struct DisplayName<'e>(Option<Nickname<'e>>);
-                impl<'e: 'f, 'f> Deserialize<'e> for DisplayName<'f> {
-                    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-                    where
-                        D: Deserializer<'e>,
-                    {
-                        /// `Visitor` for `DisplayName`.
-                        struct DisplayNameVisitor<'g>(PhantomData<fn() -> &'g ()>);
-                        impl<'g: 'h, 'h> Visitor<'g> for DisplayNameVisitor<'h> {
-                            type Value = DisplayName<'h>;
-                            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                                formatter.write_str("User display name")
-                            }
-                            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                            where
-                                E: Error,
-                            {
-                                if v.is_empty() {
-                                    Ok(DisplayName(None))
-                                } else {
-                                    Nickname::try_from(v).map_err(E::custom).map(|name| {
-                                        DisplayName(Some(Nickname(Cow::Owned(name.0.into_owned()))))
-                                    })
-                                }
-                            }
-                            fn visit_borrowed_str<E>(self, v: &'g str) -> Result<Self::Value, E>
-                            where
-                                E: Error,
-                            {
-                                if v.is_empty() {
-                                    Ok(DisplayName(None))
-                                } else {
-                                    Nickname::try_from(v)
-                                        .map_err(E::custom)
-                                        .map(|n| DisplayName(Some(n)))
-                                }
-                            }
-                        }
-                        deserializer.deserialize_str(DisplayNameVisitor(PhantomData))
-                    }
-                }
                 let mut user_handle = None;
                 let mut username = None;
                 let mut display = None;
@@ -1434,15 +1534,13 @@ where
                             if display.is_some() {
                                 return Err(Error::duplicate_field(DISPLAY_NAME));
                             }
-                            display = map
-                                .next_value::<Option<DisplayName<'_>>>()
-                                .map(|n| n.map_or_else(|| Some(None), |disp| Some(disp.0)))?;
+                            display = map.next_value::<Option<_>>().map(Some)?;
                         }
                     }
                 }
                 Ok(PublicKeyCredentialUserEntityOwned {
-                    id: user_handle.flatten().unwrap_or_default(),
-                    name: username.flatten().unwrap_or_else(Username::blank),
+                    id: user_handle.flatten(),
+                    name: username.flatten(),
                     display_name: display.flatten(),
                 })
             }
@@ -1816,18 +1914,8 @@ impl<'de> Deserialize<'de> for AuthenticatorSelectionCriteria {
     /// [`requireResidentKey`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorselectioncriteria-requireresidentkey)
     /// must be consistent (i.e., `requireResidentKey` iff `residentKey` is [`ResidentKeyRequirement::Required`]).
     ///
-    /// `residentKey` defaults to [`ResidentKeyRequirement::Discouraged`] when it is `null` or does not exist
-    /// unless `requireResidentKey` is `true` in which case it is `ResidentKeyRequirement::Required`.
-    ///
-    /// [`userVerification`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorselectioncriteria-userverification)
-    /// is [`UserVerificationRequirement::Preferred`] if it does not exist or is `null`.
-    ///
-    /// If
-    /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorselectioncriteria-authenticatorattachment)
-    /// does not exist or is `null`, then [`AuthenticatorAttachmentReq::None`] will be used containing
-    /// [`Hint::None`].
-    ///
-    /// Unknown or duplicate fields lead to an error.
+    /// Missing and `null` fields default to the corresponding [`Default`] value. Unknown and duplicate fields
+    /// lead to an error.
     ///
     /// # Examples
     ///
@@ -2058,6 +2146,36 @@ impl<'de> Deserialize<'de> for AttestationFormats {
         deserializer.deserialize_seq(AttestationFormatsVisitor)
     }
 }
+impl<'de> Deserialize<'de> for FourToSixtyThree {
+    /// Deserializes a `u8` based on [`Self::from_u8`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::register::FourToSixtyThree;
+    /// # use serde_json::Error;
+    /// assert_eq!(serde_json::from_str::<FourToSixtyThree>("4")?, FourToSixtyThree::Four);
+    /// assert_eq!(serde_json::from_str::<FourToSixtyThree>("63")?, FourToSixtyThree::SixtyThree);
+    /// assert!(serde_json::from_str::<FourToSixtyThree>("0").is_err());
+    /// assert!(serde_json::from_str::<FourToSixtyThree>("3").is_err());
+    /// assert!(serde_json::from_str::<FourToSixtyThree>("64").is_err());
+    /// # Ok::<_, Error>(())
+    /// ```
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        u8::deserialize(deserializer).and_then(|val| {
+            Self::from_u8(val).ok_or_else(|| {
+                Error::invalid_value(
+                    Unexpected::Unsigned(u64::from(val)),
+                    &"integer inclusively between 4 and 63",
+                )
+            })
+        })
+    }
+}
 /// Similar to [`Extension`] except [`PrfInputOwned`] is used.
 ///
 /// This is primarily useful to assist [`ClientCredentialCreationOptions::deserialize`].
@@ -2072,24 +2190,46 @@ pub struct ExtensionOwned {
     /// See [`Extension::prf`].
     pub prf: Option<PrfInputOwned>,
 }
-impl<'a: 'prf_first + 'prf_second, 'prf_first, 'prf_second> From<&'a ExtensionOwned>
-    for Extension<'prf_first, 'prf_second>
-{
+impl ExtensionOwned {
+    /// Returns an `Extension` based on `self`.
+    ///
+    /// Note [`PrfInputOwned::ext_req`] is converted into an [`ExtensionInfo`] such that the value is enforced.
     #[inline]
-    fn from(value: &'a ExtensionOwned) -> Self {
-        Self {
-            cred_props: value.cred_props,
-            cred_protect: value.cred_protect,
-            min_pin_length: value.min_pin_length,
-            prf: value.prf.as_ref().map(|input| {
+    #[must_use]
+    pub fn as_extension(&self) -> Extension<'_, '_> {
+        Extension {
+            cred_props: self.cred_props,
+            cred_protect: self.cred_protect,
+            min_pin_length: self.min_pin_length,
+            prf: self.prf.as_ref().map(|prf| {
                 (
                     PrfInput {
-                        first: input.first.as_slice(),
-                        second: input.second.as_deref(),
+                        first: &prf.first,
+                        second: prf.second.as_deref(),
                     },
-                    ExtensionInfo::AllowEnforceValue,
+                    if matches!(prf.ext_req, ExtensionReq::Require) {
+                        ExtensionInfo::RequireEnforceValue
+                    } else {
+                        ExtensionInfo::AllowEnforceValue
+                    },
                 )
             }),
+        }
+    }
+    /// Returns an `Extension` based on `self` and `prf`.
+    ///
+    /// Note `prf` is used _unconditionally_ regardless if [`Self::prf`] is `Some`.
+    #[inline]
+    #[must_use]
+    pub const fn with_prf<'prf_first, 'prf_second>(
+        &self,
+        prf: (PrfInput<'prf_first, 'prf_second>, ExtensionInfo),
+    ) -> Extension<'prf_first, 'prf_second> {
+        Extension {
+            cred_props: self.cred_props,
+            cred_protect: self.cred_protect,
+            min_pin_length: self.min_pin_length,
+            prf: Some(prf),
         }
     }
 }
@@ -2338,7 +2478,8 @@ impl<'de> Deserialize<'de> for ExtensionOwned {
         deserializer.deserialize_struct("ExtensionOwned", FIELDS, ExtensionOwnedVisitor)
     }
 }
-/// Similar to [`PublicKeyCredentialCreationOptions`] except the fields are based on owned data.
+/// Similar to [`PublicKeyCredentialCreationOptions`] except the fields are based on owned data, and
+/// [`Self::rp_id`] is optional.
 ///
 /// This is primarily useful to assist [`ClientCredentialCreationOptions::deserialize`].
 #[derive(Debug)]
@@ -2348,7 +2489,7 @@ pub struct PublicKeyCredentialCreationOptionsOwned<
     const USER_LEN: usize,
 > {
     /// See [`PublicKeyCredentialCreationOptions::rp_id`].
-    pub rp_id: RpId,
+    pub rp_id: Option<RpId>,
     /// See [`PublicKeyCredentialCreationOptions::user`].
     pub user: PublicKeyCredentialUserEntityOwned<'user_name, 'user_display_name, USER_LEN>,
     /// See [`PublicKeyCredentialCreationOptions::pub_key_cred_params`].
@@ -2360,41 +2501,330 @@ pub struct PublicKeyCredentialCreationOptionsOwned<
     /// See [`PublicKeyCredentialCreationOptions::extensions`].
     pub extensions: ExtensionOwned,
 }
-impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER_LEN> {
-    /// Creates a `PublicKeyCredentialCreationOptions` based on the contained data and randomly-generated
-    /// [`Challenge`].
+/// Error returned when converting a [`PublicKeyCredentialCreationOptionsOwned`] into a
+/// [`PublicKeyCredentialCreationOptions`] (e.g., via [`PublicKeyCredentialCreationOptionsOwned::with_rp_id`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PublicKeyCredentialCreationOptionsOwnedErr {
+    /// Variant returned when [`PublicKeyCredentialCreationOptionsOwned::rp_id`] is `None`.
+    MissingRpId,
+    /// Variant returned when [`PublicKeyCredentialCreationOptionsOwned::user`] cannot be converted into a
+    /// a [`PublicKeyCredentialCreationOptions`].
+    UserEntity(PublicKeyCredentialUserEntityOwnedErr),
+}
+impl Display for PublicKeyCredentialCreationOptionsOwnedErr {
     #[inline]
-    #[must_use]
-    pub fn into_options(
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::MissingRpId => f.write_str("creation options did not have an RP ID"),
+            Self::UserEntity(err) => err.fmt(f),
+        }
+    }
+}
+impl E for PublicKeyCredentialCreationOptionsOwnedErr {}
+impl From<PublicKeyCredentialUserEntityOwnedErr> for PublicKeyCredentialCreationOptionsOwnedErr {
+    #[inline]
+    fn from(value: PublicKeyCredentialUserEntityOwnedErr) -> Self {
+        Self::UserEntity(value)
+    }
+}
+impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER_LEN> {
+    /// Returns a `PublicKeyCredentialCreationOptions` based on `self` and `exclude_credentials`.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`Self::rp_id`] is `None` or [`PublicKeyCredentialUserEntityOwned::as_entity`] errors.
+    #[inline]
+    pub fn as_options(
         &self,
         exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
-    ) -> PublicKeyCredentialCreationOptions<'_, '_, '_, '_, '_, '_, USER_LEN> {
+    ) -> Result<
+        PublicKeyCredentialCreationOptions<'_, '_, '_, '_, '_, '_, USER_LEN>,
+        PublicKeyCredentialCreationOptionsOwnedErr,
+    > {
+        self.rp_id
+            .as_ref()
+            .ok_or(PublicKeyCredentialCreationOptionsOwnedErr::MissingRpId)
+            .and_then(|rp_id| {
+                self.user
+                    .as_entity()
+                    .map_err(PublicKeyCredentialCreationOptionsOwnedErr::UserEntity)
+                    .map(|user| PublicKeyCredentialCreationOptions {
+                        rp_id,
+                        user,
+                        challenge: Challenge::new(),
+                        pub_key_cred_params: self.pub_key_cred_params,
+                        timeout: self.timeout,
+                        exclude_credentials,
+                        authenticator_selection: self.authenticator_selection,
+                        extensions: self.extensions.as_extension(),
+                    })
+            })
+    }
+    /// Returns a `PublicKeyCredentialCreationOptions` based on `self`, `exclude_credentials`, and `rp_id`.
+    ///
+    /// Note `rp_id` is used _unconditionally_ regardless if [`Self::rp_id`] is `Some`.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`PublicKeyCredentialUserEntityOwned::as_entity`] errors.
+    #[inline]
+    pub fn with_rp_id<'rp_id>(
+        &self,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        rp_id: &'rp_id RpId,
+    ) -> Result<
+        PublicKeyCredentialCreationOptions<'rp_id, '_, '_, '_, '_, '_, USER_LEN>,
+        PublicKeyCredentialCreationOptionsOwnedErr,
+    > {
+        self.user
+            .as_entity()
+            .map_err(PublicKeyCredentialCreationOptionsOwnedErr::UserEntity)
+            .map(|user| PublicKeyCredentialCreationOptions {
+                rp_id,
+                user,
+                challenge: Challenge::new(),
+                pub_key_cred_params: self.pub_key_cred_params,
+                timeout: self.timeout,
+                exclude_credentials,
+                authenticator_selection: self.authenticator_selection,
+                extensions: self.extensions.as_extension(),
+            })
+    }
+    /// Returns a `PublicKeyCredentialCreationOptions` based on `self`, `exclude_credentials`, and `user`.
+    ///
+    /// Note `user` is used _unconditionally_ regardless of what [`Self::user`] is.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`Self::rp_id`] is `None`.
+    #[inline]
+    pub fn with_user<'user_name, 'user_display_name, 'user_id>(
+        &self,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
+    ) -> Result<
+        PublicKeyCredentialCreationOptions<
+            '_,
+            'user_name,
+            'user_display_name,
+            'user_id,
+            '_,
+            '_,
+            USER_LEN,
+        >,
+        PublicKeyCredentialCreationOptionsOwnedErr,
+    > {
+        self.rp_id
+            .as_ref()
+            .ok_or(PublicKeyCredentialCreationOptionsOwnedErr::MissingRpId)
+            .map(|rp_id| PublicKeyCredentialCreationOptions {
+                rp_id,
+                user,
+                challenge: Challenge::new(),
+                pub_key_cred_params: self.pub_key_cred_params,
+                timeout: self.timeout,
+                exclude_credentials,
+                authenticator_selection: self.authenticator_selection,
+                extensions: self.extensions.as_extension(),
+            })
+    }
+    /// Returns a `PublicKeyCredentialCreationOptions` based on `self`, `exclude_credentials`, and `extensions`.
+    ///
+    /// Note `extensions` is used _unconditionally_ regardless of what [`Self::extensions`] is.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`Self::rp_id`] is `None` or [`PublicKeyCredentialUserEntityOwned::as_entity`] errors.
+    #[inline]
+    pub fn with_extensions<'prf_first, 'prf_second>(
+        &self,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        extensions: Extension<'prf_first, 'prf_second>,
+    ) -> Result<
+        PublicKeyCredentialCreationOptions<'_, '_, '_, '_, 'prf_first, 'prf_second, USER_LEN>,
+        PublicKeyCredentialCreationOptionsOwnedErr,
+    > {
+        self.rp_id
+            .as_ref()
+            .ok_or(PublicKeyCredentialCreationOptionsOwnedErr::MissingRpId)
+            .and_then(|rp_id| {
+                self.user
+                    .as_entity()
+                    .map_err(PublicKeyCredentialCreationOptionsOwnedErr::UserEntity)
+                    .map(|user| PublicKeyCredentialCreationOptions {
+                        rp_id,
+                        user,
+                        challenge: Challenge::new(),
+                        pub_key_cred_params: self.pub_key_cred_params,
+                        timeout: self.timeout,
+                        exclude_credentials,
+                        authenticator_selection: self.authenticator_selection,
+                        extensions,
+                    })
+            })
+    }
+    /// Returns a `PublicKeyCredentialCreationOptions` based on `self`, `exclude_credentials`, `rp_id`, and `user`.
+    ///
+    /// Note `rp_id` and `user` are used _unconditionally_ regardless if [`Self::rp_id`] is `Some` or what
+    /// [`Self::user`] is.
+    #[inline]
+    #[must_use]
+    pub fn with_rp_id_and_user<'rp_id, 'user_name, 'user_display_name, 'user_id>(
+        &self,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        rp_id: &'rp_id RpId,
+        user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
+    ) -> PublicKeyCredentialCreationOptions<
+        'rp_id,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        '_,
+        '_,
+        USER_LEN,
+    > {
         PublicKeyCredentialCreationOptions {
-            rp_id: &self.rp_id,
-            user: (&self.user).into(),
+            rp_id,
+            user,
             challenge: Challenge::new(),
             pub_key_cred_params: self.pub_key_cred_params,
             timeout: self.timeout,
             exclude_credentials,
             authenticator_selection: self.authenticator_selection,
-            extensions: (&self.extensions).into(),
+            extensions: self.extensions.as_extension(),
+        }
+    }
+    /// Returns a `PublicKeyCredentialCreationOptions` based on `self`, `exclude_credentials`, `rp_id`, and
+    /// `extensions`.
+    ///
+    /// Note `rp_id` and `extensions` are used _unconditionally_ regardless if [`Self::rp_id`] is `Some` or what
+    /// [`Self::extensions`] is.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`PublicKeyCredentialUserEntityOwned::as_entity`] errors.
+    #[inline]
+    pub fn with_rp_id_and_extensions<'rp_id, 'prf_first, 'prf_second>(
+        &self,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        rp_id: &'rp_id RpId,
+        extensions: Extension<'prf_first, 'prf_second>,
+    ) -> Result<
+        PublicKeyCredentialCreationOptions<'rp_id, '_, '_, '_, 'prf_first, 'prf_second, USER_LEN>,
+        PublicKeyCredentialCreationOptionsOwnedErr,
+    > {
+        self.user
+            .as_entity()
+            .map_err(PublicKeyCredentialCreationOptionsOwnedErr::UserEntity)
+            .map(|user| PublicKeyCredentialCreationOptions {
+                rp_id,
+                user,
+                challenge: Challenge::new(),
+                pub_key_cred_params: self.pub_key_cred_params,
+                timeout: self.timeout,
+                exclude_credentials,
+                authenticator_selection: self.authenticator_selection,
+                extensions,
+            })
+    }
+    /// Returns a `PublicKeyCredentialCreationOptions` based on `self`, `exclude_credentials`, `user`, and
+    /// `extensions`.
+    ///
+    /// Note `user` and `extensions` are used _unconditionally_ regardless of what the values of [`Self::user`]
+    /// or [`Self::extensions`] are.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`Self::rp_id`] is `None`.
+    #[inline]
+    pub fn with_user_and_extensions<
+        'user_name,
+        'user_display_name,
+        'user_id,
+        'prf_first,
+        'prf_second,
+    >(
+        &self,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
+        extensions: Extension<'prf_first, 'prf_second>,
+    ) -> Result<
+        PublicKeyCredentialCreationOptions<
+            '_,
+            'user_name,
+            'user_display_name,
+            'user_id,
+            'prf_first,
+            'prf_second,
+            USER_LEN,
+        >,
+        PublicKeyCredentialCreationOptionsOwnedErr,
+    > {
+        self.rp_id
+            .as_ref()
+            .ok_or(PublicKeyCredentialCreationOptionsOwnedErr::MissingRpId)
+            .map(|rp_id| PublicKeyCredentialCreationOptions {
+                rp_id,
+                user,
+                challenge: Challenge::new(),
+                pub_key_cred_params: self.pub_key_cred_params,
+                timeout: self.timeout,
+                exclude_credentials,
+                authenticator_selection: self.authenticator_selection,
+                extensions,
+            })
+    }
+    /// Returns a `PublicKeyCredentialCreationOptions` based on `self`, `exclude_credentials`, `rp_id`, `user`,
+    /// and `extensions`.
+    ///
+    /// Note `rp_id`, `user`, and `extensions` are used _unconditionally_ regardless if [`Self::rp_id`] is `Some`
+    /// or what the values of [`Self::user`] and [`Self::extensions`] are.
+    #[inline]
+    #[must_use]
+    pub fn with_rp_id_user_and_extensions<
+        'rp_id,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        'prf_first,
+        'prf_second,
+    >(
+        &self,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        rp_id: &'rp_id RpId,
+        user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
+        extensions: Extension<'prf_first, 'prf_second>,
+    ) -> PublicKeyCredentialCreationOptions<
+        'rp_id,
+        'user_name,
+        'user_display_name,
+        'user_id,
+        'prf_first,
+        'prf_second,
+        USER_LEN,
+    > {
+        PublicKeyCredentialCreationOptions {
+            rp_id,
+            user,
+            challenge: Challenge::new(),
+            pub_key_cred_params: self.pub_key_cred_params,
+            timeout: self.timeout,
+            exclude_credentials,
+            authenticator_selection: self.authenticator_selection,
+            extensions,
         }
     }
 }
-impl<'user_name, 'user_display_name, const USER_LEN: usize> Default
-    for PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>
-where
-    PublicKeyCredentialUserEntityOwned<'user_name, 'user_display_name, USER_LEN>: Default,
-{
+impl<const USER_LEN: usize> Default for PublicKeyCredentialCreationOptionsOwned<'_, '_, USER_LEN> {
     #[inline]
     fn default() -> Self {
         Self {
-            rp_id: DEFAULT_RP_ID,
+            rp_id: None,
             user: PublicKeyCredentialUserEntityOwned::default(),
             pub_key_cred_params: CoseAlgorithmIdentifiers::default(),
             timeout: FIVE_MINUTES,
             authenticator_selection: AuthenticatorSelectionCriteria {
-                authenticator_attachment: AuthenticatorAttachmentReq::default(),
+                authenticator_attachment: AuthenticatorAttachmentReq::None(Hint::None),
                 resident_key: ResidentKeyRequirement::Discouraged,
                 user_verification: UserVerificationRequirement::Preferred,
             },
@@ -2406,8 +2836,7 @@ impl<'de: 'user_name + 'user_display_name, 'user_name, 'user_display_name, const
     Deserialize<'de>
     for PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>
 where
-    UserHandle<USER_LEN>: Default,
-    PublicKeyCredentialUserEntityOwned<'user_name, 'user_display_name, USER_LEN>: Default,
+    PublicKeyCredentialUserEntityOwned<'user_name, 'user_display_name, USER_LEN>: Deserialize<'de>,
 {
     /// Deserializes a `struct` based on
     /// [`PublicKeyCredentialCreationOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialcreationoptionsjson).
@@ -2429,14 +2858,9 @@ where
     /// exists, it must be `null`, empty, or `["none"]`.
     ///
     /// If [`timeout`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptionsjson-timeout) exists,
-    /// it must be `null` or positive.
+    /// it must be `null` or positive. When it does not exist or is `null`, [`FIVE_MINUTES`] will be used.
     ///
-    /// In the event there is no RP ID defined, the value `"example.invalid"` will be used.
-    ///
-    /// For any field that does not exist or is `null`, the corresponding [`Default`] `impl` will be used. For
-    /// [`AuthenticatorSelectionCriteria`], `AuthenticatorAttachmentReq::None(Hint::None)`,
-    /// [`ResidentKeyRequirement::Discouraged`], and [`UserVerificationRequirement::Preferred`] will be used.
-    /// For `timeout`, [`FIVE_MINUTES`] will be used.
+    /// Fields that are missing or `null` will be replaced with their corresponding [`Default`] value.
     ///
     /// Unknown or duplicate fields lead to an error.
     #[expect(clippy::too_many_lines, reason = "want to keep logic internal")]
@@ -2452,8 +2876,7 @@ where
         impl<'d: 'a + 'b, 'a, 'b, const LEN: usize> Visitor<'d>
             for PublicKeyCredentialCreationOptionsOwnedVisitor<'a, 'b, LEN>
         where
-            UserHandle<LEN>: Default,
-            PublicKeyCredentialUserEntityOwned<'a, 'b, LEN>: Default,
+            PublicKeyCredentialUserEntityOwned<'a, 'b, LEN>: Deserialize<'d>,
         {
             type Value = PublicKeyCredentialCreationOptionsOwned<'a, 'b, LEN>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
@@ -2546,7 +2969,8 @@ where
                             }
                             rp = map
                                 .next_value::<Option<PublicKeyCredentialRpEntityHelper>>()
-                                .map(|opt| Some(opt.map(|val| val.0)))?;
+                                .map(|opt| opt.map(|val| val.0))
+                                .map(Some)?;
                         }
                         Field::User => {
                             if user_info.is_some() {
@@ -2696,16 +3120,14 @@ where
                     }
                 }
                 Ok(PublicKeyCredentialCreationOptionsOwned {
-                    rp_id: rp.flatten().unwrap_or(DEFAULT_RP_ID),
+                    rp_id: rp.flatten().flatten(),
                     user: user_info.flatten().unwrap_or_default(),
                     pub_key_cred_params: params.flatten().unwrap_or_default(),
                     timeout: time.flatten().unwrap_or(FIVE_MINUTES),
-                    authenticator_selection: auth.unwrap_or_else(|| {
-                        AuthenticatorSelectionCriteria {
-                            authenticator_attachment: AuthenticatorAttachmentReq::default(),
-                            resident_key: ResidentKeyRequirement::Discouraged,
-                            user_verification: UserVerificationRequirement::Preferred,
-                        }
+                    authenticator_selection: auth.unwrap_or(AuthenticatorSelectionCriteria {
+                        authenticator_attachment: AuthenticatorAttachmentReq::None(Hint::None),
+                        resident_key: ResidentKeyRequirement::Discouraged,
+                        user_verification: UserVerificationRequirement::Preferred,
                     }),
                     extensions: ext.flatten().unwrap_or_default(),
                 })
@@ -2742,15 +3164,7 @@ where
 /// [`CredProtect::UserVerificationRequired`] which can typically only be used when
 /// [`UserVerificationRequirement::Required`] is requested since many user agents error otherwise.
 ///
-/// To facilitate this, [`Self::deserialize`] can be used to deserialize the data sent from the client. Upon
-/// successful deserialization, [`Self::into_options`] can then be used to construct the appropriate
-/// [`CredentialCreationOptions`].
-///
-/// Note one may want to change some of the [`Extension`] data since [`ExtensionInfo::AllowEnforceValue`] and
-/// [`ExtensionReq::Allow`] are unconditionally used. Read [`ExtensionOwned::deserialize`] for more information.
-///
-/// Additionally, one may want to change the value of [`PublicKeyCredentialCreationOptions::rp_id`] since
-/// `"example.invalid"` is used in the event the RP ID was not supplied.
+/// To facilitate this, [`Self::deserialize`] can be used to deserialize the data sent from the client.
 #[derive(Debug)]
 pub struct ClientCredentialCreationOptions<'user_name, 'user_display_name, const USER_LEN: usize> {
     /// See [`CredentialCreationOptions::mediation`].
@@ -2759,40 +3173,11 @@ pub struct ClientCredentialCreationOptions<'user_name, 'user_display_name, const
     pub public_key:
         PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>,
 }
-impl<const USER_LEN: usize> ClientCredentialCreationOptions<'_, '_, USER_LEN> {
-    /// Creates a `CredentialCreationOptions` based on the contained data where
-    /// [`CredentialCreationOptions::public_key`] is constructed via
-    /// [`PublicKeyCredentialCreationOptionsOwned::into_options`].
-    #[inline]
-    #[must_use]
-    pub fn into_options(
-        &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
-    ) -> CredentialCreationOptions<'_, '_, '_, '_, '_, '_, USER_LEN> {
-        CredentialCreationOptions {
-            mediation: self.mediation,
-            public_key: self.public_key.into_options(exclude_credentials),
-        }
-    }
-}
-impl<'user_name, 'user_display_name, const USER_LEN: usize> Default
-    for ClientCredentialCreationOptions<'user_name, 'user_display_name, USER_LEN>
-where
-    PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>: Default,
-{
-    #[inline]
-    fn default() -> Self {
-        Self {
-            mediation: CredentialMediationRequirement::default(),
-            public_key: PublicKeyCredentialCreationOptionsOwned::default(),
-        }
-    }
-}
 impl<'de: 'user_name + 'user_display_name, 'user_name, 'user_display_name, const USER_LEN: usize>
     Deserialize<'de> for ClientCredentialCreationOptions<'user_name, 'user_display_name, USER_LEN>
 where
-    UserHandle<USER_LEN>: Default,
-    PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>: Default,
+    PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>:
+        Deserialize<'de>,
 {
     /// Deserializes a `struct` according to the following pseudo-schema:
     ///
@@ -2820,8 +3205,7 @@ where
         impl<'d: 'a + 'b, 'a, 'b, const LEN: usize> Visitor<'d>
             for ClientCredentialCreationOptionsVisitor<'a, 'b, LEN>
         where
-            UserHandle<LEN>: Default,
-            PublicKeyCredentialCreationOptionsOwned<'a, 'b, LEN>: Default,
+            PublicKeyCredentialCreationOptionsOwned<'a, 'b, LEN>: Deserialize<'d>,
         {
             type Value = ClientCredentialCreationOptions<'a, 'b, LEN>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
@@ -2902,34 +3286,47 @@ mod test {
     use super::{
         AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
         ClientCredentialCreationOptions, CoseAlgorithmIdentifier, CoseAlgorithmIdentifiers,
-        CredProtect, CredentialMediationRequirement, CrossPlatformHint, DEFAULT_RP_ID,
-        ExtensionInfo, ExtensionOwned, ExtensionReq, FIVE_MINUTES, FourToSixtyThree, Hint,
-        NonZeroU32, PlatformHint, PublicKeyCredentialCreationOptionsOwned,
-        PublicKeyCredentialUserEntityOwned, ResidentKeyRequirement, UserVerificationRequirement,
+        CredProtect, CredentialMediationRequirement, CrossPlatformHint, ExtensionInfo,
+        ExtensionOwned, ExtensionReq, FIVE_MINUTES, FourToSixtyThree, Hint, NonZeroU32,
+        PlatformHint, PublicKeyCredentialCreationOptionsOwned, PublicKeyCredentialUserEntityOwned,
+        ResidentKeyRequirement, UserVerificationRequirement,
     };
     use serde_json::Error;
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "a lot to test"
+    )]
     #[test]
     fn client_options() -> Result<(), Error> {
         let mut err =
             serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 16>>(r#"{"bob":true}"#)
                 .unwrap_err();
         assert_eq!(
-            err.to_string()[..56],
-            *"unknown field `bob`, expected `mediation` or `publicKey`"
+            err.to_string().get(..56),
+            Some("unknown field `bob`, expected `mediation` or `publicKey`")
         );
         err = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>(
             r#"{"mediation":"required","mediation":"required"}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..27], *"duplicate field `mediation`");
-        let mut options =
-            serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>(r#"{}"#)?;
+        assert_eq!(
+            err.to_string().get(..27),
+            Some("duplicate field `mediation`")
+        );
+        let mut options = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>("{}")?;
         assert!(matches!(
             options.mediation,
             CredentialMediationRequirement::Required
         ));
-        assert_eq!(options.public_key.rp_id, DEFAULT_RP_ID);
-        assert_eq!(options.public_key.user.name.as_ref(), "blank");
+        assert!(options.public_key.rp_id.is_none());
+        assert!(options.public_key.user.name.is_none());
+        assert!(options.public_key.user.id.is_none());
         assert!(options.public_key.user.display_name.is_none());
         assert_eq!(
             options.public_key.pub_key_cred_params.0,
@@ -2961,8 +3358,9 @@ mod test {
             options.mediation,
             CredentialMediationRequirement::Required
         ));
-        assert_eq!(options.public_key.rp_id, DEFAULT_RP_ID);
-        assert_eq!(options.public_key.user.name.as_ref(), "blank");
+        assert!(options.public_key.rp_id.is_none());
+        assert!(options.public_key.user.name.is_none());
+        assert!(options.public_key.user.id.is_none());
         assert!(options.public_key.user.display_name.is_none());
         assert_eq!(
             options.public_key.pub_key_cred_params.0,
@@ -2990,8 +3388,9 @@ mod test {
         options = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>(
             r#"{"publicKey":{}}"#,
         )?;
-        assert_eq!(options.public_key.rp_id, DEFAULT_RP_ID);
-        assert_eq!(options.public_key.user.name.as_ref(), "blank");
+        assert!(options.public_key.rp_id.is_none());
+        assert!(options.public_key.user.name.is_none());
+        assert!(options.public_key.user.id.is_none());
         assert!(options.public_key.user.display_name.is_none());
         assert_eq!(
             options.public_key.pub_key_cred_params.0,
@@ -3017,20 +3416,38 @@ mod test {
         assert!(options.public_key.extensions.min_pin_length.is_none());
         assert!(options.public_key.extensions.prf.is_none());
         options = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>(
-            r#"{"mediation":"conditional","publicKey":{"rp":{"name":"Example.com","id":"example.com"},"user":{"name":"bob","displayName":"Bob","id":"AA"},"timeout":300000,"excludeCredentials":[],"attestation":"none","attestationFormats":["none"],"authenticatorSelection":{"authenticatorAttachment":"cross-platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"},"extensions":{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{"eval":{"first":"","second":""}}},"pubKeyCredParams":[{"type":"public-key","alg":-8}],"hints":["security-key"],"challenge":null}}"#,
+            r#"{"mediation":"conditional","publicKey":{"rp":{"name":"Example.com","id":"example.com"},"user":{"name":"bob","displayName":"Bob","id":"AQ"},"timeout":300000,"excludeCredentials":[],"attestation":"none","attestationFormats":["none"],"authenticatorSelection":{"authenticatorAttachment":"cross-platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"},"extensions":{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{"eval":{"first":"","second":""}}},"pubKeyCredParams":[{"type":"public-key","alg":-8}],"hints":["security-key"],"challenge":null}}"#,
         )?;
         assert!(matches!(
             options.mediation,
             CredentialMediationRequirement::Conditional
         ));
-        assert_eq!(options.public_key.rp_id.as_ref(), "example.com");
-        assert_eq!(options.public_key.user.name.as_ref(), "bob");
+        assert!(
+            options
+                .public_key
+                .rp_id
+                .is_some_and(|val| val.as_ref() == "example.com")
+        );
+        assert!(
+            options
+                .public_key
+                .user
+                .name
+                .is_some_and(|val| val.as_ref() == "bob")
+        );
         assert!(
             options
                 .public_key
                 .user
                 .display_name
-                .map_or(false, |name| name.as_ref() == "Bob")
+                .is_some_and(|val| val.as_ref() == "Bob")
+        );
+        assert!(
+            options
+                .public_key
+                .user
+                .id
+                .is_some_and(|val| val.as_ref() == [1; 1])
         );
         assert_eq!(
             options.public_key.pub_key_cred_params.0,
@@ -3057,7 +3474,7 @@ mod test {
                 .public_key
                 .extensions
                 .cred_props
-                .map_or(false, |req| matches!(req, ExtensionReq::Allow))
+                .is_some_and(|req| matches!(req, ExtensionReq::Allow))
         );
         assert!(
             matches!(options.public_key.extensions.cred_protect, CredProtect::UserVerificationRequired(enforce, info) if !enforce && matches!(info, ExtensionInfo::AllowEnforceValue))
@@ -3067,7 +3484,7 @@ mod test {
                 .public_key
                 .extensions
                 .min_pin_length
-                .map_or(false, |min| min.0 == FourToSixtyThree::Four
+                .is_some_and(|min| min.0 == FourToSixtyThree::Four
                     && matches!(min.1, ExtensionInfo::AllowEnforceValue))
         );
         assert!(
@@ -3075,12 +3492,22 @@ mod test {
                 .public_key
                 .extensions
                 .prf
-                .map_or(false, |prf| prf.first.is_empty()
+                .is_some_and(|prf| prf.first.is_empty()
                     && prf.second.is_some_and(|p| p.is_empty())
                     && matches!(prf.ext_req, ExtensionReq::Allow))
         );
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "a lot to test"
+    )]
     #[test]
     fn key_options() -> Result<(), Error> {
         let mut err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 16>>(
@@ -3088,75 +3515,88 @@ mod test {
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..201],
-            *"unknown field `bob`, expected one of `rp`, `user`, `challenge`, `pubKeyCredParams`, `timeout`, `excludeCredentials`, `authenticatorSelection`, `hints`, `extensions`, `attestation`, `attestationFormats`"
+            err.to_string().get(..201),
+            Some(
+                "unknown field `bob`, expected one of `rp`, `user`, `challenge`, `pubKeyCredParams`, `timeout`, `excludeCredentials`, `authenticatorSelection`, `hints`, `extensions`, `attestation`, `attestationFormats`"
+            )
         );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"attestation":"none","attestation":"none"}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..29], *"duplicate field `attestation`");
+        assert_eq!(
+            err.to_string().get(..29),
+            Some("duplicate field `attestation`")
+        );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"authenticatorSelection":{"authenticatorAttachment":"platform"},"hints":["client-device", "security-key"]}"#,
         ).unwrap_err();
         assert_eq!(
-            err.to_string()[..96],
-            *"'platform' authenticator attachment modality must coincide with no hints or 'client-device' hint"
+            err.to_string().get(..96),
+            Some(
+                "'platform' authenticator attachment modality must coincide with no hints or 'client-device' hint"
+            )
         );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"challenge":"AAAAAAAAAAAAAAAAAAAAAA"}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..41],
-            *"invalid type: Option value, expected null"
+            err.to_string().get(..41),
+            Some("invalid type: Option value, expected null")
         );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"excludeCredentials":[{"type":"public-key","transports":["usb"],"id":"AAAAAAAAAAAAAAAAAAAAAA"}]}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..19], *"trailing characters");
+        assert_eq!(err.to_string().get(..19), Some("trailing characters"));
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"attestation":"foo"}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..27], *"invalid value: string \"foo\"");
+        assert_eq!(
+            err.to_string().get(..27),
+            Some("invalid value: string \"foo\"")
+        );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"attestationFormats":["none","none"]}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..96],
-            *"attestationFormats must be an empty sequence or contain exactly one string whose value is 'none'"
+            err.to_string().get(..96),
+            Some(
+                "attestationFormats must be an empty sequence or contain exactly one string whose value is 'none'"
+            )
         );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"attestationFormats":["foo"]}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..42],
-            *"invalid value: string \"foo\", expected none"
+            err.to_string().get(..42),
+            Some("invalid value: string \"foo\", expected none")
         );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"timeout":0}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..50],
-            *"invalid value: integer `0`, expected a nonzero u32"
+            err.to_string().get(..50),
+            Some("invalid value: integer `0`, expected a nonzero u32")
         );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"timeout":4294967296}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..59],
-            *"invalid value: integer `4294967296`, expected a nonzero u32"
+            err.to_string().get(..59),
+            Some("invalid value: integer `4294967296`, expected a nonzero u32")
         );
         let mut key =
-            serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(r#"{}"#)?;
-        assert_eq!(key.rp_id, DEFAULT_RP_ID);
-        assert_eq!(key.user.name.as_ref(), "blank");
+            serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>("{}")?;
+        assert!(key.rp_id.is_none());
+        assert!(key.user.name.is_none());
+        assert!(key.user.id.is_none());
         assert!(key.user.display_name.is_none());
         assert_eq!(key.pub_key_cred_params.0, CoseAlgorithmIdentifiers::ALL.0);
         assert_eq!(key.timeout, FIVE_MINUTES);
@@ -3178,8 +3618,9 @@ mod test {
         key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"rp":null,"user":null,"timeout":null,"excludeCredentials":null,"attestation":null,"attestationFormats":null,"authenticatorSelection":null,"extensions":null,"pubKeyCredParams":null,"hints":null,"challenge":null}"#,
         )?;
-        assert_eq!(key.rp_id, DEFAULT_RP_ID);
-        assert_eq!(key.user.name.as_ref(), "blank");
+        assert!(key.rp_id.is_none());
+        assert!(key.user.name.is_none());
+        assert!(key.user.id.is_none());
         assert!(key.user.display_name.is_none());
         assert_eq!(key.pub_key_cred_params.0, CoseAlgorithmIdentifiers::ALL.0);
         assert_eq!(key.timeout, FIVE_MINUTES);
@@ -3201,8 +3642,9 @@ mod test {
         key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"rp":{},"user":{},"excludeCredentials":[],"attestationFormats":[],"authenticatorSelection":{},"extensions":{},"pubKeyCredParams":[],"hints":[]}"#,
         )?;
-        assert_eq!(key.rp_id, DEFAULT_RP_ID);
-        assert_eq!(key.user.name.as_ref(), "blank");
+        assert!(key.rp_id.is_none());
+        assert!(key.user.name.is_none());
+        assert!(key.user.id.is_none());
         assert!(key.user.display_name.is_none());
         assert_eq!(key.pub_key_cred_params.0, CoseAlgorithmIdentifiers::ALL.0);
         assert!(
@@ -3223,8 +3665,9 @@ mod test {
         key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"rp":{"name":null,"id":null},"user":{"name":null,"id":null,"displayName":null},"authenticatorSelection":{"residentKey":null,"requireResidentKey":null,"userVerification":null,"authenticatorAttachment":null},"extensions":{"credProps":null,"credentialProtectionPolicy":null,"enforceCredentialProtectionPolicy":null,"minPinLength":null,"prf":null}}"#,
         )?;
-        assert_eq!(key.rp_id, DEFAULT_RP_ID);
-        assert_eq!(key.user.name.as_ref(), "blank");
+        assert!(key.rp_id.is_none());
+        assert!(key.user.name.is_none());
+        assert!(key.user.id.is_none());
         assert!(key.user.display_name.is_none());
         assert_eq!(key.pub_key_cred_params.0, CoseAlgorithmIdentifiers::ALL.0);
         assert!(
@@ -3243,15 +3686,16 @@ mod test {
         assert!(key.extensions.min_pin_length.is_none());
         assert!(key.extensions.prf.is_none());
         key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
-            r#"{"rp":{"name":"Example.com","id":"example.com"},"user":{"name":"bob","displayName":"Bob","id":"AA"},"timeout":300000,"excludeCredentials":[],"attestation":"none","attestationFormats":["none"],"authenticatorSelection":{"authenticatorAttachment":"cross-platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"},"extensions":{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{"eval":{"first":"","second":""}}},"pubKeyCredParams":[{"type":"public-key","alg":-8}],"hints":["security-key"],"challenge":null}"#,
+            r#"{"rp":{"name":"Example.com","id":"example.com"},"user":{"name":"bob","displayName":"Bob","id":"AQ"},"timeout":300000,"excludeCredentials":[],"attestation":"none","attestationFormats":["none"],"authenticatorSelection":{"authenticatorAttachment":"cross-platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"},"extensions":{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{"eval":{"first":"","second":""}}},"pubKeyCredParams":[{"type":"public-key","alg":-8}],"hints":["security-key"],"challenge":null}"#,
         )?;
-        assert_eq!(key.rp_id.as_ref(), "example.com");
-        assert_eq!(key.user.name.as_ref(), "bob");
+        assert!(key.rp_id.is_some_and(|val| val.as_ref() == "example.com"));
+        assert!(key.user.name.is_some_and(|val| val.as_ref() == "bob"));
         assert!(
             key.user
                 .display_name
-                .map_or(false, |name| name.as_ref() == "Bob")
+                .is_some_and(|val| val.as_ref() == "Bob")
         );
+        assert!(key.user.id.is_some_and(|val| val.as_ref() == [1; 1]));
         assert_eq!(
             key.pub_key_cred_params.0,
             CoseAlgorithmIdentifiers::ALL
@@ -3275,7 +3719,7 @@ mod test {
         assert!(
             key.extensions
                 .cred_props
-                .map_or(false, |req| matches!(req, ExtensionReq::Allow))
+                .is_some_and(|req| matches!(req, ExtensionReq::Allow))
         );
         assert!(
             matches!(key.extensions.cred_protect, CredProtect::UserVerificationRequired(enforce, info) if !enforce && matches!(info, ExtensionInfo::AllowEnforceValue))
@@ -3283,10 +3727,10 @@ mod test {
         assert!(
             key.extensions
                 .min_pin_length
-                .map_or(false, |min| min.0 == FourToSixtyThree::Four
+                .is_some_and(|min| min.0 == FourToSixtyThree::Four
                     && matches!(min.1, ExtensionInfo::AllowEnforceValue))
         );
-        assert!(key.extensions.prf.map_or(false, |prf| prf.first.is_empty()
+        assert!(key.extensions.prf.is_some_and(|prf| prf.first.is_empty()
             && prf.second.is_some_and(|p| p.is_empty())
             && matches!(prf.ext_req, ExtensionReq::Allow)));
         key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
@@ -3295,47 +3739,62 @@ mod test {
         assert_eq!(key.timeout, NonZeroU32::MAX);
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(clippy::cognitive_complexity, reason = "a lot to test")]
     #[test]
     fn extension() -> Result<(), Error> {
         let mut err = serde_json::from_str::<ExtensionOwned>(r#"{"bob":true}"#).unwrap_err();
         assert_eq!(
-            err.to_string()[..138],
-            *"unknown field `bob`, expected one of `credProps`, `credentialProtectionPolicy`, `enforceCredentialProtectionPolicy`, `minPinLength`, `prf`"
+            err.to_string().get(..138),
+            Some(
+                "unknown field `bob`, expected one of `credProps`, `credentialProtectionPolicy`, `enforceCredentialProtectionPolicy`, `minPinLength`, `prf`"
+            )
         );
         err = serde_json::from_str::<ExtensionOwned>(r#"{"credProps":true,"credProps":true}"#)
             .unwrap_err();
-        assert_eq!(err.to_string()[..27], *"duplicate field `credProps`");
+        assert_eq!(
+            err.to_string().get(..27),
+            Some("duplicate field `credProps`")
+        );
         err =
             serde_json::from_str::<ExtensionOwned>(r#"{"enforceCredentialProtectionPolicy":null}"#)
                 .unwrap_err();
         assert_eq!(
-            err.to_string()[..84],
-            *"'enforceCredentialProtectionPolicy' must not exist when 'credentialProtectionPolicy'"
+            err.to_string().get(..84),
+            Some(
+                "'enforceCredentialProtectionPolicy' must not exist when 'credentialProtectionPolicy'"
+            )
         );
         err = serde_json::from_str::<ExtensionOwned>(
             r#"{"enforceCredentialProtectionPolicy":false,"credentialProtectionPolicy":null}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..103],
-            *"'enforceCredentialProtectionPolicy' must be null or not exist when 'credentialProtectionPolicy' is null"
+            err.to_string().get(..103),
+            Some(
+                "'enforceCredentialProtectionPolicy' must be null or not exist when 'credentialProtectionPolicy' is null"
+            )
         );
         let mut ext = serde_json::from_str::<ExtensionOwned>(
             r#"{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{"eval":{"first":"","second":""}}}"#,
         )?;
         assert!(
             ext.cred_props
-                .map_or(false, |props| matches!(props, ExtensionReq::Allow))
+                .is_some_and(|props| matches!(props, ExtensionReq::Allow))
         );
         assert!(
             matches!(ext.cred_protect, CredProtect::UserVerificationRequired(enforce, info) if !enforce && matches!(info, ExtensionInfo::AllowEnforceValue))
         );
         assert!(
             ext.min_pin_length
-                .map_or(false, |min| min.0 == FourToSixtyThree::Four
+                .is_some_and(|min| min.0 == FourToSixtyThree::Four
                     && matches!(min.1, ExtensionInfo::AllowEnforceValue))
         );
-        assert!(ext.prf.map_or(false, |prf| prf.first.is_empty()
+        assert!(ext.prf.is_some_and(|prf| prf.first.is_empty()
             && prf.second.is_some_and(|v| v.is_empty())
             && matches!(prf.ext_req, ExtensionReq::Allow)));
         ext = serde_json::from_str::<ExtensionOwned>(
@@ -3345,7 +3804,7 @@ mod test {
         assert!(matches!(ext.cred_protect, CredProtect::None));
         assert!(ext.min_pin_length.is_none());
         assert!(ext.prf.is_none());
-        ext = serde_json::from_str::<ExtensionOwned>(r#"{}"#)?;
+        ext = serde_json::from_str::<ExtensionOwned>("{}")?;
         assert!(ext.cred_props.is_none());
         assert!(matches!(ext.cred_protect, CredProtect::None));
         assert!(ext.min_pin_length.is_none());
@@ -3366,6 +3825,11 @@ mod test {
         );
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
     #[test]
     fn user_entity() -> Result<(), Error> {
         let mut err = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 16>>(
@@ -3373,74 +3837,92 @@ mod test {
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..64],
-            *"unknown field `bob`, expected one of `id`, `name`, `displayName`"
+            err.to_string().get(..64),
+            Some("unknown field `bob`, expected one of `id`, `name`, `displayName`")
         );
         err = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>(
             r#"{"name":"bob","name":"bob"}"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..22], *"duplicate field `name`");
+        assert_eq!(err.to_string().get(..22), Some("duplicate field `name`"));
         let mut user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>(
-            r#"{"id":"AA","name":"bob","displayName":"Bob"}"#,
+            r#"{"id":"AQ","name":"bob","displayName":"Bob"}"#,
         )?;
-        assert_eq!(user.id.as_slice(), [0; 1].as_slice());
-        assert_eq!(user.name.as_ref(), "bob");
-        assert_eq!(user.display_name.as_ref().map(|v| v.as_ref()), Some("Bob"));
+        assert!(
+            user.id
+                .is_some_and(|val| val.as_slice() == [1; 1].as_slice())
+        );
+        assert!(user.name.is_some_and(|val| val.as_ref() == "bob"));
+        assert!(user.display_name.is_some_and(|val| val.as_ref() == "Bob"));
         user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>(
             r#"{"id":null,"name":null,"displayName":null}"#,
         )?;
-        assert_eq!(user.name.as_ref(), "blank");
+        assert!(user.name.is_none());
         assert!(user.display_name.is_none());
-        user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>(r#"{}"#)?;
-        assert_eq!(user.name.as_ref(), "blank");
+        assert!(user.id.is_none());
+        user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>("{}")?;
+        assert!(user.name.is_none());
         assert!(user.display_name.is_none());
+        assert!(user.id.is_none());
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "a lot to test"
+    )]
     #[test]
     fn auth_crit() -> Result<(), Error> {
-        let mut err =
-            serde_json::from_str::<AuthenticatorSelectionCriteria>(r#"null"#).unwrap_err();
+        let mut err = serde_json::from_str::<AuthenticatorSelectionCriteria>("null").unwrap_err();
         assert_eq!(
-            err.to_string()[..59],
-            *"invalid type: null, expected AuthenticatorSelectionCriteria"
+            err.to_string().get(..59),
+            Some("invalid type: null, expected AuthenticatorSelectionCriteria")
         );
         err = serde_json::from_str::<AuthenticatorSelectionCriteria>(
             r#"{"residentKey":"required","requireResidentKey":false}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..62],
-            *"'residentKey' is 'required', but 'requireResidentKey' is false"
+            err.to_string().get(..62),
+            Some("'residentKey' is 'required', but 'requireResidentKey' is false")
         );
         err = serde_json::from_str::<AuthenticatorSelectionCriteria>(
             r#"{"residentKey":"preferred","requireResidentKey":true}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..65],
-            *"'residentKey' is not 'required', but 'requireResidentKey' is true"
+            err.to_string().get(..65),
+            Some("'residentKey' is not 'required', but 'requireResidentKey' is true")
         );
         err =
             serde_json::from_str::<AuthenticatorSelectionCriteria>(r#"{"residentKey":"prefered"}"#)
                 .unwrap_err();
         assert_eq!(
-            err.to_string()[..84],
-            *"invalid value: string \"prefered\", expected 'required', 'discouraged', or 'preferred'"
+            err.to_string().get(..84),
+            Some(
+                "invalid value: string \"prefered\", expected 'required', 'discouraged', or 'preferred'"
+            )
         );
         err =
             serde_json::from_str::<AuthenticatorSelectionCriteria>(r#"{"bob":true}"#).unwrap_err();
         assert_eq!(
-            err.to_string()[..119],
-            *"unknown field `bob`, expected one of `authenticatorAttachment`, `residentKey`, `requireResidentKey`, `userVerification`"
+            err.to_string().get(..119),
+            Some(
+                "unknown field `bob`, expected one of `authenticatorAttachment`, `residentKey`, `requireResidentKey`, `userVerification`"
+            )
         );
         err = serde_json::from_str::<AuthenticatorSelectionCriteria>(
             r#"{"requireResidentKey":true,"requireResidentKey":true}"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..36],
-            *"duplicate field `requireResidentKey`"
+            err.to_string().get(..36),
+            Some("duplicate field `requireResidentKey`")
         );
         let mut crit = serde_json::from_str::<AuthenticatorSelectionCriteria>(
             r#"{"authenticatorAttachment":"platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"}"#,
@@ -3470,7 +3952,7 @@ mod test {
             crit.user_verification,
             UserVerificationRequirement::Preferred
         ));
-        crit = serde_json::from_str::<AuthenticatorSelectionCriteria>(r#"{}"#)?;
+        crit = serde_json::from_str::<AuthenticatorSelectionCriteria>("{}")?;
         assert!(
             matches!(crit.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
         );
@@ -3561,69 +4043,74 @@ mod test {
         ));
         Ok(())
     }
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_used,
+        reason = "OK in tests"
+    )]
     #[test]
     fn cose_algs() -> Result<(), Error> {
-        let mut err = serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"null"#).unwrap_err();
+        let mut err = serde_json::from_str::<CoseAlgorithmIdentifiers>("null").unwrap_err();
         assert_eq!(
-            err.to_string()[..53],
-            *"invalid type: null, expected CoseAlgorithmIdentifiers"
+            err.to_string().get(..53),
+            Some("invalid type: null, expected CoseAlgorithmIdentifiers")
         );
-        err = serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"[null]"#).unwrap_err();
+        err = serde_json::from_str::<CoseAlgorithmIdentifiers>("[null]").unwrap_err();
         assert_eq!(
-            err.to_string()[..37],
-            *"invalid type: null, expected PubParam"
+            err.to_string().get(..37),
+            Some("invalid type: null, expected PubParam")
         );
-        err = serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"[{}]"#).unwrap_err();
-        assert_eq!(err.to_string()[..19], *"missing field `alg`");
+        err = serde_json::from_str::<CoseAlgorithmIdentifiers>("[{}]").unwrap_err();
+        assert_eq!(err.to_string().get(..19), Some("missing field `alg`"));
         err = serde_json::from_str::<CoseAlgorithmIdentifiers>(
             r#"[{"type":"public-key","alg":-7,"foo":true}]"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..45],
-            *"unknown field `foo`, expected `type` or `alg`"
+            err.to_string().get(..45),
+            Some("unknown field `foo`, expected `type` or `alg`")
         );
         err = serde_json::from_str::<CoseAlgorithmIdentifiers>(
             r#"[{"type":"public-key","alg":-7,"alg":-7}]"#,
         )
         .unwrap_err();
-        assert_eq!(err.to_string()[..21], *"duplicate field `alg`");
+        assert_eq!(err.to_string().get(..21), Some("duplicate field `alg`"));
         err = serde_json::from_str::<CoseAlgorithmIdentifiers>(
             r#"[{"type":"public-key","alg":null}]"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..52],
-            *"invalid type: null, expected CoseAlgorithmIdentifier"
+            err.to_string().get(..52),
+            Some("invalid type: null, expected CoseAlgorithmIdentifier")
         );
         err = serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"[{"type":null,"alg":-8}]"#)
             .unwrap_err();
         assert_eq!(
-            err.to_string()[..39],
-            *"invalid type: null, expected public-key"
+            err.to_string().get(..39),
+            Some("invalid type: null, expected public-key")
         );
         err =
             serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"[{"type":"public-key","alg":-6}]"#)
                 .unwrap_err();
         assert_eq!(
-            err.to_string()[..58],
-            *"invalid value: integer `-6`, expected -8, -7, -35, or -257"
+            err.to_string().get(..58),
+            Some("invalid value: integer `-6`, expected -8, -7, -35, or -257")
         );
         err = serde_json::from_str::<CoseAlgorithmIdentifiers>(
             r#"[{"type":"public-key","alg":-7},{"type":"public-key","alg":-7}]"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..49],
-            *"pubKeyCredParams contained duplicate Es256 values"
+            err.to_string().get(..49),
+            Some("pubKeyCredParams contained duplicate Es256 values")
         );
         err = serde_json::from_str::<CoseAlgorithmIdentifiers>(
             r#"[{"type":"public-key","alg":-7},{"type":"public-key","alg":-8}]"#,
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string()[..63],
-            *"pubKeyCredParams contained EdDSA, but it wasn't the first value"
+            err.to_string().get(..63),
+            Some("pubKeyCredParams contained EdDSA, but it wasn't the first value")
         );
         let mut alg = serde_json::from_str::<CoseAlgorithmIdentifiers>(
             r#"[{"type":"public-key","alg":-8},{"alg":-7}]"#,
@@ -3632,7 +4119,7 @@ mod test {
         assert!(alg.contains(CoseAlgorithmIdentifier::Es256));
         assert!(!alg.contains(CoseAlgorithmIdentifier::Es384));
         assert!(!alg.contains(CoseAlgorithmIdentifier::Rs256));
-        alg = serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"[]"#)?;
+        alg = serde_json::from_str::<CoseAlgorithmIdentifiers>("[]")?;
         assert!(alg.contains(CoseAlgorithmIdentifier::Eddsa));
         assert!(alg.contains(CoseAlgorithmIdentifier::Es256));
         assert!(alg.contains(CoseAlgorithmIdentifier::Es384));

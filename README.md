@@ -499,11 +499,14 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
 as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-Before any PR is sent, `cargo clippy` and `cargo t` should be run _for each possible combination of "features"_
-using stable Rust. One easy way to achieve this is by building `ci` and invoking it with no commands in the
-`webauthn_rp` directory or sub-directories. You can fetch `ci` via `git clone https://git.philomathiclife.com/repos/ci`,
-and it can be built with `cargo build --release`. Additionally,
-`RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features` should be run to ensure documentation can be built.
+Before any PR is sent, `cargo clippy --all-targets`, `cargo test --all-targets -- --include-ignored`, and
+`cargo test --doc` should be run _for each possible combination of "features"_ using the stable and MSRV toolchains.
+One easy way to achieve this is by invoking [`ci-cargo`](https://crates.io/crates/ci-cargo) as
+`ci-cargo clippy --all-targets test --all-targets --include-ignored --ignore-compile-errors` in the `webauthn_rp`
+directory.
+
+Last, `RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features` should be run to ensure documentation can be
+built.
 
 ### Status
 
@@ -511,8 +514,8 @@ This package is actively maintained and will conform to the
 [latest WebAuthn API version](https://www.w3.org/TR/webauthn-3/). Previous versions will not be supported—excluding
 bug fixes of course—however functionality will exist to facilitate the migration process from the previous version.
 
-The crate is only tested on `x86_64-unknown-linux-gnu` and `x86_64-unknown-openbsd` targets, but it should work
-on most platforms.
+The crate is only tested on the `x86_64-unknown-linux-gnu`, `x86_64-unknown-openbsd`, and `aarch64-apple-darwin`
+targets; but it should work on most platforms.
 
 [^note]: `panic`s related to memory allocations or stack overflow are possible since such issues are not
          formally guarded against.
