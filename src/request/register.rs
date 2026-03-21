@@ -1074,6 +1074,7 @@ impl Default for Extension<'_, '_> {
 }
 #[cfg(test)]
 impl PartialEq for Extension<'_, '_> {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.cred_props == other.cred_props
             && self.cred_protect == other.cred_protect
@@ -2429,6 +2430,16 @@ pub struct RegistrationServerState<const USER_LEN: usize> {
     user_id: UserHandle<USER_LEN>,
 }
 impl<const USER_LEN: usize> RegistrationServerState<USER_LEN> {
+    #[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
+    fn is_eq(&self, other: &Self) -> bool {
+        self.mediation == other.mediation
+            && self.challenge == other.challenge
+            && self.pub_key_cred_params == other.pub_key_cred_params
+            && self.authenticator_selection == other.authenticator_selection
+            && self.extensions == other.extensions
+            && self.expiration == other.expiration
+            && self.user_id == other.user_id
+    }
     /// Verifies `response` is valid based on `self` consuming `self` and returning a `RegisteredCredential` that
     /// borrows the necessary data from `response`.
     ///
@@ -2568,18 +2579,6 @@ impl<const USER_LEN: usize> RegistrationServerState<USER_LEN> {
                     Err(RegCeremonyErr::UserNotPresent)
                 }
             })
-    }
-}
-#[cfg(all(test, feature = "custom", feature = "serializable_server_state"))]
-impl<const USER_LEN: usize> RegistrationServerState<USER_LEN> {
-    fn is_eq(&self, other: &Self) -> bool {
-        self.mediation == other.mediation
-            && self.challenge == other.challenge
-            && self.pub_key_cred_params == other.pub_key_cred_params
-            && self.authenticator_selection == other.authenticator_selection
-            && self.extensions == other.extensions
-            && self.expiration == other.expiration
-            && self.user_id == other.user_id
     }
 }
 impl<const USER_LEN: usize> TimedCeremony for RegistrationServerState<USER_LEN> {

@@ -30,7 +30,7 @@ use ser_relaxed::SerdeJsonErr;
 /// ```no_run
 /// # use core::convert;
 /// # use webauthn_rp::{
-/// #     hash::hash_set::MaxLenHashSet,
+/// #     hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
 /// #     request::{auth::{error::InvalidTimeout, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, BackupReq, RpId},
 /// #     response::{auth::{error::AuthCeremonyErr, DiscoverableAuthentication64}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputsStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKeyOwned, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
 /// #     AuthenticatedCredential, CredentialErr
@@ -74,9 +74,7 @@ use ser_relaxed::SerdeJsonErr;
 /// const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 /// let mut ceremonies = MaxLenHashSet::new(128);
 /// let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID).start_ceremony()?;
-/// assert!(
-///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
-/// );
+/// assert_eq!(ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success);
 /// # #[cfg(feature = "serde")]
 /// let authentication = serde_json::from_str::<DiscoverableAuthentication64>(get_authentication_json(client).as_str())?;
 /// # #[cfg(feature = "serde")]
@@ -144,7 +142,7 @@ pub mod error;
 /// ```no_run
 /// # use core::convert;
 /// # use webauthn_rp::{
-/// #     hash::hash_set::MaxLenHashSet,
+/// #     hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
 /// #     request::{register::{error::CreationOptionsErr, CredentialCreationOptions, DisplayName, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, PublicKeyCredentialDescriptor, RpId},
 /// #     response::{register::{error::RegCeremonyErr, Registration}, error::CollectedClientDataErr, CollectedClientData},
 /// #     RegisteredCredential
@@ -189,9 +187,7 @@ pub mod error;
 /// # #[cfg(feature = "custom")]
 /// let (server, client) = CredentialCreationOptions::passkey(RP_ID, user, creds).start_ceremony()?;
 /// # #[cfg(feature = "custom")]
-/// assert!(
-///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
-/// );
+/// assert_eq!(ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success);
 /// # #[cfg(all(feature = "serde_relaxed", feature = "custom"))]
 /// let registration = serde_json::from_str::<Registration>(get_registration_json(client).as_str())?;
 /// let ver_opts = RegistrationVerificationOptions::<&str, &str>::default();

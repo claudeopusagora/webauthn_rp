@@ -2736,6 +2736,18 @@ impl<'a> FromCbor<'a> for AttestationFormat<'a> {
     }
 }
 impl<'a> AttestationObject<'a> {
+    /// [Attestation statement format identifiers](https://www.w3.org/TR/webauthn-3/#sctn-attstn-fmt-ids).
+    #[inline]
+    #[must_use]
+    pub const fn attestation(&self) -> AttestationFormat<'a> {
+        self.attestation
+    }
+    /// [Authenticator data](https://www.w3.org/TR/webauthn-3/#authenticator-data).
+    #[inline]
+    #[must_use]
+    pub const fn auth_data(&self) -> &AuthenticatorData<'a> {
+        &self.auth_data
+    }
     /// Deserializes `data` based on the
     /// [attestation object layout](https://www.w3.org/TR/webauthn-3/#attestation-object)
     /// returning [`Self`] and the index within `data` that the authenticator data portion
@@ -2839,20 +2851,6 @@ pub struct AttestationObject<'a> {
     attestation: AttestationFormat<'a>,
     /// [Authenticator data](https://www.w3.org/TR/webauthn-3/#authenticator-data).
     auth_data: AuthenticatorData<'a>,
-}
-impl<'a> AttestationObject<'a> {
-    /// [Attestation statement format identifiers](https://www.w3.org/TR/webauthn-3/#sctn-attstn-fmt-ids).
-    #[inline]
-    #[must_use]
-    pub const fn attestation(&self) -> AttestationFormat<'a> {
-        self.attestation
-    }
-    /// [Authenticator data](https://www.w3.org/TR/webauthn-3/#authenticator-data).
-    #[inline]
-    #[must_use]
-    pub const fn auth_data(&self) -> &AuthenticatorData<'a> {
-        &self.auth_data
-    }
 }
 impl<'a: 'b, 'b> TryFrom<&'a [u8]> for AttestationObject<'b> {
     type Error = AttestationObjectErr;

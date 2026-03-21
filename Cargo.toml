@@ -9,59 +9,60 @@ license = "MIT OR Apache-2.0"
 name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
-rust-version = "1.89.0"
+rust-version = "1.94.0"
 version = "0.4.0+spec-3"
 
 [lints.rust]
-ambiguous_negative_literals = { level = "deny", priority = -1 }
-closure_returning_async_block = { level = "deny", priority = -1 }
-deprecated_safe = { level = "deny", priority = -1 }
-deref_into_dyn_supertrait = { level = "deny", priority = -1 }
-ffi_unwind_calls = { level = "deny", priority = -1 }
-future_incompatible = { level = "deny", priority = -1 }
-#fuzzy_provenance_casts = { level = "deny", priority = -1 }
-impl_trait_redundant_captures = { level = "deny", priority = -1 }
-keyword_idents = { level = "deny", priority = -1 }
-let_underscore = { level = "deny", priority = -1 }
-linker_messages = { level = "deny", priority = -1 }
-#lossy_provenance_casts = { level = "deny", priority = -1 }
-macro_use_extern_crate = { level = "deny", priority = -1 }
-meta_variable_misuse = { level = "deny", priority = -1 }
-missing_copy_implementations = { level = "deny", priority = -1 }
-missing_debug_implementations = { level = "deny", priority = -1 }
-missing_docs = { level = "deny", priority = -1 }
-#multiple_supertrait_upcastable = { level = "deny", priority = -1 }
-#must_not_suspend = { level = "deny", priority = -1 }
-non_ascii_idents = { level = "deny", priority = -1 }
-#non_exhaustive_omitted_patterns = { level = "deny", priority = -1 }
-nonstandard_style = { level = "deny", priority = -1 }
-redundant_imports = { level = "deny", priority = -1 }
-redundant_lifetimes = { level = "deny", priority = -1 }
-refining_impl_trait = { level = "deny", priority = -1 }
-rust_2018_compatibility = { level = "deny", priority = -1 }
-rust_2018_idioms = { level = "deny", priority = -1 }
-rust_2021_compatibility = { level = "deny", priority = -1 }
-rust_2024_compatibility = { level = "deny", priority = -1 }
-single_use_lifetimes = { level = "deny", priority = -1 }
-#supertrait_item_shadowing_definition = { level = "deny", priority = -1 }
-#supertrait_item_shadowing_usage = { level = "deny", priority = -1 }
-trivial_casts = { level = "deny", priority = -1 }
-trivial_numeric_casts = { level = "deny", priority = -1 }
-unit_bindings = { level = "deny", priority = -1 }
-unknown_or_malformed_diagnostic_attributes = { level = "deny", priority = -1 }
-unnameable_types = { level = "deny", priority = -1 }
-#unqualified_local_imports = { level = "deny", priority = -1 }
-unreachable_pub = { level = "deny", priority = -1 }
-unsafe_code = { level = "deny", priority = -1 }
-unstable_features = { level = "deny", priority = -1 }
+deprecated-safe = { level = "deny", priority = -1 }
+future-incompatible = { level = "deny", priority = -1 }
+keyword-idents = { level = "deny", priority = -1 }
+let-underscore = { level = "deny", priority = -1 }
+nonstandard-style = { level = "deny", priority = -1 }
+refining-impl-trait = { level = "deny", priority = -1 }
+rust-2018-compatibility = { level = "deny", priority = -1 }
+rust-2018-idioms = { level = "deny", priority = -1 }
+rust-2021-compatibility = { level = "deny", priority = -1 }
+rust-2024-compatibility = { level = "deny", priority = -1 }
+unknown-or-malformed-diagnostic-attributes = { level = "deny", priority = -1 }
 unused = { level = "deny", priority = -1 }
-unused_crate_dependencies = { level = "deny", priority = -1 }
-unused_import_braces = { level = "deny", priority = -1 }
-unused_lifetimes = { level = "deny", priority = -1 }
-unused_qualifications = { level = "deny", priority = -1 }
-unused_results = { level = "deny", priority = -1 }
-variant_size_differences = { level = "deny", priority = -1 }
 warnings = { level = "deny", priority = -1 }
+ambiguous-negative-literals = { level = "deny", priority = -1 }
+closure-returning-async-block = { level = "deny", priority = -1 }
+deprecated-in-future = { level = "deny", priority = -1 }
+deref-into-dyn-supertrait = { level = "deny", priority = -1 }
+ffi-unwind-calls = { level = "deny", priority = -1 }
+#fuzzy-provenance-casts = { level = "deny", priority = -1 }
+impl-trait-redundant-captures = { level = "deny", priority = -1 }
+linker-messages = { level = "deny", priority = -1 }
+#lossy-provenance-casts = { level = "deny", priority = -1 }
+macro-use-extern-crate = { level = "deny", priority = -1 }
+meta-variable-misuse = { level = "deny", priority = -1 }
+missing-copy-implementations = { level = "deny", priority = -1 }
+missing-debug-implementations = { level = "deny", priority = -1 }
+missing-docs = { level = "deny", priority = -1 }
+#multiple-supertrait-upcastable = { level = "deny", priority = -1 }
+#must-not-suspend = { level = "deny", priority = -1 }
+non-ascii-idents = { level = "deny", priority = -1 }
+#non-exhaustive-omitted-patterns = { level = "deny", priority = -1 }
+redundant-imports = { level = "deny", priority = -1 }
+redundant-lifetimes = { level = "deny", priority = -1 }
+#resolving-to-items-shadowing-supertrait-items = { level = "deny", priority = -1 }
+#shadowing-supertrait-items = { level = "deny", priority = -1 }
+single-use-lifetimes = { level = "deny", priority = -1 }
+trivial-casts = { level = "deny", priority = -1 }
+trivial-numeric-casts = { level = "deny", priority = -1 }
+unit-bindings = { level = "deny", priority = -1 }
+unnameable-types = { level = "deny", priority = -1 }
+#unqualified-local-imports = { level = "deny", priority = -1 }
+unreachable-pub = { level = "deny", priority = -1 }
+unsafe-code = { level = "deny", priority = -1 }
+unstable-features = { level = "deny", priority = -1 }
+unused-crate-dependencies = { level = "deny", priority = -1 }
+unused-import-braces = { level = "deny", priority = -1 }
+unused-lifetimes = { level = "deny", priority = -1 }
+unused-qualifications = { level = "deny", priority = -1 }
+unused-results = { level = "deny", priority = -1 }
+variant-size-differences = { level = "deny", priority = -1 }
 
 [lints.clippy]
 cargo = { level = "deny", priority = -1 }
@@ -76,6 +77,7 @@ suspicious = { level = "deny", priority = -1 }
 # Noisy, opinionated, and likely don't prevent bugs or improve APIs.
 arbitrary_source_item_ordering = "allow"
 blanket_clippy_restriction_lints = "allow"
+decimal_bitwise_operands = "allow"
 exhaustive_enums = "allow"
 exhaustive_structs = "allow"
 implicit_return = "allow"
@@ -92,6 +94,9 @@ self_named_module_files = "allow"
 single_call_fn = "allow"
 single_char_lifetime_names = "allow"
 unseparated_literal_suffix = "allow"
+
+[lints.rustdoc]
+all = { level = "deny", priority = -1 }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -110,20 +115,20 @@ targets = [
 ]
 
 [dependencies]
-base64url_nopad = { version = "0.1.2", default-features = false }
+base64url_nopad = { version = "0.1.4", default-features = false }
 ed25519-dalek = { version = "2.2.0", default-features = false }
 hashbrown = { version = "0.16.1", default-features = false }
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.13.1", default-features = false, features = ["ecdsa"] }
 precis-profiles = { version = "0.1.13", default-features = false }
-rand = { version = "0.9.2", default-features = false, features = ["thread_rng"] }
+rand = { version = "0.10.0", default-features = false, features = ["thread_rng"] }
 rsa = { version = "0.9.10", default-features = false, features = ["sha2"] }
 serde = { version = "1.0.228", default-features = false, features = ["alloc"], optional = true }
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"], optional = true }
 url = { version = "2.5.8", default-features = false }
 
 [dev-dependencies]
-base64url_nopad = { version = "0.1.2", default-features = false, features = ["alloc"] }
+base64url_nopad = { version = "0.1.4", default-features = false, features = ["alloc"] }
 ed25519-dalek = { version = "2.2.0", default-features = false, features = ["alloc", "pkcs8"] }
 p256 = { version = "0.13.2", default-features = false, features = ["pem"] }
 p384 = { version = "0.13.1", default-features = false, features = ["pkcs8"] }

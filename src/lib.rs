@@ -22,7 +22,7 @@
 //!     AuthenticatedCredential64, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
 //!     DiscoverableCredentialRequestOptions, CredentialCreationOptions64, RegisteredCredential64,
 //!     Registration, RegistrationServerState64,
-//!     hash::hash_set::MaxLenHashSet,
+//!     hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
 //!     request::{
 //!         PublicKeyCredentialDescriptor, RpId,
 //!         auth::AuthenticationVerificationOptions,
@@ -123,7 +123,7 @@
 //!         .unwrap_or_else(|_e| {
 //!             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
 //!         });
-//!     if reg_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+//!     if matches!(reg_ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success)
 //!     {
 //!         Ok(serde_json::to_vec(&client)
 //!             .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState64::serialize")))
@@ -175,7 +175,7 @@
 //!         .unwrap_or_else(|_e| {
 //!             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
 //!         });
-//!     if reg_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+//!     if matches!(reg_ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success)
 //!     {
 //!         Ok(serde_json::to_vec(&client)
 //!             .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState64::serialize")))
@@ -220,7 +220,7 @@
 //!         .unwrap_or_else(|_e| {
 //!             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
 //!         });
-//!     if auth_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+//!     if matches!(auth_ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success)
 //!     {
 //!         Ok(serde_json::to_vec(&client).unwrap_or_else(|_e| {
 //!             unreachable!("bug in DiscoverableAuthenticationClientState::serialize")
@@ -499,9 +499,13 @@
     clippy::multiple_crate_versions,
     reason = "RustCrypto hasn't updated rand yet"
 )]
+#![expect(
+    clippy::doc_paragraphs_missing_punctuation,
+    reason = "false positive for crate documentation having image links"
+)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#[cfg(not(any(feature = "custom", all(feature = "bin", feature = "serde"))))]
-compile_error!("'custom' must be enabled or both 'bin' and 'serde' must be enabled");
+//#[cfg(not(any(feature = "custom", all(feature = "bin", feature = "serde"))))]
+//compile_error!("'custom' must be enabled or both 'bin' and 'serde' must be enabled");
 #[cfg(all(doc, feature = "serde"))]
 use crate::request::register::ser::{
     PublicKeyCredentialCreationOptionsOwned, PublicKeyCredentialUserEntityOwned,

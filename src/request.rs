@@ -44,7 +44,7 @@ use url::Url as Uri;
 /// ```
 /// # use core::convert;
 /// # use webauthn_rp::{
-/// #     hash::hash_set::MaxLenHashSet,
+/// #     hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
 /// #     request::{
 /// #         auth::{AllowedCredentials, DiscoverableCredentialRequestOptions, NonDiscoverableCredentialRequestOptions},
 /// #         register::UserHandle64,
@@ -56,9 +56,7 @@ use url::Url as Uri;
 /// const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 /// let mut ceremonies = MaxLenHashSet::new(128);
 /// let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID).start_ceremony()?;
-/// assert!(
-///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
-/// );
+/// assert_eq!(ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success);
 /// # #[cfg(feature = "custom")]
 /// let mut ceremonies_2 = MaxLenHashSet::new(128);
 /// # #[cfg(feature = "serde")]
@@ -70,9 +68,7 @@ use url::Url as Uri;
 /// let (server_2, client_2) =
 ///     NonDiscoverableCredentialRequestOptions::second_factor(RP_ID, creds).start_ceremony()?;
 /// # #[cfg(feature = "custom")]
-/// assert!(
-///     ceremonies_2.insert_remove_all_expired(server_2).map_or(false, convert::identity)
-/// );
+/// assert_eq!(ceremonies_2.insert_remove_all_expired(server_2), InsertRemoveExpired::Success);
 /// # #[cfg(all(feature = "custom", feature = "serde"))]
 /// assert!(serde_json::to_string(&client_2).is_ok());
 /// /// Extract `UserHandle` from session cookie.
@@ -107,7 +103,7 @@ pub mod error;
 /// ```
 /// # use core::convert;
 /// # use webauthn_rp::{
-/// #     hash::hash_set::MaxLenHashSet,
+/// #     hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
 /// #     request::{
 /// #         register::{
 /// #             CredentialCreationOptions, DisplayName, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
@@ -130,9 +126,7 @@ pub mod error;
 /// let (server, client) = CredentialCreationOptions::passkey(RP_ID, user.clone(), creds)
 ///     .start_ceremony()?;
 /// # #[cfg(feature = "custom")]
-/// assert!(
-///     ceremonies.insert_remove_all_expired(server).map_or(false, convert::identity)
-/// );
+/// assert_eq!(ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success);
 /// # #[cfg(all(feature = "serde", feature = "custom"))]
 /// assert!(serde_json::to_string(&client).is_ok());
 /// # #[cfg(feature = "custom")]
@@ -141,9 +135,7 @@ pub mod error;
 /// let (server_2, client_2) =
 ///     CredentialCreationOptions::second_factor(RP_ID, user, creds_2).start_ceremony()?;
 /// # #[cfg(feature = "custom")]
-/// assert!(
-///     ceremonies.insert_remove_all_expired(server_2).map_or(false, convert::identity)
-/// );
+/// assert_eq!(ceremonies.insert_remove_all_expired(server_2), InsertRemoveExpired::Success);
 /// # #[cfg(all(feature = "serde", feature = "custom"))]
 /// assert!(serde_json::to_string(&client_2).is_ok());
 /// /// Extract `UserHandle` from session cookie or storage if this is not the first credential registered.
@@ -1666,6 +1658,7 @@ pub trait TimedCeremony {
     /// Returns the `Instant` the ceremony expires.
     ///
     /// Note when `serializable_server_state` is enabled, [`SystemTime`] is returned instead.
+    #[cfg_attr(docsrs, doc(auto_cfg = false))]
     #[cfg(any(doc, not(feature = "serializable_server_state")))]
     fn expiration(&self) -> Instant;
     /// Returns the `SystemTime` the ceremony expires.

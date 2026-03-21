@@ -6,7 +6,7 @@ use hashbrown::{
     Equivalent, TryReserveError,
     hash_map::{Drain, Entry, EntryRef, ExtractIf, HashMap, IterMut, OccupiedError, ValuesMut},
 };
-#[cfg(not(feature = "serializable_server_state"))]
+#[cfg(any(doc, not(feature = "serializable_server_state")))]
 use std::time::Instant;
 #[cfg(feature = "serializable_server_state")]
 use std::time::SystemTime;
@@ -121,26 +121,229 @@ impl<K, V, S> MaxLenHashMap<K, V, S> {
 }
 impl<K: TimedCeremony, V, S> MaxLenHashMap<K, V, S> {
     /// Removes all expired ceremonies.
+    ///
+    /// `None` is returned iff at least one expired ceremony was removed; otherwise returns the earliest
+    /// expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is returned instead.
+    #[cfg_attr(docsrs, doc(auto_cfg = false))]
+    #[cfg(any(doc, not(feature = "serializable_server_state")))]
     #[inline]
-    pub fn remove_expired_ceremonies(&mut self) {
+    pub fn remove_expired_ceremonies(&mut self) -> Option<Instant> {
         // Even though it's more accurate to check the current `Instant` for each ceremony, we elect to capture
         // the `Instant` we begin iteration for performance reasons. It's unlikely an appreciable amount of
         // additional ceremonies would be removed.
-        #[cfg(not(feature = "serializable_server_state"))]
         let now = Instant::now();
-        #[cfg(feature = "serializable_server_state")]
+        let mut some = true;
+        let mut expiry_min = None;
+        self.retain(|k, _| {
+            let expiry = k.expiration();
+            if expiry >= now {
+                match expiry_min {
+                    None => expiry_min = Some(expiry),
+                    Some(ref mut e) if expiry < *e => *e = expiry,
+                    _ => {}
+                }
+                true
+            } else {
+                some = false;
+                false
+            }
+        });
+        if some { expiry_min } else { None }
+    }
+    /// Removes all expired ceremonies.
+    ///
+    /// `None` is returned iff at least one expired ceremony was removed; otherwise returns the earliest
+    /// expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is returned instead.
+    #[cfg(all(not(doc), feature = "serializable_server_state"))]
+    #[inline]
+    pub fn remove_expired_ceremonies(&mut self) -> Option<SystemTime> {
+        // Even though it's more accurate to check the current `SystemTime` for each ceremony, we elect to capture
+        // the `SystemTime` we begin iteration for performance reasons. It's unlikely an appreciable amount of
+        // additional ceremonies would be removed.
         let now = SystemTime::now();
-        self.retain(|v, _| v.expiration() >= now);
+        let mut some = true;
+        let mut expiry_min = None;
+        self.retain(|k, _| {
+            let expiry = k.expiration();
+            if expiry >= now {
+                match expiry_min {
+                    None => expiry_min = Some(expiry),
+                    Some(ref mut e) if expiry < *e => *e = expiry,
+                    _ => {}
+                }
+                true
+            } else {
+                some = false;
+                false
+            }
+        });
+        if some { expiry_min } else { None }
     }
     /// Removes the first encountered expired ceremony.
+    ///
+    /// `None` is returned iff an expired ceremony was removed; otherwise returns the earliest
+    /// expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is returned instead.
+    #[cfg_attr(docsrs, doc(auto_cfg = false))]
+    #[cfg(any(doc, not(feature = "serializable_server_state")))]
     #[inline]
-    pub fn remove_first_expired_ceremony(&mut self) {
-        #[cfg(not(feature = "serializable_server_state"))]
+    pub fn remove_first_expired_ceremony(&mut self) -> Option<Instant> {
+        // Even though it's more accurate to check the current `Instant` for each ceremony, we elect to capture
+        // the `Instant` we begin iteration for performance reasons. It's unlikely an appreciable amount of
+        // additional ceremonies would be removed.
         let now = Instant::now();
-        #[cfg(feature = "serializable_server_state")]
-        let now = SystemTime::now();
-        drop(self.0.extract_if(|k, _| k.expiration() < now).next());
+        let mut expiry_min = None;
+        self.0
+            .extract_if(|k, _| {
+                let expiry = k.expiration();
+                if expiry < now {
+                    true
+                } else {
+                    match expiry_min {
+                        None => expiry_min = Some(expiry),
+                        Some(ref mut e) if expiry < *e => *e = expiry,
+                        _ => {}
+                    }
+                    false
+                }
+            })
+            .next()
+            .map_or(expiry_min, |_| None)
     }
+    /// Removes the first encountered expired ceremony.
+    ///
+    /// `None` is returned iff an expired ceremony was removed; otherwise returns the earliest
+    /// expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is returned instead.
+    #[cfg(all(not(doc), feature = "serializable_server_state"))]
+    #[inline]
+    pub fn remove_first_expired_ceremony(&mut self) -> Option<SystemTime> {
+        // Even though it's more accurate to check the current `SystemTime` for each ceremony, we elect to capture
+        // the `SystemTime` we begin iteration for performance reasons. It's unlikely an appreciable amount of
+        // additional ceremonies would be removed.
+        let now = SystemTime::now();
+        let mut expiry_min = None;
+        self.0
+            .extract_if(|k, _| {
+                let expiry = k.expiration();
+                if expiry < now {
+                    true
+                } else {
+                    match expiry_min {
+                        None => expiry_min = Some(expiry),
+                        Some(ref mut e) if expiry < *e => *e = expiry,
+                        _ => {}
+                    }
+                    false
+                }
+            })
+            .next()
+            .map_or(expiry_min, |_| None)
+    }
+}
+/// Signifies the consequences of [`MaxLenHashMap::insert`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Insert<V> {
+    /// The entry was successfully inserted.
+    Success,
+    /// The value replaced the contained value.
+    Previous(V),
+    /// The key does not exist, but there was no available capacity to insert the entry.
+    CapacityFull,
+}
+/// Error returned from [`MaxLenHashMap::try_insert`].
+#[derive(Debug)]
+pub enum FullCapOccupiedErr<'a, K, V, S> {
+    /// Error when the key already exists.
+    Occupied(OccupiedError<'a, K, V, S>),
+    /// Error when there is no available capacity and the key does not exist.
+    CapacityFull,
+}
+/// Error returned from [`MaxLenHashMap::try_insert_remove_expired`] and
+/// [`MaxLenHashMap::try_insert_remove_all_expired`].
+#[derive(Debug)]
+pub enum FullCapRemoveExpiredOccupiedErr<'a, K, V, S> {
+    /// Error when the key already exists.
+    Occupied(OccupiedError<'a, K, V, S>),
+    /// Error when there was is no available capacity to insert the entry and no expired
+    /// [`TimedCeremony`]s could be removed.
+    ///
+    /// The contained `Instant` is the earliest expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is contained instead.
+    #[cfg_attr(docsrs, doc(auto_cfg = false))]
+    #[cfg(any(doc, not(feature = "serializable_server_state")))]
+    CapacityFull(Instant),
+    /// Error when there was is no available capacity to insert the entry and no expired
+    /// [`TimedCeremony`]s could be removed.
+    ///
+    /// The contained `Instant` is the earliest expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is contained instead.
+    #[cfg(all(not(doc), feature = "serializable_server_state"))]
+    CapacityFull(SystemTime),
+}
+/// Signifies the consequences of [`MaxLenHashMap::insert_remove_expired`] and
+/// [`MaxLenHashMap::insert_remove_all_expired`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InsertRemoveExpired<V> {
+    /// The entry was successfully inserted.
+    Success,
+    /// The value replaced the contained value.
+    Previous(V),
+    /// The key does not exist, but there was no available capacity to insert the entry and no expired
+    /// [`TimedCeremony`]s could be removed.
+    ///
+    /// The contained `Instant` is the earliest expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is contained instead.
+    #[cfg_attr(docsrs, doc(auto_cfg = false))]
+    #[cfg(any(doc, not(feature = "serializable_server_state")))]
+    CapacityFull(Instant),
+    /// The value does not exist, but there was no available capacity to insert it and no expired
+    /// [`TimedCeremony`]s that could be removed.
+    ///
+    /// The contained `Instant` is the earliest expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is contained instead.
+    #[cfg(all(not(doc), feature = "serializable_server_state"))]
+    CapacityFull(SystemTime),
+}
+/// Signifies the consequences of [`MaxLenHashMap::entry`] and [`MaxLenHashMap::entry_ref`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntryStatus<E> {
+    /// The entry was successfully grabbed.
+    Success(E),
+    /// The capacity was full, and there was no value where the entry would be.
+    CapacityFull,
+}
+/// Signifies the consequences of [`MaxLenHashMap::entry_remove_expired`] and
+/// [`MaxLenHashMap::entry_remove_all_expired`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntryStatusRemoveExpired<E> {
+    /// The entry was successfully grabbed.
+    Success(E),
+    /// The capacity was full, and there was no value where the entry would be.
+    ///
+    /// The contained `Instant` is the earliest expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is contained instead.
+    #[cfg_attr(docsrs, doc(auto_cfg = false))]
+    #[cfg(any(doc, not(feature = "serializable_server_state")))]
+    CapacityFull(Instant),
+    /// The capacity was full, and there was no value where the entry would be.
+    ///
+    /// The contained `Instant` is the earliest expiration.
+    ///
+    /// Note when `serializable_server_state` is enabled, [`SystemTime`] is contained instead.
+    #[cfg(all(not(doc), feature = "serializable_server_state"))]
+    CapacityFull(SystemTime),
 }
 impl<K: Eq + Hash, V, S: BuildHasher> MaxLenHashMap<K, V, S> {
     /// [`HashMap::with_hasher`] using `hasher` followed by [`HashMap::try_reserve`] using `2 * max_len`.
@@ -202,172 +405,239 @@ impl<K: Eq + Hash, V, S: BuildHasher> MaxLenHashMap<K, V, S> {
     }
     /// [`HashMap::try_insert`].
     ///
-    /// `Ok(None)` is returned iff [`HashMap::len`] `==` [`Self::max_len`] and `key` does not already exist in
-    /// the map.
-    ///
     /// # Errors
     ///
-    /// Errors iff [`HashMap::insert`] does.
+    /// Errors iff [`HashMap::try_insert`] does or there is no available capacity to insert the entry.
     #[inline]
     pub fn try_insert(
         &mut self,
         key: K,
         value: V,
-    ) -> Result<Option<&mut V>, OccupiedError<'_, K, V, S>> {
+    ) -> Result<&mut V, FullCapOccupiedErr<'_, K, V, S>> {
         let full = self.0.len() == self.1;
         match self.0.entry(key) {
-            Entry::Occupied(entry) => Err(OccupiedError { entry, value }),
+            Entry::Occupied(entry) => {
+                Err(FullCapOccupiedErr::Occupied(OccupiedError { entry, value }))
+            }
             Entry::Vacant(ent) => {
                 if full {
-                    Ok(None)
+                    Err(FullCapOccupiedErr::CapacityFull)
                 } else {
-                    Ok(Some(ent.insert(value)))
+                    Ok(ent.insert(value))
                 }
             }
         }
     }
     /// [`HashMap::insert`].
-    ///
-    /// `None` is returned iff [`HashMap::len`] `==` [`Self::max_len`] and `key` does not already exist in the
-    /// map.
     #[inline]
-    pub fn insert(&mut self, k: K, v: V) -> Option<Option<V>> {
+    pub fn insert(&mut self, k: K, v: V) -> Insert<V> {
         let full = self.0.len() == self.1;
         match self.0.entry(k) {
-            Entry::Occupied(mut ent) => Some(Some(ent.insert(v))),
+            Entry::Occupied(mut ent) => Insert::Previous(ent.insert(v)),
             Entry::Vacant(ent) => {
                 if full {
-                    None
+                    Insert::CapacityFull
                 } else {
                     _ = ent.insert(v);
-                    Some(None)
+                    Insert::Success
                 }
             }
         }
     }
     /// [`HashMap::entry`].
-    ///
-    /// `None` is returned iff [`HashMap::len`] `==` [`Self::max_len`] and `key` does not already exist in the
-    /// map.
     #[inline]
-    pub fn entry(&mut self, key: K) -> Option<Entry<'_, K, V, S>> {
+    pub fn entry(&mut self, key: K) -> EntryStatus<Entry<'_, K, V, S>> {
         let full = self.0.len() == self.1;
         match self.0.entry(key) {
-            ent @ Entry::Occupied(_) => Some(ent),
+            ent @ Entry::Occupied(_) => EntryStatus::Success(ent),
             ent @ Entry::Vacant(_) => {
                 if full {
-                    None
+                    EntryStatus::CapacityFull
                 } else {
-                    Some(ent)
+                    EntryStatus::Success(ent)
                 }
             }
         }
     }
     /// [`HashMap::entry_ref`].
-    ///
-    /// `None` is returned iff [`HashMap::len`] `==` [`Self::max_len`] and `key` does not already exist in the
-    /// map.
     #[inline]
     pub fn entry_ref<'a, 'b, Q: Equivalent<K> + Hash + ?Sized>(
         &'a mut self,
         key: &'b Q,
-    ) -> Option<EntryRef<'a, 'b, K, Q, V, S>> {
+    ) -> EntryStatus<EntryRef<'a, 'b, K, Q, V, S>> {
         let full = self.0.len() == self.1;
         match self.0.entry_ref(key) {
-            ent @ EntryRef::Occupied(_) => Some(ent),
+            ent @ EntryRef::Occupied(_) => EntryStatus::Success(ent),
             ent @ EntryRef::Vacant(_) => {
                 if full {
-                    None
+                    EntryStatus::CapacityFull
                 } else {
-                    Some(ent)
+                    EntryStatus::Success(ent)
                 }
             }
         }
     }
 }
 impl<K: Eq + Hash + TimedCeremony, V, S: BuildHasher> MaxLenHashMap<K, V, S> {
+    /// [`Self::try_insert`] except the first encountered expired ceremony is removed in the event [`Self::max_len`]
+    /// entries have been added.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`HashMap::try_insert`] does after removing the first expired ceremony.
+    #[inline]
+    pub fn try_insert_remove_expired(
+        &mut self,
+        key: K,
+        value: V,
+    ) -> Result<&mut V, FullCapRemoveExpiredOccupiedErr<'_, K, V, S>> {
+        if self.0.len() == self.1 {
+            match self.remove_first_expired_ceremony() {
+                None => self
+                    .0
+                    .try_insert(key, value)
+                    .map_err(FullCapRemoveExpiredOccupiedErr::Occupied),
+                Some(exp) => {
+                    if let Entry::Occupied(entry) = self.0.entry(key) {
+                        Err(FullCapRemoveExpiredOccupiedErr::Occupied(OccupiedError {
+                            entry,
+                            value,
+                        }))
+                    } else {
+                        Err(FullCapRemoveExpiredOccupiedErr::CapacityFull(exp))
+                    }
+                }
+            }
+        } else {
+            self.0
+                .try_insert(key, value)
+                .map_err(FullCapRemoveExpiredOccupiedErr::Occupied)
+        }
+    }
+    /// [`Self::try_insert`] except all expired ceremonies are removed in the event [`Self::max_len`] entries have
+    /// been added.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff [`HashMap::try_insert`] does after removing all expired ceremonies.
+    #[inline]
+    pub fn try_insert_remove_all_expired(
+        &mut self,
+        key: K,
+        value: V,
+    ) -> Result<&mut V, FullCapRemoveExpiredOccupiedErr<'_, K, V, S>> {
+        if self.0.len() == self.1 {
+            match self.remove_expired_ceremonies() {
+                None => self
+                    .0
+                    .try_insert(key, value)
+                    .map_err(FullCapRemoveExpiredOccupiedErr::Occupied),
+                Some(exp) => {
+                    if let Entry::Occupied(entry) = self.0.entry(key) {
+                        Err(FullCapRemoveExpiredOccupiedErr::Occupied(OccupiedError {
+                            entry,
+                            value,
+                        }))
+                    } else {
+                        Err(FullCapRemoveExpiredOccupiedErr::CapacityFull(exp))
+                    }
+                }
+            }
+        } else {
+            self.0
+                .try_insert(key, value)
+                .map_err(FullCapRemoveExpiredOccupiedErr::Occupied)
+        }
+    }
     /// [`Self::insert`] except the first encountered expired ceremony is removed in the event [`Self::max_len`]
     /// entries have been added.
     #[inline]
-    pub fn insert_remove_expired(&mut self, k: K, v: V) -> Option<Option<V>> {
+    pub fn insert_remove_expired(&mut self, k: K, v: V) -> InsertRemoveExpired<V> {
         if self.0.len() == self.1 {
-            #[cfg(not(feature = "serializable_server_state"))]
-            let now = Instant::now();
-            #[cfg(feature = "serializable_server_state")]
-            let now = SystemTime::now();
-            if self
-                .0
-                .extract_if(|exp, _| exp.expiration() < now)
-                .next()
-                .is_some()
-            {
-                Some(self.0.insert(k, v))
-            } else if let Entry::Occupied(mut ent) = self.0.entry(k) {
-                Some(Some(ent.insert(v)))
-            } else {
-                None
+            match self.remove_first_expired_ceremony() {
+                None => self.0.insert(k, v).map_or_else(
+                    || InsertRemoveExpired::Success,
+                    InsertRemoveExpired::Previous,
+                ),
+                Some(exp) => {
+                    if let Entry::Occupied(mut ent) = self.0.entry(k) {
+                        InsertRemoveExpired::Previous(ent.insert(v))
+                    } else {
+                        InsertRemoveExpired::CapacityFull(exp)
+                    }
+                }
             }
         } else {
-            Some(self.0.insert(k, v))
+            self.0.insert(k, v).map_or_else(
+                || InsertRemoveExpired::Success,
+                InsertRemoveExpired::Previous,
+            )
         }
     }
     /// [`Self::insert`] except all expired ceremonies are removed in the event [`Self::max_len`] entries have
     /// been added.
     #[inline]
-    pub fn insert_remove_all_expired(&mut self, k: K, v: V) -> Option<Option<V>> {
+    pub fn insert_remove_all_expired(&mut self, k: K, v: V) -> InsertRemoveExpired<V> {
         if self.0.len() == self.1 {
-            self.remove_expired_ceremonies();
-        }
-        if self.0.len() == self.1 {
-            if let Entry::Occupied(mut ent) = self.0.entry(k) {
-                Some(Some(ent.insert(v)))
-            } else {
-                None
+            match self.remove_expired_ceremonies() {
+                None => self.0.insert(k, v).map_or_else(
+                    || InsertRemoveExpired::Success,
+                    InsertRemoveExpired::Previous,
+                ),
+                Some(exp) => {
+                    if let Entry::Occupied(mut ent) = self.0.entry(k) {
+                        InsertRemoveExpired::Previous(ent.insert(v))
+                    } else {
+                        InsertRemoveExpired::CapacityFull(exp)
+                    }
+                }
             }
         } else {
-            Some(self.0.insert(k, v))
+            self.0.insert(k, v).map_or_else(
+                || InsertRemoveExpired::Success,
+                InsertRemoveExpired::Previous,
+            )
         }
     }
     /// [`Self::entry`] except the first encountered expired ceremony is removed in the event [`Self::max_len`]
     /// entries have been added.
     #[inline]
-    pub fn entry_remove_expired(&mut self, key: K) -> Option<Entry<'_, K, V, S>> {
+    pub fn entry_remove_expired(&mut self, key: K) -> EntryStatusRemoveExpired<Entry<'_, K, V, S>> {
         if self.0.len() == self.1 {
-            #[cfg(not(feature = "serializable_server_state"))]
-            let now = Instant::now();
-            #[cfg(feature = "serializable_server_state")]
-            let now = SystemTime::now();
-            if self
-                .0
-                .extract_if(|v, _| v.expiration() < now)
-                .next()
-                .is_some()
-            {
-                Some(self.0.entry(key))
-            } else if let ent @ Entry::Occupied(_) = self.0.entry(key) {
-                Some(ent)
-            } else {
-                None
+            match self.remove_first_expired_ceremony() {
+                None => EntryStatusRemoveExpired::Success(self.0.entry(key)),
+                Some(exp) => {
+                    if let ent @ Entry::Occupied(_) = self.0.entry(key) {
+                        EntryStatusRemoveExpired::Success(ent)
+                    } else {
+                        EntryStatusRemoveExpired::CapacityFull(exp)
+                    }
+                }
             }
         } else {
-            Some(self.0.entry(key))
+            EntryStatusRemoveExpired::Success(self.0.entry(key))
         }
     }
     /// [`Self::entry`] except all expired ceremonies are removed in the event [`Self::max_len`] entries have
     /// been added.
     #[inline]
-    pub fn entry_remove_all_expired(&mut self, key: K) -> Option<Entry<'_, K, V, S>> {
+    pub fn entry_remove_all_expired(
+        &mut self,
+        key: K,
+    ) -> EntryStatusRemoveExpired<Entry<'_, K, V, S>> {
         if self.0.len() == self.1 {
-            self.remove_expired_ceremonies();
-        }
-        if self.0.len() == self.1 {
-            if let ent @ Entry::Occupied(_) = self.0.entry(key) {
-                Some(ent)
-            } else {
-                None
+            match self.remove_expired_ceremonies() {
+                None => EntryStatusRemoveExpired::Success(self.0.entry(key)),
+                Some(exp) => {
+                    if let ent @ Entry::Occupied(_) = self.0.entry(key) {
+                        EntryStatusRemoveExpired::Success(ent)
+                    } else {
+                        EntryStatusRemoveExpired::CapacityFull(exp)
+                    }
+                }
             }
         } else {
-            Some(self.0.entry(key))
+            EntryStatusRemoveExpired::Success(self.0.entry(key))
         }
     }
     /// [`Self::entry_ref`] except the first encoutered expired ceremony is removed in the event [`Self::max_len`]
@@ -376,26 +646,20 @@ impl<K: Eq + Hash + TimedCeremony, V, S: BuildHasher> MaxLenHashMap<K, V, S> {
     pub fn entry_ref_remove_expired<'a, 'b, Q: Equivalent<K> + Hash + ?Sized>(
         &'a mut self,
         key: &'b Q,
-    ) -> Option<EntryRef<'a, 'b, K, Q, V, S>> {
+    ) -> EntryStatusRemoveExpired<EntryRef<'a, 'b, K, Q, V, S>> {
         if self.0.len() == self.1 {
-            #[cfg(not(feature = "serializable_server_state"))]
-            let now = Instant::now();
-            #[cfg(feature = "serializable_server_state")]
-            let now = SystemTime::now();
-            if self
-                .0
-                .extract_if(|v, _| v.expiration() < now)
-                .next()
-                .is_some()
-            {
-                Some(self.0.entry_ref(key))
-            } else if let ent @ EntryRef::Occupied(_) = self.0.entry_ref(key) {
-                Some(ent)
-            } else {
-                None
+            match self.remove_first_expired_ceremony() {
+                None => EntryStatusRemoveExpired::Success(self.0.entry_ref(key)),
+                Some(exp) => {
+                    if let ent @ EntryRef::Occupied(_) = self.0.entry_ref(key) {
+                        EntryStatusRemoveExpired::Success(ent)
+                    } else {
+                        EntryStatusRemoveExpired::CapacityFull(exp)
+                    }
+                }
             }
         } else {
-            Some(self.0.entry_ref(key))
+            EntryStatusRemoveExpired::Success(self.0.entry_ref(key))
         }
     }
     /// [`Self::entry_ref`] except all expired ceremonies are removed in the event [`Self::max_len`] entries have
@@ -404,18 +668,20 @@ impl<K: Eq + Hash + TimedCeremony, V, S: BuildHasher> MaxLenHashMap<K, V, S> {
     pub fn entry_ref_remove_all_expired<'a, 'b, Q: Equivalent<K> + Hash + ?Sized>(
         &'a mut self,
         key: &'b Q,
-    ) -> Option<EntryRef<'a, 'b, K, Q, V, S>> {
+    ) -> EntryStatusRemoveExpired<EntryRef<'a, 'b, K, Q, V, S>> {
         if self.0.len() == self.1 {
-            self.remove_expired_ceremonies();
-        }
-        if self.0.len() == self.1 {
-            if let ent @ EntryRef::Occupied(_) = self.0.entry_ref(key) {
-                Some(ent)
-            } else {
-                None
+            match self.remove_expired_ceremonies() {
+                None => EntryStatusRemoveExpired::Success(self.0.entry_ref(key)),
+                Some(exp) => {
+                    if let ent @ EntryRef::Occupied(_) = self.0.entry_ref(key) {
+                        EntryStatusRemoveExpired::Success(ent)
+                    } else {
+                        EntryStatusRemoveExpired::CapacityFull(exp)
+                    }
+                }
             }
         } else {
-            Some(self.0.entry_ref(key))
+            EntryStatusRemoveExpired::Success(self.0.entry_ref(key))
         }
     }
 }
@@ -429,5 +695,93 @@ impl<K, V, S> From<MaxLenHashMap<K, V, S>> for HashMap<K, V, S> {
     #[inline]
     fn from(value: MaxLenHashMap<K, V, S>) -> Self {
         value.0
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::{Equivalent, Insert, InsertRemoveExpired, MaxLenHashMap, TimedCeremony};
+    use core::hash::{Hash, Hasher};
+    #[cfg(not(feature = "serializable_server_state"))]
+    use std::time::Instant;
+    #[cfg(feature = "serializable_server_state")]
+    use std::time::SystemTime;
+    #[derive(Clone, Copy)]
+    struct Ceremony {
+        id: usize,
+        #[cfg(not(feature = "serializable_server_state"))]
+        exp: Instant,
+        #[cfg(feature = "serializable_server_state")]
+        exp: SystemTime,
+    }
+    impl Default for Ceremony {
+        fn default() -> Self {
+            Self {
+                id: 0,
+                #[cfg(not(feature = "serializable_server_state"))]
+                exp: Instant::now(),
+                #[cfg(feature = "serializable_server_state")]
+                exp: SystemTime::now(),
+            }
+        }
+    }
+    impl PartialEq for Ceremony {
+        fn eq(&self, other: &Self) -> bool {
+            self.id == other.id
+        }
+    }
+    impl Eq for Ceremony {}
+    impl Hash for Ceremony {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.id.hash(state);
+        }
+    }
+    impl TimedCeremony for Ceremony {
+        #[cfg(not(feature = "serializable_server_state"))]
+        fn expiration(&self) -> Instant {
+            self.exp
+        }
+        #[cfg(feature = "serializable_server_state")]
+        fn expiration(&self) -> SystemTime {
+            self.exp
+        }
+    }
+    impl Equivalent<Ceremony> for usize {
+        #[inline]
+        fn equivalent(&self, key: &Ceremony) -> bool {
+            *self == key.id
+        }
+    }
+    #[test]
+    fn hash_map_insert_removed() {
+        const REQ_MAX_LEN: usize = 8;
+        let mut map = MaxLenHashMap::new(REQ_MAX_LEN);
+        let cap = map.as_ref().capacity();
+        let max_len = map.max_len();
+        assert_eq!(cap >> 1u8, max_len);
+        assert!(max_len >= REQ_MAX_LEN);
+        let mut cer = Ceremony::default();
+        for i in 0..max_len {
+            assert!(map.as_ref().capacity() <= cap);
+            cer.id = i;
+            assert_eq!(map.insert(cer, i), Insert::Success);
+        }
+        assert!(map.as_ref().capacity() <= cap);
+        assert_eq!(map.as_ref().len(), max_len);
+        for i in 0..max_len {
+            assert!(map.as_ref().contains_key(&i));
+        }
+        cer.id = cap;
+        assert_eq!(
+            map.insert_remove_expired(cer, 10),
+            InsertRemoveExpired::Success
+        );
+        assert!(map.as_ref().capacity() <= cap);
+        assert_eq!(map.as_ref().len(), max_len);
+        let mut counter = 0;
+        for i in 0..max_len {
+            counter += usize::from(map.as_ref().contains_key(&i));
+        }
+        assert_eq!(counter, max_len - 1);
+        assert!(map.as_ref().contains_key(&(max_len - 1)));
     }
 }
