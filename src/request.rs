@@ -1741,7 +1741,6 @@ mod tests {
     #[cfg(feature = "custom")]
     use ml_dsa::{
         MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSignature, SigningKey as MlDsaSigKey,
-        signature::Signer as _,
     };
     #[cfg(feature = "custom")]
     use p256::{
@@ -1752,7 +1751,7 @@ mod tests {
     use p384::ecdsa::{DerSignature as P384DerSig, SigningKey as P384Key};
     #[cfg(feature = "custom")]
     use rsa::{
-        BigUint, RsaPrivateKey,
+        BoxedUint, RsaPrivateKey,
         pkcs1v15::SigningKey as RsaKey,
         sha2::{Digest as _, Sha256},
         signature::{Keypair as _, SignatureEncoding as _},
@@ -9299,7 +9298,7 @@ mod tests {
         )
         .unwrap()
         .verifying_key()
-        .to_encoded_point(false);
+        .to_sec1_point(false);
         let x = p256_key.x().unwrap();
         let y = p256_key.y().unwrap();
         attestation_object[111..143].copy_from_slice(x);
@@ -9396,7 +9395,7 @@ mod tests {
         )
         .unwrap();
         let der_sig: P256DerSig = p256_key.sign(authenticator_data.as_slice());
-        let pub_key = p256_key.verifying_key().to_encoded_point(true);
+        let pub_key = p256_key.verifying_key().to_sec1_point(true);
         authenticator_data.truncate(37);
         assert!(!opts.start_ceremony()?.0.verify(
             RP_ID,
@@ -9713,7 +9712,7 @@ mod tests {
         )
         .unwrap()
         .verifying_key()
-        .to_encoded_point(false);
+        .to_sec1_point(false);
         let x = p384_key.x().unwrap();
         let y = p384_key.y().unwrap();
         attestation_object[112..160].copy_from_slice(x);
@@ -9811,7 +9810,7 @@ mod tests {
         )
         .unwrap();
         let der_sig: P384DerSig = p384_key.sign(authenticator_data.as_slice());
-        let pub_key = p384_key.verifying_key().to_encoded_point(true);
+        let pub_key = p384_key.verifying_key().to_sec1_point(true);
         authenticator_data.truncate(37);
         assert!(!opts.start_ceremony()?.0.verify(
             RP_ID,
@@ -10311,7 +10310,7 @@ mod tests {
             24, 245, 127, 122, 247, 152, 212, 75, 45, 59, 90, 184, 234, 31, 147, 36, 8, 212, 45,
             50, 23, 3, 25, 253, 87, 227, 79, 119, 161,
         ];
-        let p = BigUint::from_bytes_le(
+        let p = BoxedUint::from_le_slice_vartime(
             [
                 215, 166, 5, 21, 11, 179, 41, 77, 198, 92, 165, 48, 77, 162, 42, 41, 206, 141, 60,
                 69, 47, 164, 19, 92, 46, 72, 100, 238, 100, 53, 214, 197, 163, 185, 6, 140, 229,
@@ -10324,7 +10323,7 @@ mod tests {
             ]
             .as_slice(),
         );
-        let p_2 = BigUint::from_bytes_le(
+        let p_2 = BoxedUint::from_le_slice_vartime(
             [
                 41, 25, 198, 240, 134, 206, 121, 57, 11, 5, 134, 192, 212, 77, 229, 197, 14, 78,
                 85, 212, 190, 114, 179, 188, 21, 171, 174, 12, 104, 74, 15, 164, 136, 173, 62, 177,
@@ -10339,16 +10338,16 @@ mod tests {
         );
         let rsa_key = RsaKey::<Sha256>::new(
             RsaPrivateKey::from_components(
-                BigUint::from_bytes_le(n.as_slice()),
+                BoxedUint::from_le_slice_vartime(n.as_slice()),
                 e.into(),
-                BigUint::from_bytes_le(d.as_slice()),
+                BoxedUint::from_le_slice_vartime(d.as_slice()),
                 vec![p, p_2],
             )
             .unwrap(),
         )
         .verifying_key();
-        let n_other = rsa_key.as_ref().n().to_bytes_be();
-        attestation_object[113..369].copy_from_slice(n_other.as_slice());
+        let n_other = rsa_key.as_ref().n().to_be_bytes();
+        attestation_object[113..369].copy_from_slice(&n_other);
         assert!(matches!(opts.start_ceremony()?.0.verify(
             RP_ID,
             &Registration {
@@ -10364,7 +10363,7 @@ mod tests {
                 },
             },
             &RegistrationVerificationOptions::<&str, &str>::default(),
-        )?.static_state.credential_public_key, UncompressedPubKey::Rsa(k) if *k.n() == n_other.as_slice() && k.e() == e));
+        )?.static_state.credential_public_key, UncompressedPubKey::Rsa(k) if **k.n() == *n_other  && k.e() == e));
         Ok(())
     }
     #[expect(
@@ -10466,7 +10465,7 @@ mod tests {
             24, 245, 127, 122, 247, 152, 212, 75, 45, 59, 90, 184, 234, 31, 147, 36, 8, 212, 45,
             50, 23, 3, 25, 253, 87, 227, 79, 119, 161,
         ];
-        let p = BigUint::from_bytes_le(
+        let p = BoxedUint::from_le_slice_vartime(
             [
                 215, 166, 5, 21, 11, 179, 41, 77, 198, 92, 165, 48, 77, 162, 42, 41, 206, 141, 60,
                 69, 47, 164, 19, 92, 46, 72, 100, 238, 100, 53, 214, 197, 163, 185, 6, 140, 229,
@@ -10479,7 +10478,7 @@ mod tests {
             ]
             .as_slice(),
         );
-        let p_2 = BigUint::from_bytes_le(
+        let p_2 = BoxedUint::from_le_slice_vartime(
             [
                 41, 25, 198, 240, 134, 206, 121, 57, 11, 5, 134, 192, 212, 77, 229, 197, 14, 78,
                 85, 212, 190, 114, 179, 188, 21, 171, 174, 12, 104, 74, 15, 164, 136, 173, 62, 177,
@@ -10494,9 +10493,9 @@ mod tests {
         );
         let rsa_key = RsaKey::<Sha256>::new(
             RsaPrivateKey::from_components(
-                BigUint::from_bytes_le(n.as_slice()),
+                BoxedUint::from_le_slice_vartime(n.as_slice()),
                 e.into(),
-                BigUint::from_bytes_le(d.as_slice()),
+                BoxedUint::from_le_slice_vartime(d.as_slice()),
                 vec![p, p_2],
             )
             .unwrap(),
@@ -10504,46 +10503,40 @@ mod tests {
         let rsa_pub = rsa_key.verifying_key();
         let sig = rsa_key.sign(authenticator_data.as_slice()).to_vec();
         authenticator_data.truncate(37);
-        assert!(
-            !opts.start_ceremony()?.0.verify(
-                RP_ID,
-                &DiscoverableAuthentication {
-                    raw_id: CredentialId::try_from(vec![0; 16].into_boxed_slice())?,
-                    response: DiscoverableAuthenticatorAssertion::new(
-                        client_data_json,
-                        authenticator_data,
-                        sig,
-                        UserHandle::from([0]),
+        assert!(!opts.start_ceremony()?.0.verify(
+            RP_ID,
+            &DiscoverableAuthentication {
+                raw_id: CredentialId::try_from(vec![0; 16].into_boxed_slice())?,
+                response: DiscoverableAuthenticatorAssertion::new(
+                    client_data_json,
+                    authenticator_data,
+                    sig,
+                    UserHandle::from([0]),
+                ),
+                authenticator_attachment: AuthenticatorAttachment::None,
+            },
+            &mut AuthenticatedCredential::new(
+                CredentialId::try_from([0; 16].as_slice())?,
+                &UserHandle::from([0]),
+                StaticState {
+                    credential_public_key: CompressedPubKeyOwned::Rsa(
+                        RsaPubKey::try_from((rsa_pub.as_ref().n().to_be_bytes(), e)).unwrap(),
                     ),
+                    extensions: AuthenticatorExtensionOutputStaticState {
+                        cred_protect: CredentialProtectionPolicy::None,
+                        hmac_secret: None,
+                    },
+                    client_extension_results: ClientExtensionsOutputsStaticState { prf: None }
+                },
+                DynamicState {
+                    user_verified: true,
+                    backup: Backup::NotEligible,
+                    sign_count: 0,
                     authenticator_attachment: AuthenticatorAttachment::None,
                 },
-                &mut AuthenticatedCredential::new(
-                    CredentialId::try_from([0; 16].as_slice())?,
-                    &UserHandle::from([0]),
-                    StaticState {
-                        credential_public_key: CompressedPubKeyOwned::Rsa(
-                            RsaPubKey::try_from((
-                                rsa_pub.as_ref().n().to_bytes_be().into_boxed_slice(),
-                                e
-                            ))
-                            .unwrap(),
-                        ),
-                        extensions: AuthenticatorExtensionOutputStaticState {
-                            cred_protect: CredentialProtectionPolicy::None,
-                            hmac_secret: None,
-                        },
-                        client_extension_results: ClientExtensionsOutputsStaticState { prf: None }
-                    },
-                    DynamicState {
-                        user_verified: true,
-                        backup: Backup::NotEligible,
-                        sign_count: 0,
-                        authenticator_attachment: AuthenticatorAttachment::None,
-                    },
-                )?,
-                &AuthenticationVerificationOptions::<&str, &str>::default(),
-            )?
-        );
+            )?,
+            &AuthenticationVerificationOptions::<&str, &str>::default(),
+        )?);
         Ok(())
     }
 }

@@ -41,21 +41,18 @@ use core::{
     fmt::{self, Display, Formatter},
 };
 use ed25519_dalek::{Signature, Verifier as _, VerifyingKey};
-use ml_dsa::{
-    MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSignature, VerifyingKey as MlDsaVerKey,
-    signature::Verifier as _,
-};
+use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSignature, VerifyingKey as MlDsaVerKey};
 use p256::{
-    AffinePoint as P256Affine, EncodedPoint as P256Pt, NistP256,
+    AffinePoint as P256Affine, NistP256, Sec1Point as P256Pt,
     ecdsa::{DerSignature as P256Sig, VerifyingKey as P256VerKey},
-    elliptic_curve::{Curve, generic_array::typenum::ToInt as _, point::DecompressPoint as _},
+    elliptic_curve::{Curve, common::typenum::ToInt as _, point::DecompressPoint as _},
 };
 use p384::{
-    AffinePoint as P384Affine, EncodedPoint as P384Pt, NistP384,
+    AffinePoint as P384Affine, NistP384, Sec1Point as P384Pt,
     ecdsa::{DerSignature as P384Sig, VerifyingKey as P384VerKey},
 };
 use rsa::{
-    BigUint, RsaPublicKey,
+    BoxedUint, RsaPublicKey,
     pkcs1v15::{self, VerifyingKey as RsaVerKey},
     sha2::{Sha256, digest::Digest as _},
 };
@@ -1169,10 +1166,17 @@ impl<'a> UncompressedP256PubKey<'a> {
         self.into_ver_key().map(|_| ())
     }
     /// Converts `self` into [`P256VerKey`].
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
     fn into_ver_key(self) -> Result<P256VerKey, PubKeyErr> {
-        P256VerKey::from_encoded_point(&P256Pt::from_affine_coordinates(
-            self.0.into(),
-            self.1.into(),
+        P256VerKey::from_sec1_point(&P256Pt::from_affine_coordinates(
+            self.0
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
+            self.1
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
             false,
         ))
         .map_err(|_e| PubKeyErr::P256)
@@ -1295,11 +1299,18 @@ impl CompressedP256PubKey<&[u8]> {
         self.into_ver_key().map(|_| ())
     }
     /// Converts `self` into [`P256VerKey`].
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
     pub(super) fn into_ver_key(self) -> Result<P256VerKey, PubKeyErr> {
-        P256Affine::decompress(self.x.into(), u8::from(self.y_is_odd).into())
-            .into_option()
-            .ok_or(PubKeyErr::P256)
-            .and_then(|pt| P256VerKey::from_affine(pt).map_err(|_e| PubKeyErr::P256))
+        P256Affine::decompress(
+            self.x
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
+            u8::from(self.y_is_odd).into(),
+        )
+        .into_option()
+        .ok_or(PubKeyErr::P256)
+        .and_then(|pt| P256VerKey::from_affine(pt).map_err(|_e| PubKeyErr::P256))
     }
 }
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], bool)> for CompressedP256PubKey<&'b [u8]> {
@@ -1428,10 +1439,17 @@ impl<'a> UncompressedP384PubKey<'a> {
         self.into_ver_key().map(|_| ())
     }
     /// Converts `self` into [`P384VerKey`].
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
     fn into_ver_key(self) -> Result<P384VerKey, PubKeyErr> {
-        P384VerKey::from_encoded_point(&P384Pt::from_affine_coordinates(
-            self.0.into(),
-            self.1.into(),
+        P384VerKey::from_sec1_point(&P384Pt::from_affine_coordinates(
+            self.0
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
+            self.1
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
             false,
         ))
         .map_err(|_e| PubKeyErr::P384)
@@ -1555,11 +1573,18 @@ impl CompressedP384PubKey<&[u8]> {
         self.into_ver_key().map(|_| ())
     }
     /// Converts `self` into [`P384VerKey`].
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
     pub(super) fn into_ver_key(self) -> Result<P384VerKey, PubKeyErr> {
-        P384Affine::decompress(self.x.into(), u8::from(self.y_is_odd).into())
-            .into_option()
-            .ok_or(PubKeyErr::P384)
-            .and_then(|pt| P384VerKey::from_affine(pt).map_err(|_e| PubKeyErr::P384))
+        P384Affine::decompress(
+            self.x
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
+            u8::from(self.y_is_odd).into(),
+        )
+        .into_option()
+        .ok_or(PubKeyErr::P384)
+        .and_then(|pt| P384VerKey::from_affine(pt).map_err(|_e| PubKeyErr::P384))
     }
 }
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], bool)> for CompressedP384PubKey<&'b [u8]> {
@@ -1708,7 +1733,7 @@ impl<T: AsRef<[u8]>> RsaPubKey<T> {
     /// Converts `self` into [`RsaVerKey`].
     pub(super) fn as_ver_key(&self) -> RsaVerKey<Sha256> {
         RsaVerKey::new(RsaPublicKey::new_unchecked(
-            BigUint::from_bytes_be(self.0.as_ref()),
+            BoxedUint::from_be_slice_vartime(self.0.as_ref()),
             self.1.into(),
         ))
     }
@@ -4149,8 +4174,6 @@ mod tests {
     };
     use ed25519_dalek::Verifier as _;
     use p256::ecdsa::{DerSignature as P256Sig, SigningKey as P256Key};
-    #[cfg(not(feature = "serde"))]
-    use pkcs8 as _;
     use rsa::sha2::{Digest as _, Sha256};
     #[expect(clippy::panic, reason = "OK in tests")]
     #[expect(
@@ -4212,7 +4235,7 @@ mod tests {
         let key = *P256Key::from_slice(credential_private_key.as_slice())
             .unwrap()
             .verifying_key();
-        let enc_key = key.to_encoded_point(false);
+        let enc_key = key.to_sec1_point(false);
         let auth_attest =
             AuthenticatorAttestation::new(client_data_json, attestation_object, AuthTransports(0));
         let att_obj = AttestationObject::from_data(
@@ -4285,7 +4308,7 @@ mod tests {
         let key = *P256Key::from_slice(credential_private_key.as_slice())
             .unwrap()
             .verifying_key();
-        let enc_key = key.to_encoded_point(false);
+        let enc_key = key.to_sec1_point(false);
         let auth_attest =
             AuthenticatorAttestation::new(client_data_json, attestation_object, AuthTransports(0));
         let (att_obj, auth_idx) = AttestationObject::parse_data(auth_attest.attestation_object())?;

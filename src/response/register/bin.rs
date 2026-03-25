@@ -17,7 +17,7 @@ use core::{
 };
 use p256::{
     NistP256,
-    elliptic_curve::{Curve, generic_array::typenum::ToInt as _},
+    elliptic_curve::{Curve, common::typenum::ToInt as _},
 };
 use p384::NistP384;
 impl EncodeBuffer for CredentialProtectionPolicy {

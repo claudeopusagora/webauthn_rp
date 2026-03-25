@@ -446,13 +446,12 @@ mod tests {
     use ed25519_dalek::{VerifyingKey, pkcs8::EncodePublicKey as _};
     use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, VerifyingKey as MlDsaVerKey};
     use p256::{
-        EncodedPoint as P256Pt, PublicKey as P256PubKey, SecretKey as P256Key,
-        elliptic_curve::sec1::{FromEncodedPoint as _, ToEncodedPoint as _},
+        PublicKey as P256PubKey, Sec1Point as P256Pt, SecretKey as P256Key,
+        elliptic_curve::sec1::{FromSec1Point as _, ToSec1Point as _},
     };
-    use p384::{EncodedPoint as P384Pt, PublicKey as P384PubKey, SecretKey as P384Key};
-    use pkcs8::EncodePublicKey as _;
+    use p384::{PublicKey as P384PubKey, Sec1Point as P384Pt, SecretKey as P384Key};
     use rsa::{
-        BigUint, RsaPrivateKey,
+        BoxedUint, RsaPrivateKey,
         sha2::{Digest as _, Sha256},
         traits::PublicKeyParts as _,
     };
@@ -10357,7 +10356,7 @@ mod tests {
         )
         .unwrap()
         .public_key();
-        let enc_key = key.to_encoded_point(false);
+        let enc_key = key.to_sec1_point(false);
         let pub_key = key.to_public_key_der().unwrap();
         let att_obj_len = att_obj.len();
         let x_start = att_obj_len - 67;
@@ -10478,7 +10477,7 @@ mod tests {
             .unwrap(),
         );
         // `publicKey` mismatch.
-        let bad_pub_key = P256PubKey::from_encoded_point(&P256Pt::from_affine_coordinates(
+        let bad_pub_key = P256PubKey::from_sec1_point(&P256Pt::from_affine_coordinates(
             &[
                 66, 71, 188, 41, 125, 2, 226, 44, 148, 62, 63, 190, 172, 64, 33, 214, 6, 37, 148,
                 23, 240, 235, 203, 84, 112, 219, 232, 197, 54, 182, 17, 235,
@@ -10836,7 +10835,7 @@ mod tests {
         )
         .unwrap()
         .public_key();
-        let enc_key = key.to_encoded_point(false);
+        let enc_key = key.to_sec1_point(false);
         let pub_key = key.to_public_key_der().unwrap();
         let att_obj_len = att_obj.len();
         let x_start = att_obj_len - 99;
@@ -10957,7 +10956,7 @@ mod tests {
             .unwrap(),
         );
         // `publicKey` mismatch.
-        let bad_pub_key = P384PubKey::from_encoded_point(&P384Pt::from_affine_coordinates(
+        let bad_pub_key = P384PubKey::from_sec1_point(&P384Pt::from_affine_coordinates(
             &[
                 192, 10, 27, 46, 66, 67, 80, 98, 33, 230, 156, 95, 1, 135, 150, 110, 64, 243, 22,
                 118, 5, 255, 107, 44, 234, 111, 217, 105, 125, 114, 39, 7, 126, 2, 191, 111, 48,
@@ -11558,7 +11557,7 @@ mod tests {
             24, 245, 127, 122, 247, 152, 212, 75, 45, 59, 90, 184, 234, 31, 147, 36, 8, 212, 45,
             50, 23, 3, 25, 253, 87, 227, 79, 119, 161,
         ];
-        let p = BigUint::from_bytes_le(
+        let p = BoxedUint::from_le_slice_vartime(
             [
                 215, 166, 5, 21, 11, 179, 41, 77, 198, 92, 165, 48, 77, 162, 42, 41, 206, 141, 60,
                 69, 47, 164, 19, 92, 46, 72, 100, 238, 100, 53, 214, 197, 163, 185, 6, 140, 229,
@@ -11571,7 +11570,7 @@ mod tests {
             ]
             .as_slice(),
         );
-        let p_2 = BigUint::from_bytes_le(
+        let p_2 = BoxedUint::from_le_slice_vartime(
             [
                 41, 25, 198, 240, 134, 206, 121, 57, 11, 5, 134, 192, 212, 77, 229, 197, 14, 78,
                 85, 212, 190, 114, 179, 188, 21, 171, 174, 12, 104, 74, 15, 164, 136, 173, 62, 177,
@@ -11585,9 +11584,9 @@ mod tests {
             .as_slice(),
         );
         let key = RsaPrivateKey::from_components(
-            BigUint::from_bytes_le(n.as_slice()),
+            BoxedUint::from_le_slice_vartime(n.as_slice()),
             e.into(),
-            BigUint::from_bytes_le(d.as_slice()),
+            BoxedUint::from_le_slice_vartime(d.as_slice()),
             vec![p, p_2],
         )
         .unwrap()
@@ -11596,7 +11595,7 @@ mod tests {
         let att_obj_len = att_obj.len();
         let n_start = att_obj_len - 261;
         let e_start = n_start + 256;
-        att_obj[n_start..e_start].copy_from_slice(key.n().to_bytes_be().as_slice());
+        att_obj[n_start..e_start].copy_from_slice(key.n().to_be_bytes().as_ref());
         let b64_cdata_json = base64url_nopad::encode(c_data_json.as_bytes());
         let b64_adata = base64url_nopad::encode(&att_obj[att_obj_len - 343..]);
         let b64_key = base64url_nopad::encode(pub_key.as_bytes());
@@ -11711,7 +11710,7 @@ mod tests {
         );
         // `publicKey` mismatch.
         let bad_pub_key = RsaPrivateKey::from_components(
-            BigUint::from_bytes_le(
+            BoxedUint::from_le_slice_vartime(
                 [
                     175, 161, 161, 75, 52, 244, 72, 168, 29, 119, 33, 120, 3, 222, 231, 152, 222,
                     119, 112, 83, 221, 237, 74, 174, 79, 216, 147, 251, 245, 94, 234, 114, 254, 21,
@@ -11732,7 +11731,7 @@ mod tests {
                 .as_slice(),
             ),
             0x0001_0001u32.into(),
-            BigUint::from_bytes_le(
+            BoxedUint::from_le_slice_vartime(
                 [
                     129, 93, 123, 251, 104, 29, 84, 203, 116, 100, 75, 237, 111, 160, 12, 100, 172,
                     76, 57, 178, 144, 235, 81, 61, 115, 243, 28, 40, 183, 22, 56, 150, 68, 38, 220,
@@ -11753,7 +11752,7 @@ mod tests {
                 .as_slice(),
             ),
             vec![
-                BigUint::from_bytes_le(
+                BoxedUint::from_le_slice_vartime(
                     [
                         215, 199, 110, 28, 64, 16, 16, 109, 106, 152, 150, 124, 52, 166, 121, 92,
                         242, 13, 0, 69, 7, 152, 72, 172, 118, 63, 156, 180, 140, 39, 53, 29, 197,
@@ -11766,7 +11765,7 @@ mod tests {
                     ]
                     .as_slice(),
                 ),
-                BigUint::from_bytes_le(
+                BoxedUint::from_le_slice_vartime(
                     [
                         233, 89, 204, 152, 31, 242, 8, 110, 38, 190, 111, 159, 105, 105, 45, 85,
                         15, 244, 30, 250, 174, 226, 219, 111, 107, 191, 196, 135, 17, 123, 186,

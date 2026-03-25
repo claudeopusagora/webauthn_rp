@@ -29,7 +29,7 @@ use super::{
 };
 use core::convert::Infallible;
 use ed25519_dalek::{Signature, Verifier as _};
-use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSig, signature::Verifier as _};
+use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSig};
 use p256::ecdsa::DerSignature as P256DerSig;
 use p384::ecdsa::DerSignature as P384DerSig;
 use rsa::{
