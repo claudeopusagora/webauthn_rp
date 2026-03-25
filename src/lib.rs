@@ -282,7 +282,7 @@
 //! ) -> Result<
 //!     Option<(
 //!         PublicKeyCredentialUserEntity64<'name, 'display_name, '_>,
-//!         Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+//!         Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
 //!     )>,
 //!     AppErr,
 //! > {

@@ -417,7 +417,7 @@ impl Serialize for UnknownCredentialOptions<'_, '_> {
     /// # use core::str::FromStr;
     /// # use webauthn_rp::{request::{AsciiDomain, RpId}, response::{auth::error::UnknownCredentialOptions, CredentialId}};
     /// # #[cfg(feature = "custom")]
-    /// let credential_id = CredentialId::try_from(vec![0; 16])?;
+    /// let credential_id = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
     /// # #[cfg(feature = "custom")]
     /// assert_eq!(
     ///     serde_json::to_string(&UnknownCredentialOptions {

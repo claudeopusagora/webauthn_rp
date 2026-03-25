@@ -91,12 +91,12 @@ impl<T: AsRef<[u8]>> Encode for CredentialId<T> {
         Ok(self.0.as_ref())
     }
 }
-impl Decode for CredentialId<Vec<u8>> {
-    type Input<'a> = Vec<u8>;
+impl Decode for CredentialId<Box<[u8]>> {
+    type Input<'a> = Box<[u8]>;
     type Err = CredentialIdErr;
     #[inline]
     fn decode(input: Self::Input<'_>) -> Result<Self, Self::Err> {
-        match CredentialId::<&[u8]>::from_slice(input.as_slice()) {
+        match CredentialId::<&[u8]>::from_slice(&input) {
             Ok(_) => Ok(Self(input)),
             Err(e) => Err(e),
         }
@@ -123,13 +123,13 @@ impl<T: AsRef<[u8]>> EncodeBuffer for CredentialId<T> {
             .unwrap_or_else(|_e| unreachable!("there is a bug in [u8]::encode_into_buffer"));
     }
 }
-impl<'a> DecodeBuffer<'a> for CredentialId<Vec<u8>> {
+impl<'a> DecodeBuffer<'a> for CredentialId<Box<[u8]>> {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         <&[u8]>::decode_from_buffer(data).and_then(|val| {
             CredentialId::<&[u8]>::from_slice(val)
                 .map_err(|_e| EncDecErr)
-                .map(|_| Self(val.to_owned()))
+                .map(|_| Self(val.into()))
         })
     }
 }

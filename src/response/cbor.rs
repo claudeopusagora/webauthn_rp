@@ -18,6 +18,8 @@ pub(super) const TWO: u8 = UINT | 2;
 pub(super) const THREE: u8 = UINT | 3;
 /// [`UINT`] value `6`.
 pub(super) const SIX: u8 = UINT | 6;
+/// [`UINT`] value `7`.
+pub(super) const SEVEN: u8 = UINT | 7;
 /// [`NEG`] value `-1`.
 pub(super) const NEG_ONE: u8 = NEG;
 /// [`NEG`] value `-2`.

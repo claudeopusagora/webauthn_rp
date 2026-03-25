@@ -688,12 +688,19 @@ impl Ord for Username<'_> {
 ///
 /// Note the order of variants is the following:
 ///
-/// [`Self::Eddsa`] `<` [`Self::Es256`] `<` [`Self::Es384`] `<` [`Self::Rs256`].
+/// [`Self::Mldsa87`] `<` [`Self::Mldsa65`] `<` [`Self::Mldsa44`] `<` [`Self::Eddsa`] `<` [`Self::Es256`]
+/// `<` [`Self::Es384`] `<` [`Self::Rs256`].
 ///
 /// This is relevant for [`CoseAlgorithmIdentifiers`]. For example a `CoseAlgorithmIdentifiers`
-/// that contains `Self::Eddsa` will prioritize it over all others.
+/// that contains `Self::Mldsa87` will prioritize it over all others.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum CoseAlgorithmIdentifier {
+    /// [ML-DSA-87](https://www.iana.org/assignments/cose/cose.xhtml#algorithms).
+    Mldsa87,
+    /// [ML-DSA-65](https://www.iana.org/assignments/cose/cose.xhtml#algorithms).
+    Mldsa65,
+    /// [ML-DSA-44](https://www.iana.org/assignments/cose/cose.xhtml#algorithms).
+    Mldsa44,
     /// [EdDSA](https://www.iana.org/assignments/cose/cose.xhtml#algorithms).
     ///
     /// Note that Ed25519 must be used for the `crv` parameter
@@ -716,10 +723,13 @@ impl CoseAlgorithmIdentifier {
     /// Transforms `self` into a `u8`.
     const fn to_u8(self) -> u8 {
         match self {
-            Self::Eddsa => 1,
-            Self::Es256 => 2,
-            Self::Es384 => 4,
-            Self::Rs256 => 8,
+            Self::Mldsa87 => 0x1,
+            Self::Mldsa65 => 0x2,
+            Self::Mldsa44 => 0x4,
+            Self::Eddsa => 0x8,
+            Self::Es256 => 0x10,
+            Self::Es384 => 0x20,
+            Self::Rs256 => 0x40,
         }
     }
 }
@@ -741,6 +751,9 @@ pub struct CoseAlgorithmIdentifiers(u8);
 impl CoseAlgorithmIdentifiers {
     /// Contains all [`CoseAlgorithmIdentifier`]s.
     pub const ALL: Self = Self(0)
+        .add(CoseAlgorithmIdentifier::Mldsa87)
+        .add(CoseAlgorithmIdentifier::Mldsa65)
+        .add(CoseAlgorithmIdentifier::Mldsa44)
         .add(CoseAlgorithmIdentifier::Eddsa)
         .add(CoseAlgorithmIdentifier::Es256)
         .add(CoseAlgorithmIdentifier::Es384)
@@ -771,6 +784,9 @@ impl CoseAlgorithmIdentifiers {
     /// Validates `other` is allowed based on `self`.
     const fn validate(self, other: UncompressedPubKey<'_>) -> Result<(), RegCeremonyErr> {
         if match other {
+            UncompressedPubKey::MlDsa87(_) => self.contains(CoseAlgorithmIdentifier::Mldsa87),
+            UncompressedPubKey::MlDsa65(_) => self.contains(CoseAlgorithmIdentifier::Mldsa65),
+            UncompressedPubKey::MlDsa44(_) => self.contains(CoseAlgorithmIdentifier::Mldsa44),
             UncompressedPubKey::Ed25519(_) => self.contains(CoseAlgorithmIdentifier::Eddsa),
             UncompressedPubKey::P256(_) => self.contains(CoseAlgorithmIdentifier::Es256),
             UncompressedPubKey::P384(_) => self.contains(CoseAlgorithmIdentifier::Es384),
@@ -1594,7 +1610,7 @@ impl<
     pub fn passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
         rp_id: &'a RpId,
         user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
     ) -> Self {
         Self {
             mediation: CredentialMediationRequirement::default(),
@@ -1613,7 +1629,7 @@ impl<
     pub fn second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
         rp_id: &'a RpId,
         user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
     ) -> Self {
         let mut opts = Self::passkey(rp_id, user, exclude_credentials);
         opts.public_key.authenticator_selection = AuthenticatorSelectionCriteria::second_factor();
@@ -1774,7 +1790,7 @@ pub struct PublicKeyCredentialCreationOptions<
     /// when attesting credentials as no timeout would make out-of-memory (OOM) conditions more likely.
     pub timeout: NonZeroU32,
     /// [`excludeCredentials`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-excludecredentials).
-    pub exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+    pub exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
     /// [`authenticatorSelection`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-authenticatorselection).
     pub authenticator_selection: AuthenticatorSelectionCriteria,
     /// [`extensions`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-extensions).
@@ -1831,7 +1847,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     pub fn passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
         rp_id: &'a RpId,
         user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
     ) -> Self {
         Self {
             rp_id,
@@ -1903,7 +1919,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     pub fn second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
         rp_id: &'a RpId,
         user: PublicKeyCredentialUserEntity<'b, 'c, 'd, USER_LEN>,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
     ) -> Self {
         let mut opts = Self::passkey(rp_id, user, exclude_credentials);
         opts.authenticator_selection = AuthenticatorSelectionCriteria::second_factor();

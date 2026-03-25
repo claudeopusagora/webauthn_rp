@@ -154,20 +154,20 @@ pub struct CredentialSpecificExtension {
 #[derive(Clone, Debug)]
 pub struct AllowedCredential {
     /// The registered credential.
-    pub credential: PublicKeyCredentialDescriptor<Vec<u8>>,
+    pub credential: PublicKeyCredentialDescriptor<Box<[u8]>>,
     /// Credential-specific extensions.
     pub extension: CredentialSpecificExtension,
 }
-impl From<PublicKeyCredentialDescriptor<Vec<u8>>> for AllowedCredential {
+impl From<PublicKeyCredentialDescriptor<Box<[u8]>>> for AllowedCredential {
     #[inline]
-    fn from(credential: PublicKeyCredentialDescriptor<Vec<u8>>) -> Self {
+    fn from(credential: PublicKeyCredentialDescriptor<Box<[u8]>>) -> Self {
         Self {
             credential,
             extension: CredentialSpecificExtension::default(),
         }
     }
 }
-impl From<AllowedCredential> for PublicKeyCredentialDescriptor<Vec<u8>> {
+impl From<AllowedCredential> for PublicKeyCredentialDescriptor<Box<[u8]>> {
     #[inline]
     fn from(credential: AllowedCredential) -> Self {
         credential.credential
@@ -220,13 +220,13 @@ impl Credentials for AllowedCredentials {
     /// // likely never needed since the `CredentialId` was originally sent from the client and is likely
     /// // stored in a database which would be fetched by `UserHandle` or `Authentication::raw_id`.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let id = CredentialId::try_from(vec![0; 16])?;
+    /// let id = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let transports = get_transports((&id).into())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// assert!(creds.push(PublicKeyCredentialDescriptor { id, transports }.into()));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let id_copy = CredentialId::try_from(vec![0; 16])?;
+    /// let id_copy = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let transports_2 = AuthTransports::NONE;
     /// // Duplicate `CredentialId`s don't get added.
@@ -274,23 +274,24 @@ impl AsRef<[AllowedCredential]> for AllowedCredentials {
         self.creds.as_slice()
     }
 }
-impl From<&AllowedCredentials> for Vec<CredInfo> {
+impl From<&AllowedCredentials> for Box<[CredInfo]> {
     #[inline]
     fn from(value: &AllowedCredentials) -> Self {
         let len = value.creds.len();
         value
             .creds
             .iter()
-            .fold(Self::with_capacity(len), |mut creds, cred| {
+            .fold(Vec::with_capacity(len), |mut creds, cred| {
                 creds.push(CredInfo {
                     id: cred.credential.id.clone(),
                     ext: (&cred.extension).into(),
                 });
                 creds
             })
+            .into_boxed_slice()
     }
 }
-impl From<AllowedCredentials> for Vec<PublicKeyCredentialDescriptor<Vec<u8>>> {
+impl From<AllowedCredentials> for Vec<PublicKeyCredentialDescriptor<Box<[u8]>>> {
     #[inline]
     fn from(value: AllowedCredentials) -> Self {
         let mut creds = Self::with_capacity(value.creds.len());
@@ -300,9 +301,9 @@ impl From<AllowedCredentials> for Vec<PublicKeyCredentialDescriptor<Vec<u8>>> {
         creds
     }
 }
-impl From<Vec<PublicKeyCredentialDescriptor<Vec<u8>>>> for AllowedCredentials {
+impl From<Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>> for AllowedCredentials {
     #[inline]
-    fn from(value: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>) -> Self {
+    fn from(value: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>) -> Self {
         let mut creds = Self::with_capacity(value.len());
         value.into_iter().fold((), |(), credential| {
             _ = creds.push(AllowedCredential {
@@ -461,7 +462,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
     /// // likely never needed since the `CredentialId` was originally sent from the client and is likely
     /// // stored in a database which would be fetched by `UserHandle` or `Authentication::raw_id`.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let id = CredentialId::try_from(vec![0; 16])?;
+    /// let id = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let transports = get_transports((&id).into())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
@@ -529,7 +530,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
                             extensions: self.options.extensions.into(),
                             expiration,
                         },
-                        allow_credentials: Vec::from(&self.allow_credentials),
+                        allow_credentials: Box::from(&self.allow_credentials),
                     },
                     NonDiscoverableAuthenticationClientState(self),
                 )
@@ -895,7 +896,7 @@ fn validate_extensions(
 #[derive(Debug)]
 struct CredInfo {
     /// The Credential ID.
-    id: CredentialId<Vec<u8>>,
+    id: CredentialId<Box<[u8]>>,
     /// Any credential-specific extensions.
     ext: ServerCredSpecificExtensionInfo,
 }
@@ -1097,6 +1098,9 @@ impl DiscoverableAuthenticationServerState {
         const USER_LEN: usize,
         O: PartialEq<Origin<'a>>,
         T: PartialEq<Origin<'a>>,
+        MlDsa87Key: AsRef<[u8]>,
+        MlDsa65Key: AsRef<[u8]>,
+        MlDsa44Key: AsRef<[u8]>,
         EdKey: AsRef<[u8]>,
         P256Key: AsRef<[u8]>,
         P384Key: AsRef<[u8]>,
@@ -1109,14 +1113,14 @@ impl DiscoverableAuthenticationServerState {
             '_,
             '_,
             USER_LEN,
-            CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
+            CompressedPubKey<MlDsa87Key, MlDsa65Key, MlDsa44Key, EdKey, P256Key, P384Key, RsaKey>,
         >,
         options: &AuthenticationVerificationOptions<'_, '_, O, T>,
     ) -> Result<bool, AuthCeremonyErr> {
         // Step 6 item 2.
         if cred.user_id == response.response.user_handle() {
             // Step 6 item 2.
-            if cred.id == response.raw_id {
+            if cred.id.as_ref() == response.raw_id.as_ref() {
                 self.0.verify(rp_id, response, cred, options, None)
             } else {
                 Err(AuthCeremonyErr::CredentialIdMismatch)
@@ -1131,7 +1135,7 @@ impl DiscoverableAuthenticationServerState {
     }
 }
 // This is essentially the `NonDiscoverableCredentialRequestOptions` used to create it; however to reduce
-// memory usage, we remove all unnecessary data making an instance of this as small as 80 bytes in size on
+// memory usage, we remove all unnecessary data making an instance of this as small as 64 bytes in size on
 // `x86_64-unknown-linux-gnu` platforms. This does not include the size of each `CredInfo` which should exist
 // elsewhere on the heap but obviously contributes memory overall.
 /// State needed to be saved when beginning the authentication ceremony.
@@ -1148,7 +1152,7 @@ pub struct NonDiscoverableAuthenticationServerState {
     /// Most server state.
     state: AuthenticationServerState,
     /// The set of credentials that are allowed.
-    allow_credentials: Vec<CredInfo>,
+    allow_credentials: Box<[CredInfo]>,
 }
 impl NonDiscoverableAuthenticationServerState {
     /// Verifies `response` is valid based on `self` consuming `self` and updating `cred`. Returns `true`
@@ -1171,6 +1175,9 @@ impl NonDiscoverableAuthenticationServerState {
         const USER_LEN: usize,
         O: PartialEq<Origin<'a>>,
         T: PartialEq<Origin<'a>>,
+        MlDsa87Key: AsRef<[u8]>,
+        MlDsa65Key: AsRef<[u8]>,
+        MlDsa44Key: AsRef<[u8]>,
         EdKey: AsRef<[u8]>,
         P256Key: AsRef<[u8]>,
         P384Key: AsRef<[u8]>,
@@ -1183,7 +1190,7 @@ impl NonDiscoverableAuthenticationServerState {
             '_,
             '_,
             USER_LEN,
-            CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
+            CompressedPubKey<MlDsa87Key, MlDsa65Key, MlDsa44Key, EdKey, P256Key, P384Key, RsaKey>,
         >,
         options: &AuthenticationVerificationOptions<'_, '_, O, T>,
     ) -> Result<bool, AuthCeremonyErr> {
@@ -1207,7 +1214,7 @@ impl NonDiscoverableAuthenticationServerState {
                     .ok_or(AuthCeremonyErr::NoMatchingAllowedCredential)
                     .and_then(|c| {
                         // Step 6 item 1.
-                        if c.id == cred.id {
+                        if c.id.as_ref() == cred.id.as_ref() {
                             self.state
                                 .verify(rp_id, response, cred, options, Some(c.ext))
                         } else {
@@ -1268,6 +1275,9 @@ impl AuthenticationServerState {
         const DISCOVERABLE: bool,
         O: PartialEq<Origin<'a>>,
         T: PartialEq<Origin<'a>>,
+        MlDsa87Key: AsRef<[u8]>,
+        MlDsa65Key: AsRef<[u8]>,
+        MlDsa44Key: AsRef<[u8]>,
         EdKey: AsRef<[u8]>,
         P256Key: AsRef<[u8]>,
         P384Key: AsRef<[u8]>,
@@ -1280,7 +1290,7 @@ impl AuthenticationServerState {
             '_,
             '_,
             USER_LEN,
-            CompressedPubKey<EdKey, P256Key, P384Key, RsaKey>,
+            CompressedPubKey<MlDsa87Key, MlDsa65Key, MlDsa44Key, EdKey, P256Key, P384Key, RsaKey>,
         >,
         options: &AuthenticationVerificationOptions<'_, '_, O, T>,
         cred_ext: Option<ServerCredSpecificExtensionInfo>,
@@ -1612,13 +1622,14 @@ mod tests {
                 auth::{DiscoverableAuthenticatorAssertion, HmacSecret},
                 register::{
                     AuthenticationExtensionsPrfOutputs, AuthenticatorExtensionOutputStaticState,
-                    ClientExtensionsOutputsStaticState, CredentialProtectionPolicy, Ed25519PubKey,
+                    ClientExtensionsOutputsStaticState, CompressedPubKeyOwned,
+                    CredentialProtectionPolicy, Ed25519PubKey,
                 },
             },
         },
         AuthCeremonyErr, AuthenticationVerificationOptions, AuthenticatorAttachment,
-        AuthenticatorAttachmentEnforcement, CompressedPubKey, DiscoverableAuthentication,
-        ExtensionErr, OneOrTwo, PrfInput, SignatureCounterEnforcement,
+        AuthenticatorAttachmentEnforcement, DiscoverableAuthentication, ExtensionErr, OneOrTwo,
+        PrfInput, SignatureCounterEnforcement,
     };
     #[cfg(all(
         feature = "custom",
@@ -1659,7 +1670,7 @@ mod tests {
         let mut creds = AllowedCredentials::with_capacity(1);
         _ = creds.push(AllowedCredential {
             credential: PublicKeyCredentialDescriptor {
-                id: CredentialId::try_from(vec![0; 16])?,
+                id: CredentialId::try_from(vec![0; 16].into_boxed_slice())?,
                 transports: AuthTransports::NONE,
             },
             extension: CredentialSpecificExtension {
@@ -1748,16 +1759,11 @@ mod tests {
         json
     }
     #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
-    #[expect(clippy::type_complexity, reason = "fine")]
     #[expect(clippy::too_many_lines, reason = "a lot to test")]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     fn generate_authenticator_data_public_key_sig(
         opts: TestResponseOptions,
-    ) -> (
-        Vec<u8>,
-        CompressedPubKey<[u8; 32], [u8; 32], [u8; 48], Vec<u8>>,
-        Vec<u8>,
-    ) {
+    ) -> (Vec<u8>, CompressedPubKeyOwned, Vec<u8>) {
         let mut authenticator_data = Vec::with_capacity(256);
         authenticator_data.extend_from_slice(
             [
@@ -1877,7 +1883,7 @@ mod tests {
         authenticator_data.truncate(len);
         (
             authenticator_data,
-            CompressedPubKey::Ed25519(Ed25519PubKey::from(sig_key.verifying_key().to_bytes())),
+            CompressedPubKeyOwned::Ed25519(Ed25519PubKey::from(sig_key.verifying_key().to_bytes())),
             sig,
         )
     }
@@ -1887,7 +1893,7 @@ mod tests {
         let user = UserHandle::from([0; 1]);
         let (authenticator_data, credential_public_key, signature) =
             generate_authenticator_data_public_key_sig(options.response);
-        let credential_id = CredentialId::try_from(vec![0; 16])?;
+        let credential_id = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
         let authentication = DiscoverableAuthentication::new(
             credential_id.clone(),
             DiscoverableAuthenticatorAssertion::new(

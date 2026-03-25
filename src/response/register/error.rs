@@ -17,8 +17,8 @@ use super::{
     AuthenticatorAttestation, AuthenticatorData, AuthenticatorExtensionOutput, Backup,
     ClientExtensionsOutputs, CollectedClientData, CompressedP256PubKey, CompressedP384PubKey,
     Ed25519PubKey, Ed25519Signature, Flag, MAX_RSA_N_BITS, MIN_RSA_E, MIN_RSA_N_BITS, Metadata,
-    PackedAttestation, RsaPubKey, UncompressedP256PubKey, UncompressedP384PubKey,
-    UncompressedPubKey,
+    MlDsa44PubKey, MlDsa65PubKey, MlDsa87PubKey, PackedAttestation, RsaPubKey,
+    UncompressedP256PubKey, UncompressedP384PubKey, UncompressedPubKey,
 };
 use super::{
     super::{
@@ -33,30 +33,60 @@ use core::{
     error::Error,
     fmt::{self, Display, Formatter},
 };
-/// Error returned from [`Ed25519PubKey::try_from`] when the `slice` is not 32-bytes in length.
+/// Error returned from [`MlDsa87PubKey::try_from`] when the `slice` is not 2592 bytes in length.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MlDsa87PubKeyErr;
+impl Display for MlDsa87PubKeyErr {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("the ML-DSA-87 public key is not 2592 bytes in length")
+    }
+}
+impl Error for MlDsa87PubKeyErr {}
+/// Error returned from [`MlDsa65PubKey::try_from`] when the `slice` is not 1952 bytes in length.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MlDsa65PubKeyErr;
+impl Display for MlDsa65PubKeyErr {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("the ML-DSA-65 public key is not 1952 bytes in length")
+    }
+}
+impl Error for MlDsa65PubKeyErr {}
+/// Error returned from [`MlDsa44PubKey::try_from`] when the `slice` is not 1312 bytes in length.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MlDsa44PubKeyErr;
+impl Display for MlDsa44PubKeyErr {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("the ML-DSA-44 public key is not 1312 bytes in length")
+    }
+}
+impl Error for MlDsa44PubKeyErr {}
+/// Error returned from [`Ed25519PubKey::try_from`] when the `slice` is not 32 bytes in length.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Ed25519PubKeyErr;
 impl Display for Ed25519PubKeyErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("the Ed25519 public key is not 32-bytes in length")
+        f.write_str("the Ed25519 public key is not 32 bytes in length")
     }
 }
 impl Error for Ed25519PubKeyErr {}
 /// Error returned from [`UncompressedP256PubKey::try_from`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UncompressedP256PubKeyErr {
-    /// Variant returned when the x-coordinate is not 32-bytes in length.
+    /// Variant returned when the x-coordinate is not 32 bytes in length.
     X,
-    /// Variant returned when the y-coordinate is not 32-bytes in length.
+    /// Variant returned when the y-coordinate is not 32 bytes in length.
     Y,
 }
 impl Display for UncompressedP256PubKeyErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match *self {
-            Self::X => "the P-256 public key x-coordinate is not 32-bytes in length",
-            Self::Y => "the P-256 public key y-coordinate is not 32-bytes in length",
+            Self::X => "the P-256 public key x-coordinate is not 32 bytes in length",
+            Self::Y => "the P-256 public key y-coordinate is not 32 bytes in length",
         })
     }
 }
@@ -68,24 +98,24 @@ pub struct CompressedP256PubKeyErr;
 impl Display for CompressedP256PubKeyErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("the compressed P-256 public key x-coordinate is not 32-bytes in length")
+        f.write_str("the compressed P-256 public key x-coordinate is not 32 bytes in length")
     }
 }
 impl Error for CompressedP256PubKeyErr {}
 /// Error returned from [`UncompressedP384PubKey::try_from`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UncompressedP384PubKeyErr {
-    /// Variant returned when the x-coordinate is not 48-bytes in length.
+    /// Variant returned when the x-coordinate is not 48 bytes in length.
     X,
-    /// Variant returned when the y-coordinate is not 48-bytes in length.
+    /// Variant returned when the y-coordinate is not 48 bytes in length.
     Y,
 }
 impl Display for UncompressedP384PubKeyErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match *self {
-            Self::X => "the P-384 public key x-coordinate is not 48-bytes in length",
-            Self::Y => "the P-384 public key y-coordinate is not 48-bytes in length",
+            Self::X => "the P-384 public key x-coordinate is not 48 bytes in length",
+            Self::Y => "the P-384 public key y-coordinate is not 48 bytes in length",
         })
     }
 }
@@ -97,7 +127,7 @@ pub struct CompressedP384PubKeyErr;
 impl Display for CompressedP384PubKeyErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("the compressed P-384 public key x-coordinate is not 48-bytes in length")
+        f.write_str("the compressed P-384 public key x-coordinate is not 48 bytes in length")
     }
 }
 impl Error for CompressedP384PubKeyErr {}
@@ -161,18 +191,18 @@ pub struct Ed25519SignatureErr;
 impl Display for Ed25519SignatureErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("the Ed25519 signature is not 64-bytes in length")
+        f.write_str("the Ed25519 signature is not 64 bytes in length")
     }
 }
 impl Error for Ed25519SignatureErr {}
 /// Error returned from [`Aaguid::try_from`] when the slice is not exactly
-/// 16-bytes in length.
+/// 16 bytes in length.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AaguidErr;
 impl Display for AaguidErr {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("the AAGUID is not 16-bytes in length")
+        f.write_str("the AAGUID is not 16 bytes in length")
     }
 }
 impl Error for AaguidErr {}
@@ -217,8 +247,17 @@ impl Error for AuthenticatorExtensionOutputErr {}
 pub enum CoseKeyErr {
     /// The `slice` had an invalid length.
     Len,
-    /// The COSE Key type was not `OKP`, `EC2`, or `RSA`.
+    /// The COSE Key type was not `AKP`, `OKP`, `EC2`, or `RSA`.
     CoseKeyType,
+    /// The `slice` was malformed and did not conform to an ML-DSA-87 public key encoded as a COSE Key per
+    /// [Draft IETF COSE Dilithium 10](https://datatracker.ietf.org/doc/html/draft-ietf-cose-dilithium-10).
+    MlDsa87CoseEncoding,
+    /// The `slice` was malformed and did not conform to an ML-DSA-65 public key encoded as a COSE Key per
+    /// [Draft IETF COSE Dilithium 10](https://datatracker.ietf.org/doc/html/draft-ietf-cose-dilithium-10).
+    MlDsa65CoseEncoding,
+    /// The `slice` was malformed and did not conform to an ML-DSA-44 public key encoded as a COSE Key per
+    /// [Draft IETF COSE Dilithium 10](https://datatracker.ietf.org/doc/html/draft-ietf-cose-dilithium-10).
+    MlDsa44CoseEncoding,
     /// The `slice` was malformed and did not conform to an Ed25519 public key encoded as a COSE Key per
     /// [RFC 9052](https://www.rfc-editor.org/rfc/rfc9052) and [RFC 9053](https://www.rfc-editor.org/rfc/rfc9053).
     Ed25519CoseEncoding,
@@ -243,7 +282,16 @@ impl Display for CoseKeyErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Len => f.write_str("COSE key data had an invalid length"),
-            Self::CoseKeyType => f.write_str("COSE key type was not 'OKP', 'EC2', or 'RSA'"),
+            Self::CoseKeyType => f.write_str("COSE key type was not 'AKP', 'OKP', 'EC2', or 'RSA'"),
+            Self::MlDsa87CoseEncoding => {
+                f.write_str("ML-DSA-87 COSE key was not encoded correctly")
+            }
+            Self::MlDsa65CoseEncoding => {
+                f.write_str("ML-DSA-65 COSE key was not encoded correctly")
+            }
+            Self::MlDsa44CoseEncoding => {
+                f.write_str("ML-DSA-44 COSE key was not encoded correctly")
+            }
             Self::Ed25519CoseEncoding => f.write_str("Ed25519 COSE key was not encoded correctly"),
             Self::P256CoseEncoding => {
                 f.write_str("ECDSA with P-256 and SHA-256 COSE key was not encoded correctly")
@@ -384,6 +432,18 @@ pub enum AttestationErr {
     PackedFormatUnsupportedAlg,
     /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) did not have a signature.
     PackedFormatMissingSig,
+    /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) ML-DSA-87 signature CBOR was invalid.
+    PackedFormatCborMlDsa87Signature,
+    /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) ML-DSA-87 signature was invalid.
+    PackedFormatMlDsa87,
+    /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) ML-DSA-65 signature CBOR was invalid.
+    PackedFormatCborMlDsa65Signature,
+    /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) ML-DSA-65 signature was invalid.
+    PackedFormatMlDsa65,
+    /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) ML-DSA-44 signature CBOR was invalid.
+    PackedFormatCborMlDsa44Signature,
+    /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) ML-DSA-44 signature was invalid.
+    PackedFormatMlDsa44,
     /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) Ed25519 signature CBOR was invalid.
     PackedFormatCborEd25519Signature,
     /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) P-256 signature CBOR was invalid.
@@ -412,6 +472,12 @@ impl Display for AttestationErr {
             Self::PackedFormatMissingAlg => "CBOR attestation did not have an algorithm for the packed attestation",
             Self::PackedFormatUnsupportedAlg => "CBOR attestation had an unsupported algorithm for the packed attestation",
             Self::PackedFormatMissingSig => "CBOR attestation did not have a signature for the packed attestation",
+            Self::PackedFormatCborMlDsa87Signature => "CBOR attestation ML-DSA-87 signature had the wrong CBOR format for the packed attestation",
+            Self::PackedFormatMlDsa87 => "CBOR attestation ML-DSA-87 signature was invalid for the packed attestation",
+            Self::PackedFormatCborMlDsa65Signature => "CBOR attestation ML-DSA-65 signature had the wrong CBOR format for the packed attestation",
+            Self::PackedFormatMlDsa65 => "CBOR attestation ML-DSA-65 signature was invalid for the packed attestation",
+            Self::PackedFormatCborMlDsa44Signature => "CBOR attestation ML-DSA-44 signature had the wrong CBOR format for the packed attestation",
+            Self::PackedFormatMlDsa44 => "CBOR attestation ML-DSA-44 signature was invalid for the packed attestation",
             Self::PackedFormatCborEd25519Signature => "CBOR attestation Ed25519 signature had the wrong CBOR format for the packed attestation",
             Self::PackedFormatCborP256Signature => "CBOR attestation P-256 signature had the wrong CBOR format for the packed attestation",
             Self::PackedFormatP256 => "CBOR attestation P-256 signature was invalid for the packed attestation",

@@ -71,6 +71,17 @@ impl EncodeBufferFallible for [u8] {
             })
     }
 }
+// We don't implement `EncodeBuffer` for `Box<T>` since we only ever need `Box<[u8]>`; and one can specialize
+// the implementation such that it's _a lot_ faster than a generic `T`.
+impl EncodeBufferFallible for Box<[u8]> {
+    type Err = EncDecErr;
+    /// # Errors
+    ///
+    /// See [`[u8]::encode_into_buffer`].
+    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) -> Result<(), Self::Err> {
+        (&self).encode_into_buffer(buffer)
+    }
+}
 // We don't implement `EncodeBuffer` for `Vec<T>` since we only ever need `Vec<u8>`; and one can specialize
 // the implementation such that it's _a lot_ faster than a generic `T`.
 impl EncodeBufferFallible for Vec<u8> {
@@ -299,6 +310,14 @@ impl<'a> DecodeBuffer<'a> for &'a [u8] {
                     val
                 })
         })
+    }
+}
+// We don't implement `DecodeBuffer` for `Box<T>` since we only ever need `Box<[u8]>`; and one can specialize
+// the implementation such that it's _a lot_ faster than a generic `T`.
+impl<'a> DecodeBuffer<'a> for Box<[u8]> {
+    type Err = EncDecErr;
+    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        <&[u8]>::decode_from_buffer(data).map(Self::from)
     }
 }
 // We don't implement `DecodeBuffer` for `Vec<T>` since we only ever need `Vec<u8>`; and one can specialize

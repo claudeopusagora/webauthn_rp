@@ -53,7 +53,7 @@ impl Serialize for AllowedCredential {
     /// // likely never needed since the `CredentialId` was originally sent from the client and is likely
     /// // stored in a database which would be fetched by `UserHandle` or `Authentication::raw_id`.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let id = CredentialId::try_from(vec![0; 16])?;
+    /// let id = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let transports = get_transports((&id).into())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
@@ -98,7 +98,7 @@ impl Serialize for AllowedCredentials {
     /// // likely never needed since the `CredentialId` was originally sent from the client and is likely
     /// // stored in a database which would be fetched by `UserHandle` or `Authentication::raw_id`.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let id = CredentialId::try_from(vec![0; 16])?;
+    /// let id = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let transports = get_transports((&id).into())?;
     /// let mut creds = AllowedCredentials::with_capacity(1);
@@ -428,7 +428,7 @@ impl Serialize for NonDiscoverableAuthenticationClientState<'_, '_, '_> {
     /// // likely never needed since the `CredentialId` was originally sent from the client and is likely
     /// // stored in a database which would be fetched by `UserHandle` or `Authentication::raw_id`.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let id = CredentialId::try_from(vec![0; 16])?;
+    /// let id = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let transports = get_transports((&id).into())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]

@@ -25,10 +25,11 @@ use super::{
     auth::error::{AuthenticatorDataErr, AuthenticatorExtensionOutputErr, MissingUserHandleErr},
     cbor,
     error::CollectedClientDataErr,
-    register::CompressedPubKey,
+    register::CompressedPubKeyBorrowed,
 };
 use core::convert::Infallible;
 use ed25519_dalek::{Signature, Verifier as _};
+use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSig, signature::Verifier as _};
 use p256::ecdsa::DerSignature as P256DerSig;
 use p384::ecdsa::DerSignature as P384DerSig;
 use rsa::{
@@ -401,7 +402,8 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> AuthResponse
         = AuthenticatorData<'a>
     where
         Self: 'a;
-    type CredKey<'a> = CompressedPubKey<&'a [u8], &'a [u8], &'a [u8], &'a [u8]>;
+    type CredKey<'a> = CompressedPubKeyBorrowed<'a>;
+    #[expect(clippy::too_many_lines, reason = "134 lines is OK")]
     fn parse_data_and_verify_sig(
         &self,
         key: Self::CredKey<'_>,
@@ -442,7 +444,58 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> AuthResponse
                 .map_err(AuthRespErr::Auth)
                 .and_then(|val| {
                     match key {
-                        CompressedPubKey::Ed25519(k) => k
+                        CompressedPubKeyBorrowed::MlDsa87(k) => self
+                            .signature
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_e| AuthRespErr::Signature)
+                            .and_then(|s| {
+                                MlDsaSig::<MlDsa87>::decode(s)
+                                    .ok_or(AuthRespErr::Signature)
+                                    .and_then(|sig| {
+                                        k.into_ver_key()
+                                            .verify(
+                                                self.authenticator_data_and_c_data_hash.as_slice(),
+                                                &sig,
+                                            )
+                                            .map_err(|_e| AuthRespErr::Signature)
+                                    })
+                            }),
+                        CompressedPubKeyBorrowed::MlDsa65(k) => self
+                            .signature
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_e| AuthRespErr::Signature)
+                            .and_then(|s| {
+                                MlDsaSig::<MlDsa65>::decode(s)
+                                    .ok_or(AuthRespErr::Signature)
+                                    .and_then(|sig| {
+                                        k.into_ver_key()
+                                            .verify(
+                                                self.authenticator_data_and_c_data_hash.as_slice(),
+                                                &sig,
+                                            )
+                                            .map_err(|_e| AuthRespErr::Signature)
+                                    })
+                            }),
+                        CompressedPubKeyBorrowed::MlDsa44(k) => self
+                            .signature
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_e| AuthRespErr::Signature)
+                            .and_then(|s| {
+                                MlDsaSig::<MlDsa44>::decode(s)
+                                    .ok_or(AuthRespErr::Signature)
+                                    .and_then(|sig| {
+                                        k.into_ver_key()
+                                            .verify(
+                                                self.authenticator_data_and_c_data_hash.as_slice(),
+                                                &sig,
+                                            )
+                                            .map_err(|_e| AuthRespErr::Signature)
+                                    })
+                            }),
+                        CompressedPubKeyBorrowed::Ed25519(k) => k
                             .into_ver_key()
                             .map_err(AuthRespErr::PubKey)
                             .and_then(|ver_key| {
@@ -461,7 +514,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> AuthResponse
                                     })
                                     .map_err(|_e| AuthRespErr::Signature)
                             }),
-                        CompressedPubKey::P256(k) => k
+                        CompressedPubKeyBorrowed::P256(k) => k
                             .into_ver_key()
                             .map_err(AuthRespErr::PubKey)
                             .and_then(|ver_key| {
@@ -474,7 +527,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> AuthResponse
                                     })
                                     .map_err(|_e| AuthRespErr::Signature)
                             }),
-                        CompressedPubKey::P384(k) => k
+                        CompressedPubKeyBorrowed::P384(k) => k
                             .into_ver_key()
                             .map_err(AuthRespErr::PubKey)
                             .and_then(|ver_key| {
@@ -487,7 +540,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> AuthResponse
                                     })
                                     .map_err(|_e| AuthRespErr::Signature)
                             }),
-                        CompressedPubKey::Rsa(k) => {
+                        CompressedPubKeyBorrowed::Rsa(k) => {
                             pkcs1v15::Signature::try_from(self.signature.as_slice())
                                 .and_then(|sig| {
                                     k.as_ver_key().verify(
@@ -550,7 +603,7 @@ impl<const USER_LEN: usize> TryFrom<NonDiscoverableAuthenticatorAssertion<USER_L
 #[derive(Debug)]
 pub struct Authentication<const USER_LEN: usize, const DISCOVERABLE: bool> {
     /// [`rawId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-rawid).
-    pub(crate) raw_id: CredentialId<Vec<u8>>,
+    pub(crate) raw_id: CredentialId<Box<[u8]>>,
     /// [`response`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-response)
     pub(crate) response: AuthenticatorAssertion<USER_LEN, DISCOVERABLE>,
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-authenticatorattachment).
@@ -580,7 +633,7 @@ impl<const USER_LEN: usize, const DISCOVERABLE: bool> Authentication<USER_LEN, D
     #[inline]
     #[must_use]
     pub const fn new(
-        raw_id: CredentialId<Vec<u8>>,
+        raw_id: CredentialId<Box<[u8]>>,
         response: AuthenticatorAssertion<USER_LEN, DISCOVERABLE>,
         authenticator_attachment: AuthenticatorAttachment,
     ) -> Self {

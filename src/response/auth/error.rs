@@ -23,7 +23,7 @@ use super::{
         register::CredentialProtectionPolicy,
     },
     Authentication, AuthenticatorAssertion, AuthenticatorAttachment, AuthenticatorData,
-    AuthenticatorExtensionOutput, CollectedClientData, CompressedPubKey, Flag, HmacSecret,
+    AuthenticatorExtensionOutput, CollectedClientData, CompressedPubKeyBorrowed, Flag, HmacSecret,
     Signature, UserHandle,
 };
 use core::{
@@ -211,9 +211,9 @@ pub enum AuthCeremonyErr {
     /// [`AuthenticatorAssertion::authenticator_data`] could not be parsed into an
     /// [`AuthenticatorData`].
     AuthenticatorData(AuthenticatorDataErr),
-    /// [`CompressedPubKey`] was not valid.
+    /// [`CompressedPubKeyBorrowed`] was not valid.
     PubKey(PubKeyErr),
-    /// [`CompressedPubKey`] was not able to verify [`AuthenticatorAssertion::signature`].
+    /// [`CompressedPubKeyBorrowed`] was not able to verify [`AuthenticatorAssertion::signature`].
     AssertionSignature,
     /// [`CollectedClientData::origin`] does not match one of the values in
     /// [`AuthenticationVerificationOptions::allowed_origins`].

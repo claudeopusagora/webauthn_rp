@@ -105,6 +105,12 @@ const EDDSA: i16 = -8i16;
 const ES256: i16 = -7i16;
 /// [ES384](https://www.iana.org/assignments/cose/cose.xhtml#algorithms)
 const ES384: i16 = -35i16;
+/// [ML-DSA-44](https://www.iana.org/assignments/cose/cose.xhtml#algorithms)
+const MLDSA44: i16 = -48i16;
+/// [ML-DSA-65](https://www.iana.org/assignments/cose/cose.xhtml#algorithms)
+const MLDSA65: i16 = -49i16;
+/// [ML-DSA-87](https://www.iana.org/assignments/cose/cose.xhtml#algorithms)
+const MLDSA87: i16 = -50i16;
 /// [RS256](https://www.iana.org/assignments/cose/cose.xhtml#algorithms)
 const RS256: i16 = -257i16;
 impl Serialize for CoseAlgorithmIdentifier {
@@ -122,6 +128,9 @@ impl Serialize for CoseAlgorithmIdentifier {
                     ser.serialize_field(
                         ALG,
                         &match *self {
+                            Self::Mldsa87 => MLDSA87,
+                            Self::Mldsa65 => MLDSA65,
+                            Self::Mldsa44 => MLDSA44,
                             Self::Eddsa => EDDSA,
                             Self::Es256 => ES256,
                             Self::Es384 => ES384,
@@ -143,11 +152,11 @@ impl Serialize for CoseAlgorithmIdentifiers {
     /// # use webauthn_rp::request::register::{CoseAlgorithmIdentifier,CoseAlgorithmIdentifiers};
     /// assert_eq!(
     ///     serde_json::to_string(&CoseAlgorithmIdentifiers::ALL)?,
-    ///     r#"[{"type":"public-key","alg":-8},{"type":"public-key","alg":-7},{"type":"public-key","alg":-35},{"type":"public-key","alg":-257}]"#
+    ///     r#"[{"type":"public-key","alg":-50},{"type":"public-key","alg":-49},{"type":"public-key","alg":-48},{"type":"public-key","alg":-8},{"type":"public-key","alg":-7},{"type":"public-key","alg":-35},{"type":"public-key","alg":-257}]"#
     /// );
     /// assert_eq!(
     ///     serde_json::to_string(&CoseAlgorithmIdentifiers::default().remove(CoseAlgorithmIdentifier::Es384))?,
-    ///     r#"[{"type":"public-key","alg":-8},{"type":"public-key","alg":-7},{"type":"public-key","alg":-257}]"#
+    ///     r#"[{"type":"public-key","alg":-50},{"type":"public-key","alg":-49},{"type":"public-key","alg":-48},{"type":"public-key","alg":-8},{"type":"public-key","alg":-7},{"type":"public-key","alg":-257}]"#
     /// );
     /// # Ok::<_, serde_json::Error>(())
     /// ```
@@ -160,39 +169,63 @@ impl Serialize for CoseAlgorithmIdentifiers {
     where
         S: Serializer,
     {
-        // At most we add `1` four times which clearly cannot overflow or `usize`.
+        // At most we add `1` seven times which clearly cannot overflow or `usize`.
         serializer
             .serialize_seq(Some(
-                usize::from(self.contains(CoseAlgorithmIdentifier::Eddsa))
+                usize::from(self.contains(CoseAlgorithmIdentifier::Mldsa87))
+                    + usize::from(self.contains(CoseAlgorithmIdentifier::Mldsa65))
+                    + usize::from(self.contains(CoseAlgorithmIdentifier::Mldsa44))
+                    + usize::from(self.contains(CoseAlgorithmIdentifier::Eddsa))
                     + usize::from(self.contains(CoseAlgorithmIdentifier::Es256))
                     + usize::from(self.contains(CoseAlgorithmIdentifier::Es384))
                     + usize::from(self.contains(CoseAlgorithmIdentifier::Es384)),
             ))
             .and_then(|mut ser| {
-                if self.contains(CoseAlgorithmIdentifier::Eddsa) {
-                    ser.serialize_element(&CoseAlgorithmIdentifier::Eddsa)
+                if self.contains(CoseAlgorithmIdentifier::Mldsa87) {
+                    ser.serialize_element(&CoseAlgorithmIdentifier::Mldsa87)
                 } else {
                     Ok(())
                 }
                 .and_then(|()| {
-                    if self.contains(CoseAlgorithmIdentifier::Es256) {
-                        ser.serialize_element(&CoseAlgorithmIdentifier::Es256)
+                    if self.contains(CoseAlgorithmIdentifier::Mldsa65) {
+                        ser.serialize_element(&CoseAlgorithmIdentifier::Mldsa65)
                     } else {
                         Ok(())
                     }
                     .and_then(|()| {
-                        if self.contains(CoseAlgorithmIdentifier::Es384) {
-                            ser.serialize_element(&CoseAlgorithmIdentifier::Es384)
+                        if self.contains(CoseAlgorithmIdentifier::Mldsa44) {
+                            ser.serialize_element(&CoseAlgorithmIdentifier::Mldsa44)
                         } else {
                             Ok(())
                         }
                         .and_then(|()| {
-                            if self.contains(CoseAlgorithmIdentifier::Rs256) {
-                                ser.serialize_element(&CoseAlgorithmIdentifier::Rs256)
+                            if self.contains(CoseAlgorithmIdentifier::Eddsa) {
+                                ser.serialize_element(&CoseAlgorithmIdentifier::Eddsa)
                             } else {
                                 Ok(())
                             }
-                            .and_then(|()| ser.end())
+                            .and_then(|()| {
+                                if self.contains(CoseAlgorithmIdentifier::Es256) {
+                                    ser.serialize_element(&CoseAlgorithmIdentifier::Es256)
+                                } else {
+                                    Ok(())
+                                }
+                                .and_then(|()| {
+                                    if self.contains(CoseAlgorithmIdentifier::Es384) {
+                                        ser.serialize_element(&CoseAlgorithmIdentifier::Es384)
+                                    } else {
+                                        Ok(())
+                                    }
+                                    .and_then(|()| {
+                                        if self.contains(CoseAlgorithmIdentifier::Rs256) {
+                                            ser.serialize_element(&CoseAlgorithmIdentifier::Rs256)
+                                        } else {
+                                            Ok(())
+                                        }
+                                        .and_then(|()| ser.end())
+                                    })
+                                })
+                            })
                         })
                     })
                 })
@@ -852,7 +885,7 @@ where
     /// // likely never needed since the `CredentialId` was originally sent from the client and is likely
     /// // stored in a database which would be fetched by `UserHandle` or `Authentication::raw_id`.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// let id = CredentialId::try_from(vec![0; 16])?;
+    /// let id = CredentialId::try_from(vec![0; 16].into_boxed_slice())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let transports = get_transports((&id).into())?;
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
@@ -878,6 +911,18 @@ where
     ///         },
     ///         "challenge":"AAAAAAAAAAAAAAAAAAAAAA",
     ///         "pubKeyCredParams":[
+    ///             {
+    ///                 "type":"public-key",
+    ///                 "alg":-50
+    ///             },
+    ///             {
+    ///                 "type":"public-key",
+    ///                 "alg":-49
+    ///             },
+    ///             {
+    ///                 "type":"public-key",
+    ///                 "alg":-48
+    ///             },
     ///             {
     ///                 "type":"public-key",
     ///                 "alg":-8
@@ -1149,13 +1194,19 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifier {
                 E: Error,
             {
                 match v {
+                    RS256 => Ok(CoseAlgorithmIdentifier::Rs256),
+                    MLDSA87 => Ok(CoseAlgorithmIdentifier::Mldsa87),
+                    MLDSA65 => Ok(CoseAlgorithmIdentifier::Mldsa65),
+                    MLDSA44 => Ok(CoseAlgorithmIdentifier::Mldsa44),
+                    ES384 => Ok(CoseAlgorithmIdentifier::Es384),
                     EDDSA => Ok(CoseAlgorithmIdentifier::Eddsa),
                     ES256 => Ok(CoseAlgorithmIdentifier::Es256),
-                    ES384 => Ok(CoseAlgorithmIdentifier::Es384),
-                    RS256 => Ok(CoseAlgorithmIdentifier::Rs256),
                     _ => Err(E::invalid_value(
                         Unexpected::Signed(i64::from(v)),
-                        &format!("{EDDSA}, {ES256}, {ES384}, or {RS256}").as_str(),
+                        &format!(
+                            "{MLDSA87}, {MLDSA65}, {MLDSA44}, {EDDSA}, {ES256}, {ES384}, or {RS256}"
+                        )
+                        .as_str(),
                     )),
                 }
             }
@@ -1647,7 +1698,7 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifiers {
     /// except [`type`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialparameters-type) is not required.
     ///
     /// Note the sequence of [`CoseAlgorithmIdentifier`]s MUST match [`CoseAlgorithmIdentifier::cmp`] or an
-    /// error will occur (e.g., if [`CoseAlgorithmIdentifier::Eddsa`] exists, then it must appear first).
+    /// error will occur (e.g., if [`CoseAlgorithmIdentifier::Mldsa87`] exists, then it must appear first).
     ///
     /// An empty sequence will be treated as [`Self::ALL`].
     ///
@@ -1657,8 +1708,9 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifiers {
     ///
     /// ```
     /// # use webauthn_rp::request::register::CoseAlgorithmIdentifiers;
-    /// assert!(serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"[{"type":"public-key","alg":-8},{"type":"public-key","alg":-7},{"type":"public-key","alg":-35},{"type":"public-key","alg":-257}]"#).is_ok());
+    /// assert!(serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"[{"type":"public-key","alg":-50},{"type":"public-key","alg":-49},{"type":"public-key","alg":-48},{"type":"public-key","alg":-8},{"type":"public-key","alg":-7},{"type":"public-key","alg":-35},{"type":"public-key","alg":-257}]"#).is_ok());
     /// ```
+    #[expect(clippy::too_many_lines, reason = "132 is fine")]
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -1671,17 +1723,57 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifiers {
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("CoseAlgorithmIdentifiers")
             }
+            #[expect(clippy::too_many_lines, reason = "118 is fine")]
             #[expect(clippy::else_if_without_else, reason = "prefer it this way")]
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'d>,
             {
+                let mut mldsa87 = false;
+                let mut mldsa65 = false;
+                let mut mldsa44 = false;
                 let mut eddsa = false;
                 let mut es256 = false;
                 let mut es384 = false;
                 let mut rs256 = false;
                 while let Some(elem) = seq.next_element::<PubParam>()? {
                     match elem.0 {
+                        CoseAlgorithmIdentifier::Mldsa87 => {
+                            if mldsa87 {
+                                return Err(Error::custom(
+                                    "pubKeyCredParams contained duplicate ML-DSA-87 values",
+                                ));
+                            } else if mldsa65 || mldsa44 || eddsa || es256 || es384 || rs256 {
+                                return Err(Error::custom(
+                                    "pubKeyCredParams contained ML-DSA-87, but it wasn't the first value",
+                                ));
+                            }
+                            mldsa87 = true;
+                        }
+                        CoseAlgorithmIdentifier::Mldsa65 => {
+                            if mldsa65 {
+                                return Err(Error::custom(
+                                    "pubKeyCredParams contained duplicate ML-DSA-65 values",
+                                ));
+                            } else if mldsa44 || eddsa || es256 || es384 || rs256 {
+                                return Err(Error::custom(
+                                    "pubKeyCredParams contained ML-DSA-65, but it was preceded by Mldsa44, Eddsa, Es256, Es384, or Rs256",
+                                ));
+                            }
+                            mldsa65 = true;
+                        }
+                        CoseAlgorithmIdentifier::Mldsa44 => {
+                            if mldsa44 {
+                                return Err(Error::custom(
+                                    "pubKeyCredParams contained duplicate ML-DSA-44 values",
+                                ));
+                            } else if eddsa || es256 || es384 || rs256 {
+                                return Err(Error::custom(
+                                    "pubKeyCredParams contained ML-DSA-44, but it was preceded by Eddsa, Es256, Es384, or Rs256",
+                                ));
+                            }
+                            mldsa44 = true;
+                        }
                         CoseAlgorithmIdentifier::Eddsa => {
                             if eddsa {
                                 return Err(Error::custom(
@@ -1689,7 +1781,7 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifiers {
                                 ));
                             } else if es256 || es384 || rs256 {
                                 return Err(Error::custom(
-                                    "pubKeyCredParams contained EdDSA, but it wasn't the first value",
+                                    "pubKeyCredParams contained Eddsa, but it was preceded by Es256, Es384, or Rs256",
                                 ));
                             }
                             eddsa = true;
@@ -1729,6 +1821,15 @@ impl<'de> Deserialize<'de> for CoseAlgorithmIdentifiers {
                     }
                 }
                 let mut algs = CoseAlgorithmIdentifiers(0);
+                if mldsa87 {
+                    algs = algs.add(CoseAlgorithmIdentifier::Mldsa87);
+                }
+                if mldsa65 {
+                    algs = algs.add(CoseAlgorithmIdentifier::Mldsa65);
+                }
+                if mldsa44 {
+                    algs = algs.add(CoseAlgorithmIdentifier::Mldsa44);
+                }
                 if eddsa {
                     algs = algs.add(CoseAlgorithmIdentifier::Eddsa);
                 }
@@ -2536,7 +2637,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
     #[inline]
     pub fn as_options(
         &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
     ) -> Result<
         PublicKeyCredentialCreationOptions<'_, '_, '_, '_, '_, '_, USER_LEN>,
         PublicKeyCredentialCreationOptionsOwnedErr,
@@ -2570,7 +2671,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
     #[inline]
     pub fn with_rp_id<'rp_id>(
         &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
         rp_id: &'rp_id RpId,
     ) -> Result<
         PublicKeyCredentialCreationOptions<'rp_id, '_, '_, '_, '_, '_, USER_LEN>,
@@ -2600,7 +2701,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
     #[inline]
     pub fn with_user<'user_name, 'user_display_name, 'user_id>(
         &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
         user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
     ) -> Result<
         PublicKeyCredentialCreationOptions<
@@ -2638,7 +2739,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
     #[inline]
     pub fn with_extensions<'prf_first, 'prf_second>(
         &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
         extensions: Extension<'prf_first, 'prf_second>,
     ) -> Result<
         PublicKeyCredentialCreationOptions<'_, '_, '_, '_, 'prf_first, 'prf_second, USER_LEN>,
@@ -2671,7 +2772,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
     #[must_use]
     pub fn with_rp_id_and_user<'rp_id, 'user_name, 'user_display_name, 'user_id>(
         &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
         rp_id: &'rp_id RpId,
         user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
     ) -> PublicKeyCredentialCreationOptions<
@@ -2706,7 +2807,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
     #[inline]
     pub fn with_rp_id_and_extensions<'rp_id, 'prf_first, 'prf_second>(
         &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
         rp_id: &'rp_id RpId,
         extensions: Extension<'prf_first, 'prf_second>,
     ) -> Result<
@@ -2745,7 +2846,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
         'prf_second,
     >(
         &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
         user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
         extensions: Extension<'prf_first, 'prf_second>,
     ) -> Result<
@@ -2790,7 +2891,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
         'prf_second,
     >(
         &self,
-        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
         rp_id: &'rp_id RpId,
         user: PublicKeyCredentialUserEntity<'user_name, 'user_display_name, 'user_id, USER_LEN>,
         extensions: Extension<'prf_first, 'prf_second>,
@@ -3452,6 +3553,9 @@ mod test {
         assert_eq!(
             options.public_key.pub_key_cred_params.0,
             CoseAlgorithmIdentifiers::ALL
+                .remove(CoseAlgorithmIdentifier::Mldsa87)
+                .remove(CoseAlgorithmIdentifier::Mldsa65)
+                .remove(CoseAlgorithmIdentifier::Mldsa44)
                 .remove(CoseAlgorithmIdentifier::Es256)
                 .remove(CoseAlgorithmIdentifier::Es384)
                 .remove(CoseAlgorithmIdentifier::Rs256)
@@ -3699,6 +3803,9 @@ mod test {
         assert_eq!(
             key.pub_key_cred_params.0,
             CoseAlgorithmIdentifiers::ALL
+                .remove(CoseAlgorithmIdentifier::Mldsa87)
+                .remove(CoseAlgorithmIdentifier::Mldsa65)
+                .remove(CoseAlgorithmIdentifier::Mldsa44)
                 .remove(CoseAlgorithmIdentifier::Es256)
                 .remove(CoseAlgorithmIdentifier::Es384)
                 .remove(CoseAlgorithmIdentifier::Rs256)
@@ -4093,8 +4200,8 @@ mod test {
             serde_json::from_str::<CoseAlgorithmIdentifiers>(r#"[{"type":"public-key","alg":-6}]"#)
                 .unwrap_err();
         assert_eq!(
-            err.to_string().get(..58),
-            Some("invalid value: integer `-6`, expected -8, -7, -35, or -257")
+            err.to_string().get(..73),
+            Some("invalid value: integer `-6`, expected -50, -49, -48, -8, -7, -35, or -257")
         );
         err = serde_json::from_str::<CoseAlgorithmIdentifiers>(
             r#"[{"type":"public-key","alg":-7},{"type":"public-key","alg":-7}]"#,
@@ -4109,17 +4216,23 @@ mod test {
         )
         .unwrap_err();
         assert_eq!(
-            err.to_string().get(..63),
-            Some("pubKeyCredParams contained EdDSA, but it wasn't the first value")
+            err.to_string().get(..79),
+            Some("pubKeyCredParams contained Eddsa, but it was preceded by Es256, Es384, or Rs256")
         );
         let mut alg = serde_json::from_str::<CoseAlgorithmIdentifiers>(
             r#"[{"type":"public-key","alg":-8},{"alg":-7}]"#,
         )?;
         assert!(alg.contains(CoseAlgorithmIdentifier::Eddsa));
         assert!(alg.contains(CoseAlgorithmIdentifier::Es256));
+        assert!(!alg.contains(CoseAlgorithmIdentifier::Mldsa87));
+        assert!(!alg.contains(CoseAlgorithmIdentifier::Mldsa65));
+        assert!(!alg.contains(CoseAlgorithmIdentifier::Mldsa44));
         assert!(!alg.contains(CoseAlgorithmIdentifier::Es384));
         assert!(!alg.contains(CoseAlgorithmIdentifier::Rs256));
         alg = serde_json::from_str::<CoseAlgorithmIdentifiers>("[]")?;
+        assert!(alg.contains(CoseAlgorithmIdentifier::Mldsa87));
+        assert!(alg.contains(CoseAlgorithmIdentifier::Mldsa65));
+        assert!(alg.contains(CoseAlgorithmIdentifier::Mldsa44));
         assert!(alg.contains(CoseAlgorithmIdentifier::Eddsa));
         assert!(alg.contains(CoseAlgorithmIdentifier::Es256));
         assert!(alg.contains(CoseAlgorithmIdentifier::Es384));

@@ -236,7 +236,7 @@ impl<T: AsRef<[u8]>> Serialize for CredentialId<T> {
     /// // stored in a database which would be fetched by `UserHandle` or `Authentication::raw_id`.
     /// # #[cfg(feature = "custom")]
     /// assert_eq!(
-    ///     serde_json::to_string(&CredentialId::try_from(vec![0; 16])?).unwrap(),
+    ///     serde_json::to_string(&CredentialId::try_from(vec![0; 16].into_boxed_slice())?).unwrap(),
     ///     r#""AAAAAAAAAAAAAAAAAAAAAA""#
     /// );
     /// # Ok::<_, webauthn_rp::AggErr>(())
@@ -249,7 +249,7 @@ impl<T: AsRef<[u8]>> Serialize for CredentialId<T> {
         serializer.serialize_str(base64url_nopad::encode(self.0.as_ref()).as_str())
     }
 }
-impl<'de> Deserialize<'de> for CredentialId<Vec<u8>> {
+impl<'de> Deserialize<'de> for CredentialId<Box<[u8]>> {
     /// Deserializes [`prim@str`] based on
     /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialdescriptorjson-id).
     ///
@@ -260,7 +260,7 @@ impl<'de> Deserialize<'de> for CredentialId<Vec<u8>> {
     /// # #[cfg(feature = "custom")]
     /// assert_eq!(
     ///     serde_json::from_str::<CredentialId<_>>(r#""AAAAAAAAAAAAAAAAAAAAAA""#).unwrap(),
-    ///     CredentialId::try_from(vec![0; 16])?
+    ///     CredentialId::try_from(vec![0; 16].into_boxed_slice())?
     /// );
     /// # Ok::<_, webauthn_rp::AggErr>(())
     ///```
@@ -272,7 +272,7 @@ impl<'de> Deserialize<'de> for CredentialId<Vec<u8>> {
         /// `Visitor` for `CredentialId`.
         struct CredentialIdVisitor;
         impl Visitor<'_> for CredentialIdVisitor {
-            type Value = CredentialId<Vec<u8>>;
+            type Value = CredentialId<Box<[u8]>>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("CredentialId")
             }
@@ -287,7 +287,7 @@ impl<'de> Deserialize<'de> for CredentialId<Vec<u8>> {
                 if (MIN_LEN..=MAX_LEN).contains(&v.len()) {
                     base64url_nopad::decode(v.as_bytes())
                         .map_err(E::custom)
-                        .map(CredentialId)
+                        .map(|c| CredentialId(c.into_boxed_slice()))
                 } else {
                     Err(E::invalid_value(
                         Unexpected::Str(v),
@@ -505,7 +505,7 @@ pub(super) trait ClientExtensions: Sized {
 /// `RELAXED` and `REG` are used purely for deserialization purposes.
 pub(super) struct PublicKeyCredential<const RELAXED: bool, const REG: bool, AuthResp, Ext> {
     /// [`rawId`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-rawid).
-    pub id: Option<CredentialId<Vec<u8>>>,
+    pub id: Option<CredentialId<Box<[u8]>>>,
     /// [`response`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-response).
     pub response: AuthResp,
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredential-authenticatorattachment).
@@ -803,9 +803,9 @@ where
     /// # };
     /// /// Retrieves the `CredentialId`s associated with `user_id` from the database.
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
-    /// fn get_credential_ids(user_id: UserHandle<USER_HANDLE_MIN_LEN>) -> Result<Vec<CredentialId<Vec<u8>>>, CredentialIdErr> {
+    /// fn get_credential_ids(user_id: UserHandle<USER_HANDLE_MIN_LEN>) -> Result<Vec<CredentialId<Box<[u8]>>>, CredentialIdErr> {
     ///     // ⋮
-    /// #     CredentialId::decode(vec![0; 16]).map(|cred_id| vec![cred_id])
+    /// #     CredentialId::decode(vec![0; 16].into_boxed_slice()).map(|cred_id| vec![cred_id])
     /// }
     /// /// Retrieves the `UserHandle` from a session cookie.
     /// # #[cfg(feature = "custom")]

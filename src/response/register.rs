@@ -17,8 +17,9 @@ use super::{
     register::error::{
         AaguidErr, AttestationErr, AttestationObjectErr, AttestedCredentialDataErr,
         AuthenticatorDataErr, AuthenticatorExtensionOutputErr, CompressedP256PubKeyErr,
-        CompressedP384PubKeyErr, CoseKeyErr, Ed25519PubKeyErr, Ed25519SignatureErr, PubKeyErr,
-        RsaPubKeyErr, UncompressedP256PubKeyErr, UncompressedP384PubKeyErr,
+        CompressedP384PubKeyErr, CoseKeyErr, Ed25519PubKeyErr, Ed25519SignatureErr,
+        MlDsa44PubKeyErr, MlDsa65PubKeyErr, MlDsa87PubKeyErr, PubKeyErr, RsaPubKeyErr,
+        UncompressedP256PubKeyErr, UncompressedP384PubKeyErr,
     },
 };
 #[cfg(doc)]
@@ -40,6 +41,10 @@ use core::{
     fmt::{self, Display, Formatter},
 };
 use ed25519_dalek::{Signature, Verifier as _, VerifyingKey};
+use ml_dsa::{
+    MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSignature, VerifyingKey as MlDsaVerKey,
+    signature::Verifier as _,
+};
 use p256::{
     AffinePoint as P256Affine, EncodedPoint as P256Pt, NistP256,
     ecdsa::{DerSignature as P256Sig, VerifyingKey as P256VerKey},
@@ -703,6 +708,276 @@ impl FromCbor<'_> for AuthenticatorExtensionOutput {
         )
     }
 }
+/// 2592 bytes representing an alleged ML-DSA-87 public key.
+#[derive(Clone, Copy, Debug)]
+pub struct MlDsa87PubKey<T>(T);
+impl<T> MlDsa87PubKey<T> {
+    /// Returns the contained data consuming `self`.
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+    /// Returns the contained data.
+    #[inline]
+    pub const fn inner(&self) -> &T {
+        &self.0
+    }
+}
+impl<T: AsRef<[u8]>> MlDsa87PubKey<T> {
+    /// Returns the contained data.
+    #[inline]
+    #[must_use]
+    pub fn encoded_data(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+impl MlDsa87PubKey<&[u8]> {
+    /// Converts `self` into an [`MlDsaVerKey`].
+    pub(super) fn into_ver_key(self) -> MlDsaVerKey<MlDsa87> {
+        self.into_owned().into_ver_key()
+    }
+    /// Transforms `self` into an "owned" version.
+    #[inline]
+    #[must_use]
+    pub fn into_owned(self) -> MlDsa87PubKey<Box<[u8]>> {
+        MlDsa87PubKey(self.0.into())
+    }
+}
+impl MlDsa87PubKey<Box<[u8]>> {
+    /// Converts `self` into [`MlDsaVerKey`].
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    fn into_ver_key(self) -> MlDsaVerKey<MlDsa87> {
+        MlDsaVerKey::decode(
+            self.0
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
+        )
+    }
+}
+impl<'a: 'b, 'b> TryFrom<&'a [u8]> for MlDsa87PubKey<&'b [u8]> {
+    type Error = MlDsa87PubKeyErr;
+    /// Interprets `value` as an encoded ML-DSA-87 public key.
+    #[inline]
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        if value.len() == 2592 {
+            Ok(Self(value))
+        } else {
+            Err(MlDsa87PubKeyErr)
+        }
+    }
+}
+impl TryFrom<Box<[u8]>> for MlDsa87PubKey<Box<[u8]>> {
+    type Error = MlDsa87PubKeyErr;
+    /// Interprets `value` as an encoded ML-DSA-87 public key.
+    #[inline]
+    fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
+        if value.len() == 2592 {
+            Ok(Self(value))
+        } else {
+            Err(MlDsa87PubKeyErr)
+        }
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<MlDsa87PubKey<T>> for MlDsa87PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &MlDsa87PubKey<T>) -> bool {
+        self.0 == other.0
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<MlDsa87PubKey<T>> for &MlDsa87PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &MlDsa87PubKey<T>) -> bool {
+        **self == *other
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<&MlDsa87PubKey<T>> for MlDsa87PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &&MlDsa87PubKey<T>) -> bool {
+        *self == **other
+    }
+}
+impl<T: Eq> Eq for MlDsa87PubKey<T> {}
+/// 1952 bytes representing an alleged ML-DSA-65 public key.
+#[derive(Clone, Copy, Debug)]
+pub struct MlDsa65PubKey<T>(T);
+impl<T> MlDsa65PubKey<T> {
+    /// Returns the contained data consuming `self`.
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+    /// Returns the contained data.
+    #[inline]
+    pub const fn inner(&self) -> &T {
+        &self.0
+    }
+}
+impl<T: AsRef<[u8]>> MlDsa65PubKey<T> {
+    /// Returns the contained data.
+    #[inline]
+    #[must_use]
+    pub fn encoded_data(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+impl MlDsa65PubKey<&[u8]> {
+    /// Converts `self` into an [`MlDsaVerKey`].
+    pub(super) fn into_ver_key(self) -> MlDsaVerKey<MlDsa65> {
+        self.into_owned().into_ver_key()
+    }
+    /// Transforms `self` into an "owned" version.
+    #[inline]
+    #[must_use]
+    pub fn into_owned(self) -> MlDsa65PubKey<Box<[u8]>> {
+        MlDsa65PubKey(self.0.into())
+    }
+}
+impl MlDsa65PubKey<Box<[u8]>> {
+    /// Converts `self` into [`MlDsaVerKey`].
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    fn into_ver_key(self) -> MlDsaVerKey<MlDsa65> {
+        MlDsaVerKey::decode(
+            self.0
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
+        )
+    }
+}
+impl<'a: 'b, 'b> TryFrom<&'a [u8]> for MlDsa65PubKey<&'b [u8]> {
+    type Error = MlDsa65PubKeyErr;
+    /// Interprets `value` as an encoded ML-DSA-65 public key.
+    #[inline]
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        if value.len() == 1952 {
+            Ok(Self(value))
+        } else {
+            Err(MlDsa65PubKeyErr)
+        }
+    }
+}
+impl TryFrom<Box<[u8]>> for MlDsa65PubKey<Box<[u8]>> {
+    type Error = MlDsa65PubKeyErr;
+    /// Interprets `value` as an encoded ML-DSA-65 public key.
+    #[inline]
+    fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
+        if value.len() == 1952 {
+            Ok(Self(value))
+        } else {
+            Err(MlDsa65PubKeyErr)
+        }
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<MlDsa65PubKey<T>> for MlDsa65PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &MlDsa65PubKey<T>) -> bool {
+        self.0 == other.0
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<MlDsa65PubKey<T>> for &MlDsa65PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &MlDsa65PubKey<T>) -> bool {
+        **self == *other
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<&MlDsa65PubKey<T>> for MlDsa65PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &&MlDsa65PubKey<T>) -> bool {
+        *self == **other
+    }
+}
+impl<T: Eq> Eq for MlDsa65PubKey<T> {}
+/// 1312 bytes representing an alleged ML-DSA-44 public key.
+#[derive(Clone, Copy, Debug)]
+pub struct MlDsa44PubKey<T>(T);
+impl<T> MlDsa44PubKey<T> {
+    /// Returns the contained data consuming `self`.
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+    /// Returns the contained data.
+    #[inline]
+    pub const fn inner(&self) -> &T {
+        &self.0
+    }
+}
+impl<T: AsRef<[u8]>> MlDsa44PubKey<T> {
+    /// Returns the contained data.
+    #[inline]
+    #[must_use]
+    pub fn encoded_data(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+impl MlDsa44PubKey<&[u8]> {
+    /// Converts `self` into an [`MlDsaVerKey`].
+    pub(super) fn into_ver_key(self) -> MlDsaVerKey<MlDsa44> {
+        self.into_owned().into_ver_key()
+    }
+    /// Transforms `self` into an "owned" version.
+    #[inline]
+    #[must_use]
+    pub fn into_owned(self) -> MlDsa44PubKey<Box<[u8]>> {
+        MlDsa44PubKey(self.0.into())
+    }
+}
+impl MlDsa44PubKey<Box<[u8]>> {
+    /// Converts `self` into [`MlDsaVerKey`].
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    fn into_ver_key(self) -> MlDsaVerKey<MlDsa44> {
+        MlDsaVerKey::decode(
+            self.0
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array"))
+                .into(),
+        )
+    }
+}
+impl<'a: 'b, 'b> TryFrom<&'a [u8]> for MlDsa44PubKey<&'b [u8]> {
+    type Error = MlDsa44PubKeyErr;
+    /// Interprets `value` as an encoded ML-DSA-44 public key.
+    #[inline]
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        if value.len() == 1312 {
+            Ok(Self(value))
+        } else {
+            Err(MlDsa44PubKeyErr)
+        }
+    }
+}
+impl TryFrom<Box<[u8]>> for MlDsa44PubKey<Box<[u8]>> {
+    type Error = MlDsa44PubKeyErr;
+    /// Interprets `value` as an encoded ML-DSA-44 public key.
+    #[inline]
+    fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
+        if value.len() == 1312 {
+            Ok(Self(value))
+        } else {
+            Err(MlDsa44PubKeyErr)
+        }
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<MlDsa44PubKey<T>> for MlDsa44PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &MlDsa44PubKey<T>) -> bool {
+        self.0 == other.0
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<MlDsa44PubKey<T>> for &MlDsa44PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &MlDsa44PubKey<T>) -> bool {
+        **self == *other
+    }
+}
+impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<&MlDsa44PubKey<T>> for MlDsa44PubKey<T2> {
+    #[inline]
+    fn eq(&self, other: &&MlDsa44PubKey<T>) -> bool {
+        *self == **other
+    }
+}
+impl<T: Eq> Eq for MlDsa44PubKey<T> {}
 /// 32-bytes representing an alleged Ed25519 public key (i.e., compressed y-coordinate).
 #[derive(Clone, Copy, Debug)]
 pub struct Ed25519PubKey<T>(T);
@@ -844,8 +1119,8 @@ impl<'a: 'b, 'b> From<Ed25519PubKey<&'a [u8]>>
         Self(
             value
                 .0
-                .try_into()
-                .unwrap_or_else(|_e| unreachable!("there is a bug in &Array::try_from")),
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")),
         )
     }
 }
@@ -1096,8 +1371,8 @@ impl<'a: 'b, 'b> From<CompressedP256PubKey<&'a [u8]>>
         Self {
             x: value
                 .x
-                .try_into()
-                .unwrap_or_else(|_e| unreachable!("&Array::try_from has a bug")),
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")),
             y_is_odd: value.y_is_odd,
         }
     }
@@ -1356,8 +1631,8 @@ impl<'a: 'b, 'b> From<CompressedP384PubKey<&'a [u8]>>
         Self {
             x: value
                 .x
-                .try_into()
-                .unwrap_or_else(|_e| unreachable!("&Array::try_from has a bug")),
+                .as_array()
+                .unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")),
             y_is_odd: value.y_is_odd,
         }
     }
@@ -1442,8 +1717,8 @@ impl RsaPubKey<&[u8]> {
     /// Transforms `self` into an "owned" version.
     #[inline]
     #[must_use]
-    pub fn into_owned(self) -> RsaPubKey<Vec<u8>> {
-        RsaPubKey(self.0.to_owned(), self.1)
+    pub fn into_owned(self) -> RsaPubKey<Box<[u8]>> {
+        RsaPubKey(self.0.into(), self.1)
     }
 }
 impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
@@ -1487,33 +1762,33 @@ impl<'a: 'b, 'b> TryFrom<(&'a [u8], u32)> for RsaPubKey<&'b [u8]> {
         })
     }
 }
-impl TryFrom<(Vec<u8>, u32)> for RsaPubKey<Vec<u8>> {
+impl TryFrom<(Box<[u8]>, u32)> for RsaPubKey<Box<[u8]>> {
     type Error = RsaPubKeyErr;
-    /// Similar to [`RsaPubKey::try_from`] except `n` is a `Vec`.
+    /// Similar to [`RsaPubKey::try_from`] except `n` is a `Box`.
     #[inline]
-    fn try_from((n, e): (Vec<u8>, u32)) -> Result<Self, Self::Error> {
-        match RsaPubKey::<&[u8]>::try_from((n.as_slice(), e)) {
+    fn try_from((n, e): (Box<[u8]>, u32)) -> Result<Self, Self::Error> {
+        match RsaPubKey::<&[u8]>::try_from((&*n, e)) {
             Ok(_) => Ok(Self(n, e)),
             Err(err) => Err(err),
         }
     }
 }
-impl<'a: 'b, 'b> From<&'a RsaPubKey<Vec<u8>>> for RsaPubKey<&'b Vec<u8>> {
+impl<'a: 'b, 'b> From<&'a RsaPubKey<Box<[u8]>>> for RsaPubKey<&'b Box<[u8]>> {
     #[inline]
-    fn from(value: &'a RsaPubKey<Vec<u8>>) -> Self {
+    fn from(value: &'a RsaPubKey<Box<[u8]>>) -> Self {
         Self(&value.0, value.1)
     }
 }
-impl<'a: 'b, 'b> From<RsaPubKey<&'a Vec<u8>>> for RsaPubKey<&'b [u8]> {
+impl<'a: 'b, 'b> From<RsaPubKey<&'a Box<[u8]>>> for RsaPubKey<&'b [u8]> {
     #[inline]
-    fn from(value: RsaPubKey<&'a Vec<u8>>) -> Self {
-        Self(value.0.as_slice(), value.1)
+    fn from(value: RsaPubKey<&'a Box<[u8]>>) -> Self {
+        Self(value.0, value.1)
     }
 }
-impl<'a: 'b, 'b> From<&'a RsaPubKey<Vec<u8>>> for RsaPubKey<&'b [u8]> {
+impl<'a: 'b, 'b> From<&'a RsaPubKey<Box<[u8]>>> for RsaPubKey<&'b [u8]> {
     #[inline]
-    fn from(value: &'a RsaPubKey<Vec<u8>>) -> Self {
-        Self(value.0.as_slice(), value.1)
+    fn from(value: &'a RsaPubKey<Box<[u8]>>) -> Self {
+        Self(&value.0, value.1)
     }
 }
 impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<RsaPubKey<T>> for RsaPubKey<T2> {
@@ -1547,6 +1822,9 @@ const EC2: u8 = cbor::TWO;
 /// `RSA` COSE key type as defined by
 /// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#key-type).
 const RSA: u8 = cbor::THREE;
+/// `AKP` COSE key type as defined by
+/// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#key-type).
+const AKP: u8 = cbor::SEVEN;
 /// `alg` COSE key common parameter as defined by
 /// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#key-common-parameters).
 const ALG: u8 = cbor::THREE;
@@ -1562,12 +1840,156 @@ const ES256: u8 = cbor::NEG_SEVEN;
 /// This is -35 encoded in cbor which is encoded as |-35| - 1 = 35 - 1 = 34. Note
 /// this must be preceded with `cbor::NEG_INFO_24`.
 const ES384: u8 = 34;
+/// `ML-DSA-44` COSE algorithm as defined by
+/// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#algorithms).
+///
+/// This is -48 encoded in cbor which is encoded as |-48| - 1 = 48 - 1 = 47. Note
+/// this must be preceded with `cbor::NEG_INFO_24`.
+const MLDSA44: u8 = 47;
+/// `ML-DSA-65` COSE algorithm as defined by
+/// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#algorithms).
+///
+/// This is -49 encoded in cbor which is encoded as |-49| - 1 = 49 - 1 = 48. Note
+/// this must be preceded with `cbor::NEG_INFO_24`.
+const MLDSA65: u8 = 48;
+/// `ML-DSA-87` COSE algorithm as defined by
+/// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#algorithms).
+///
+/// This is -50 encoded in cbor which is encoded as |-50| - 1 = 50 - 1 = 49. Note
+/// this must be preceded with `cbor::NEG_INFO_24`.
+const MLDSA87: u8 = 49;
 /// `RS256` COSE algorithm as defined by
 /// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#algorithms).
 ///
 /// This is -257 encoded in cbor which is encoded as |-257| - 1 = 257 - 1 = 256 = [1, 0] in big endian.
 /// Note this must be preceded with `cbor::NEG_INFO_25`.
 const RS256: [u8; 2] = [1, 0];
+impl<'a> FromCbor<'a> for MlDsa87PubKey<&'a [u8]> {
+    type Err = CoseKeyErr;
+    fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
+        /// `pub` COSE key type parameter for [`AKP`] as defined by
+        /// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#key-type-parameters).
+        const PUB: u8 = cbor::NEG_ONE;
+        /// COSE header.
+        /// {kty:AKP,alg:ML-DSA-87,pub:<encodedKey>}.
+        /// `kty` and `alg` come before `pub` since map order first
+        /// is done by data type and `cbor::UINT`s come before `cbor::NEG`s.
+        /// `kty` comes before `alg` since order is done byte-wise and
+        /// 1 is before 3.
+        const HEADER: [u8; 10] = [
+            cbor::MAP_3,
+            KTY,
+            AKP,
+            ALG,
+            cbor::NEG_INFO_24,
+            MLDSA87,
+            PUB,
+            cbor::BYTES_INFO_25,
+            // 10 *256 + 32 = 2592
+            10,
+            32,
+        ];
+        cbor.split_at_checked(HEADER.len())
+            .ok_or(CoseKeyErr::Len)
+            .and_then(|(header, header_rem)| {
+                if header == HEADER {
+                    header_rem
+                        .split_at_checked(2592)
+                        .ok_or(CoseKeyErr::Len)
+                        .map(|(key, remaining)| CborSuccess {
+                            value: Self(key),
+                            remaining,
+                        })
+                } else {
+                    Err(CoseKeyErr::MlDsa87CoseEncoding)
+                }
+            })
+    }
+}
+impl<'a> FromCbor<'a> for MlDsa65PubKey<&'a [u8]> {
+    type Err = CoseKeyErr;
+    fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
+        /// `pub` COSE key type parameter for [`AKP`] as defined by
+        /// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#key-type-parameters).
+        const PUB: u8 = cbor::NEG_ONE;
+        /// COSE header.
+        /// {kty:AKP,alg:ML-DSA-65,pub:<encodedKey>}.
+        /// `kty` and `alg` come before `pub` since map order first
+        /// is done by data type and `cbor::UINT`s come before `cbor::NEG`s.
+        /// `kty` comes before `alg` since order is done byte-wise and
+        /// 1 is before 3.
+        const HEADER: [u8; 10] = [
+            cbor::MAP_3,
+            KTY,
+            AKP,
+            ALG,
+            cbor::NEG_INFO_24,
+            MLDSA65,
+            PUB,
+            cbor::BYTES_INFO_25,
+            // 7 *256 + 160 = 1952
+            7,
+            160,
+        ];
+        cbor.split_at_checked(HEADER.len())
+            .ok_or(CoseKeyErr::Len)
+            .and_then(|(header, header_rem)| {
+                if header == HEADER {
+                    header_rem
+                        .split_at_checked(1952)
+                        .ok_or(CoseKeyErr::Len)
+                        .map(|(key, remaining)| CborSuccess {
+                            value: Self(key),
+                            remaining,
+                        })
+                } else {
+                    Err(CoseKeyErr::MlDsa65CoseEncoding)
+                }
+            })
+    }
+}
+impl<'a> FromCbor<'a> for MlDsa44PubKey<&'a [u8]> {
+    type Err = CoseKeyErr;
+    fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
+        /// `pub` COSE key type parameter for [`AKP`] as defined by
+        /// [IANA](https://www.iana.org/assignments/cose/cose.xhtml#key-type-parameters).
+        const PUB: u8 = cbor::NEG_ONE;
+        /// COSE header.
+        /// {kty:AKP,alg:ML-DSA-44,pub:<encodedKey>}.
+        /// `kty` and `alg` come before `pub` since map order first
+        /// is done by data type and `cbor::UINT`s come before `cbor::NEG`s.
+        /// `kty` comes before `alg` since order is done byte-wise and
+        /// 1 is before 3.
+        const HEADER: [u8; 10] = [
+            cbor::MAP_3,
+            KTY,
+            AKP,
+            ALG,
+            cbor::NEG_INFO_24,
+            MLDSA44,
+            PUB,
+            cbor::BYTES_INFO_25,
+            // 5 *256 + 32 = 1312
+            5,
+            32,
+        ];
+        cbor.split_at_checked(HEADER.len())
+            .ok_or(CoseKeyErr::Len)
+            .and_then(|(header, header_rem)| {
+                if header == HEADER {
+                    header_rem
+                        .split_at_checked(1312)
+                        .ok_or(CoseKeyErr::Len)
+                        .map(|(key, remaining)| CborSuccess {
+                            value: Self(key),
+                            remaining,
+                        })
+                } else {
+                    Err(CoseKeyErr::MlDsa44CoseEncoding)
+                }
+            })
+    }
+}
 impl<'a> FromCbor<'a> for Ed25519PubKey<&'a [u8]> {
     type Err = CoseKeyErr;
     fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
@@ -1903,9 +2325,15 @@ impl<'a> FromCbor<'a> for RsaPubKey<&'a [u8]> {
 }
 /// An alleged uncompressed public key that borrows the key data.
 ///
-/// Note [`Self::Ed25519`] is compressed.
+/// Note [`Self::MlDsa87`], [`Self::MlDsa65`], [`Self::MlDsa44`], and [`Self::Ed25519`] are compressed.
 #[derive(Clone, Copy, Debug)]
 pub enum UncompressedPubKey<'a> {
+    /// An alleged ML-DSA-87 public key.
+    MlDsa87(MlDsa87PubKey<&'a [u8]>),
+    /// An alleged ML-DSA-65 public key.
+    MlDsa65(MlDsa65PubKey<&'a [u8]>),
+    /// An alleged ML-DSA-44 public key.
+    MlDsa44(MlDsa44PubKey<&'a [u8]>),
     /// An alleged Ed25519 public key.
     Ed25519(Ed25519PubKey<&'a [u8]>),
     /// An alleged uncompressed P-256 public key.
@@ -1924,28 +2352,24 @@ impl UncompressedPubKey<'_> {
     #[inline]
     pub fn validate(self) -> Result<(), PubKeyErr> {
         match self {
+            Self::MlDsa87(_) | Self::MlDsa65(_) | Self::MlDsa44(_) | Self::Rsa(_) => Ok(()),
             Self::Ed25519(k) => k.validate(),
             Self::P256(k) => k.validate(),
             Self::P384(k) => k.validate(),
-            Self::Rsa(_) => Ok(()),
         }
     }
     /// Transforms `self` into the compressed version that owns the data.
     #[inline]
     #[must_use]
-    pub fn into_compressed(
-        self,
-    ) -> CompressedPubKey<
-        [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
-        [u8; <NistP256 as Curve>::FieldBytesSize::INT],
-        [u8; <NistP384 as Curve>::FieldBytesSize::INT],
-        Vec<u8>,
-    > {
+    pub fn into_compressed(self) -> CompressedPubKeyOwned {
         match self {
-            Self::Ed25519(key) => CompressedPubKey::Ed25519(key.into_owned()),
-            Self::P256(key) => CompressedPubKey::P256(key.into_compressed()),
-            Self::P384(key) => CompressedPubKey::P384(key.into_compressed()),
-            Self::Rsa(key) => CompressedPubKey::Rsa(key.into_owned()),
+            Self::MlDsa87(key) => CompressedPubKeyOwned::MlDsa87(key.into_owned()),
+            Self::MlDsa65(key) => CompressedPubKeyOwned::MlDsa65(key.into_owned()),
+            Self::MlDsa44(key) => CompressedPubKeyOwned::MlDsa44(key.into_owned()),
+            Self::Ed25519(key) => CompressedPubKeyOwned::Ed25519(key.into_owned()),
+            Self::P256(key) => CompressedPubKeyOwned::P256(key.into_compressed()),
+            Self::P384(key) => CompressedPubKeyOwned::P384(key.into_compressed()),
+            Self::Rsa(key) => CompressedPubKeyOwned::Rsa(key.into_owned()),
         }
     }
 }
@@ -1953,6 +2377,9 @@ impl PartialEq<UncompressedPubKey<'_>> for UncompressedPubKey<'_> {
     #[inline]
     fn eq(&self, other: &UncompressedPubKey<'_>) -> bool {
         match *self {
+            Self::MlDsa87(k) => matches!(*other, UncompressedPubKey::MlDsa87(k2) if k == k2),
+            Self::MlDsa65(k) => matches!(*other, UncompressedPubKey::MlDsa65(k2) if k == k2),
+            Self::MlDsa44(k) => matches!(*other, UncompressedPubKey::MlDsa44(k2) if k == k2),
             Self::Ed25519(k) => matches!(*other, UncompressedPubKey::Ed25519(k2) if k == k2),
             Self::P256(k) => matches!(*other, UncompressedPubKey::P256(k2) if k == k2),
             Self::P384(k) => matches!(*other, UncompressedPubKey::P384(k2) if k == k2),
@@ -1977,26 +2404,36 @@ impl Eq for UncompressedPubKey<'_> {}
 ///
 /// Note [`Self::Rsa`] is uncompressed.
 #[derive(Clone, Copy, Debug)]
-pub enum CompressedPubKey<T, T2, T3, T4> {
+pub enum CompressedPubKey<T, T2, T3, T4, T5, T6, T7> {
+    /// An alleged ML-DSA-87 public key.
+    MlDsa87(MlDsa87PubKey<T>),
+    /// An alleged ML-DSA-65 public key.
+    MlDsa65(MlDsa65PubKey<T2>),
+    /// An alleged ML-DSA-44 public key.
+    MlDsa44(MlDsa44PubKey<T3>),
     /// An alleged Ed25519 public key.
-    Ed25519(Ed25519PubKey<T>),
+    Ed25519(Ed25519PubKey<T4>),
     /// An alleged compressed P-256 public key.
-    P256(CompressedP256PubKey<T2>),
+    P256(CompressedP256PubKey<T5>),
     /// An alleged compressed P-384 public key.
-    P384(CompressedP384PubKey<T3>),
+    P384(CompressedP384PubKey<T6>),
     /// An alleged RSA public key.
-    Rsa(RsaPubKey<T4>),
+    Rsa(RsaPubKey<T7>),
 }
 /// `CompressedPubKey` that owns the key data.
 pub type CompressedPubKeyOwned = CompressedPubKey<
+    Box<[u8]>,
+    Box<[u8]>,
+    Box<[u8]>,
     [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
     [u8; <NistP256 as Curve>::FieldBytesSize::INT],
     [u8; <NistP384 as Curve>::FieldBytesSize::INT],
-    Vec<u8>,
+    Box<[u8]>,
 >;
 /// `CompressedPubKey` that borrows the key data.
-pub type CompressedPubKeyBorrowed<'a> = CompressedPubKey<&'a [u8], &'a [u8], &'a [u8], &'a [u8]>;
-impl CompressedPubKey<&[u8], &[u8], &[u8], &[u8]> {
+pub type CompressedPubKeyBorrowed<'a> =
+    CompressedPubKey<&'a [u8], &'a [u8], &'a [u8], &'a [u8], &'a [u8], &'a [u8], &'a [u8]>;
+impl CompressedPubKeyBorrowed<'_> {
     /// Validates `self` is in fact a valid public key.
     ///
     /// # Errors
@@ -2005,20 +2442,31 @@ impl CompressedPubKey<&[u8], &[u8], &[u8], &[u8]> {
     #[inline]
     pub fn validate(self) -> Result<(), PubKeyErr> {
         match self {
+            Self::MlDsa87(_) | Self::MlDsa65(_) | Self::MlDsa44(_) | Self::Rsa(_) => Ok(()),
             Self::Ed25519(k) => k.validate(),
             Self::P256(k) => k.validate(),
             Self::P384(k) => k.validate(),
-            Self::Rsa(_) => Ok(()),
         }
     }
 }
-impl<'a: 'b, 'b, T: AsRef<[u8]>, T2: AsRef<[u8]>, T3: AsRef<[u8]>, T4: AsRef<[u8]>>
-    From<&'a CompressedPubKey<T, T2, T3, T4>>
-    for CompressedPubKey<&'b [u8], &'b [u8], &'b [u8], &'b [u8]>
+impl<
+    'a: 'b,
+    'b,
+    T: AsRef<[u8]>,
+    T2: AsRef<[u8]>,
+    T3: AsRef<[u8]>,
+    T4: AsRef<[u8]>,
+    T5: AsRef<[u8]>,
+    T6: AsRef<[u8]>,
+    T7: AsRef<[u8]>,
+> From<&'a CompressedPubKey<T, T2, T3, T4, T5, T6, T7>> for CompressedPubKeyBorrowed<'b>
 {
     #[inline]
-    fn from(value: &'a CompressedPubKey<T, T2, T3, T4>) -> Self {
+    fn from(value: &'a CompressedPubKey<T, T2, T3, T4, T5, T6, T7>) -> Self {
         match *value {
+            CompressedPubKey::MlDsa87(ref val) => Self::MlDsa87(MlDsa87PubKey(val.0.as_ref())),
+            CompressedPubKey::MlDsa65(ref val) => Self::MlDsa65(MlDsa65PubKey(val.0.as_ref())),
+            CompressedPubKey::MlDsa44(ref val) => Self::MlDsa44(MlDsa44PubKey(val.0.as_ref())),
             CompressedPubKey::Ed25519(ref val) => Self::Ed25519(Ed25519PubKey(val.0.as_ref())),
             CompressedPubKey::P256(ref val) => Self::P256(CompressedP256PubKey {
                 x: val.x.as_ref(),
@@ -2033,19 +2481,35 @@ impl<'a: 'b, 'b, T: AsRef<[u8]>, T2: AsRef<[u8]>, T3: AsRef<[u8]>, T4: AsRef<[u8
     }
 }
 impl<
-    T: PartialEq<T5>,
-    T5: PartialEq<T>,
-    T2: PartialEq<T6>,
-    T6: PartialEq<T2>,
-    T3: PartialEq<T7>,
-    T7: PartialEq<T3>,
-    T4: PartialEq<T8>,
-    T8: PartialEq<T4>,
-> PartialEq<CompressedPubKey<T, T2, T3, T4>> for CompressedPubKey<T5, T6, T7, T8>
+    T: PartialEq<T8>,
+    T8: PartialEq<T>,
+    T2: PartialEq<T9>,
+    T9: PartialEq<T2>,
+    T3: PartialEq<T10>,
+    T10: PartialEq<T3>,
+    T4: PartialEq<T11>,
+    T11: PartialEq<T4>,
+    T5: PartialEq<T12>,
+    T12: PartialEq<T5>,
+    T6: PartialEq<T13>,
+    T13: PartialEq<T6>,
+    T7: PartialEq<T14>,
+    T14: PartialEq<T7>,
+> PartialEq<CompressedPubKey<T, T2, T3, T4, T5, T6, T7>>
+    for CompressedPubKey<T8, T9, T10, T11, T12, T13, T14>
 {
     #[inline]
-    fn eq(&self, other: &CompressedPubKey<T, T2, T3, T4>) -> bool {
+    fn eq(&self, other: &CompressedPubKey<T, T2, T3, T4, T5, T6, T7>) -> bool {
         match *self {
+            Self::MlDsa87(ref val) => {
+                matches!(*other, CompressedPubKey::MlDsa87(ref val2) if val == val2)
+            }
+            Self::MlDsa65(ref val) => {
+                matches!(*other, CompressedPubKey::MlDsa65(ref val2) if val == val2)
+            }
+            Self::MlDsa44(ref val) => {
+                matches!(*other, CompressedPubKey::MlDsa44(ref val2) if val == val2)
+            }
             Self::Ed25519(ref val) => {
                 matches!(*other, CompressedPubKey::Ed25519(ref val2) if val == val2)
             }
@@ -2060,38 +2524,55 @@ impl<
     }
 }
 impl<
-    T: PartialEq<T5>,
-    T5: PartialEq<T>,
-    T2: PartialEq<T6>,
-    T6: PartialEq<T2>,
-    T3: PartialEq<T7>,
-    T7: PartialEq<T3>,
-    T4: PartialEq<T8>,
-    T8: PartialEq<T4>,
-> PartialEq<CompressedPubKey<T, T2, T3, T4>> for &CompressedPubKey<T5, T6, T7, T8>
+    T: PartialEq<T8>,
+    T8: PartialEq<T>,
+    T2: PartialEq<T9>,
+    T9: PartialEq<T2>,
+    T3: PartialEq<T10>,
+    T10: PartialEq<T3>,
+    T4: PartialEq<T11>,
+    T11: PartialEq<T4>,
+    T5: PartialEq<T12>,
+    T12: PartialEq<T5>,
+    T6: PartialEq<T13>,
+    T13: PartialEq<T6>,
+    T7: PartialEq<T14>,
+    T14: PartialEq<T7>,
+> PartialEq<CompressedPubKey<T, T2, T3, T4, T5, T6, T7>>
+    for &CompressedPubKey<T8, T9, T10, T11, T12, T13, T14>
 {
     #[inline]
-    fn eq(&self, other: &CompressedPubKey<T, T2, T3, T4>) -> bool {
+    fn eq(&self, other: &CompressedPubKey<T, T2, T3, T4, T5, T6, T7>) -> bool {
         **self == *other
     }
 }
 impl<
-    T: PartialEq<T5>,
-    T5: PartialEq<T>,
-    T2: PartialEq<T6>,
-    T6: PartialEq<T2>,
-    T3: PartialEq<T7>,
-    T7: PartialEq<T3>,
-    T4: PartialEq<T8>,
-    T8: PartialEq<T4>,
-> PartialEq<&CompressedPubKey<T, T2, T3, T4>> for CompressedPubKey<T5, T6, T7, T8>
+    T: PartialEq<T8>,
+    T8: PartialEq<T>,
+    T2: PartialEq<T9>,
+    T9: PartialEq<T2>,
+    T3: PartialEq<T10>,
+    T10: PartialEq<T3>,
+    T4: PartialEq<T11>,
+    T11: PartialEq<T4>,
+    T5: PartialEq<T12>,
+    T12: PartialEq<T5>,
+    T6: PartialEq<T13>,
+    T13: PartialEq<T6>,
+    T7: PartialEq<T14>,
+    T14: PartialEq<T7>,
+> PartialEq<&CompressedPubKey<T, T2, T3, T4, T5, T6, T7>>
+    for CompressedPubKey<T8, T9, T10, T11, T12, T13, T14>
 {
     #[inline]
-    fn eq(&self, other: &&CompressedPubKey<T, T2, T3, T4>) -> bool {
+    fn eq(&self, other: &&CompressedPubKey<T, T2, T3, T4, T5, T6, T7>) -> bool {
         *self == **other
     }
 }
-impl<T: Eq, T2: Eq, T3: Eq, T4: Eq> Eq for CompressedPubKey<T, T2, T3, T4> {}
+impl<T: Eq, T2: Eq, T3: Eq, T4: Eq, T5: Eq, T6: Eq, T7: Eq> Eq
+    for CompressedPubKey<T, T2, T3, T4, T5, T6, T7>
+{
+}
 impl<'a> FromCbor<'a> for UncompressedPubKey<'a> {
     type Err = CoseKeyErr;
     fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
@@ -2121,6 +2602,24 @@ impl<'a> FromCbor<'a> for UncompressedPubKey<'a> {
                     value: Self::Rsa(key.value),
                     remaining: key.remaining,
                 }),
+                // {kty:AKP,alg:ML-DSA-87|ML-DSA-65|ML-DSA-44,...}
+                AKP => cbor
+                    .get(5)
+                    .ok_or(CoseKeyErr::Len)
+                    .and_then(|alg| match *alg {
+                        MLDSA44 => MlDsa44PubKey::from_cbor(cbor).map(|key| CborSuccess {
+                            value: Self::MlDsa44(key.value),
+                            remaining: key.remaining,
+                        }),
+                        MLDSA65 => MlDsa65PubKey::from_cbor(cbor).map(|key| CborSuccess {
+                            value: Self::MlDsa65(key.value),
+                            remaining: key.remaining,
+                        }),
+                        _ => MlDsa87PubKey::from_cbor(cbor).map(|key| CborSuccess {
+                            value: Self::MlDsa87(key.value),
+                            remaining: key.remaining,
+                        }),
+                    }),
                 _ => Err(CoseKeyErr::CoseKeyType),
             })
     }
@@ -2313,6 +2812,81 @@ impl FromCbor<'_> for NoneAttestation {
                     })
                 } else {
                     Err(AttestationErr::NoneFormat)
+                }
+            })
+    }
+}
+/// A 4627-byte slice that allegedly represents an ML-DSA-87 signature.
+struct MlDsa87Signature<'a>(&'a [u8]);
+impl<'a> FromCbor<'a> for MlDsa87Signature<'a> {
+    type Err = AttestationErr;
+    fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
+        /// CBOR metadata describing the signature.
+        /// 18 * 256 + 19 = 4627.
+        const HEADER: [u8; 3] = [cbor::BYTES_INFO_25, 18, 19];
+        cbor.split_at_checked(HEADER.len())
+            .ok_or(AttestationErr::Len)
+            .and_then(|(header, header_rem)| {
+                if header == HEADER {
+                    header_rem
+                        .split_at_checked(4627)
+                        .ok_or(AttestationErr::Len)
+                        .map(|(sig, remaining)| CborSuccess {
+                            value: Self(sig),
+                            remaining,
+                        })
+                } else {
+                    Err(AttestationErr::PackedFormatCborMlDsa87Signature)
+                }
+            })
+    }
+}
+/// A 3309-byte slice that allegedly represents an ML-DSA-65 signature.
+struct MlDsa65Signature<'a>(&'a [u8]);
+impl<'a> FromCbor<'a> for MlDsa65Signature<'a> {
+    type Err = AttestationErr;
+    fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
+        /// CBOR metadata describing the signature.
+        /// 12 * 256 + 237 = 3309.
+        const HEADER: [u8; 3] = [cbor::BYTES_INFO_25, 12, 237];
+        cbor.split_at_checked(HEADER.len())
+            .ok_or(AttestationErr::Len)
+            .and_then(|(header, header_rem)| {
+                if header == HEADER {
+                    header_rem
+                        .split_at_checked(3309)
+                        .ok_or(AttestationErr::Len)
+                        .map(|(sig, remaining)| CborSuccess {
+                            value: Self(sig),
+                            remaining,
+                        })
+                } else {
+                    Err(AttestationErr::PackedFormatCborMlDsa65Signature)
+                }
+            })
+    }
+}
+/// A 2420-byte slice that allegedly represents an ML-DSA-44 signature.
+struct MlDsa44Signature<'a>(&'a [u8]);
+impl<'a> FromCbor<'a> for MlDsa44Signature<'a> {
+    type Err = AttestationErr;
+    fn from_cbor(cbor: &'a [u8]) -> Result<CborSuccess<'a, Self>, Self::Err> {
+        /// CBOR metadata describing the signature.
+        /// 9 * 256 + 116 = 2420.
+        const HEADER: [u8; 3] = [cbor::BYTES_INFO_25, 9, 116];
+        cbor.split_at_checked(HEADER.len())
+            .ok_or(AttestationErr::Len)
+            .and_then(|(header, header_rem)| {
+                if header == HEADER {
+                    header_rem
+                        .split_at_checked(2420)
+                        .ok_or(AttestationErr::Len)
+                        .map(|(sig, remaining)| CborSuccess {
+                            value: Self(sig),
+                            remaining,
+                        })
+                } else {
+                    Err(AttestationErr::PackedFormatCborMlDsa44Signature)
                 }
             })
     }
@@ -2522,6 +3096,12 @@ impl<'a> FromCbor<'a> for RsaPkcs1v15Sig<'a> {
 /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) signature.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Sig<'a> {
+    /// Alleged ML-DSA-87.
+    MlDsa87(&'a [u8]),
+    /// Alleged ML-DSA-65.
+    MlDsa65(&'a [u8]),
+    /// Alleged ML-DSA-44.
+    MlDsa44(&'a [u8]),
     /// Alleged Ed25519 signature.
     Ed25519(Ed25519Signature<'a>),
     /// Alleged DER-encoded P-256 signature using SHA-256.
@@ -2590,26 +3170,68 @@ impl<'a> FromCbor<'a> for PackedAttestation<'a> {
                                 cbor::NEG_INFO_24 => cose_rem
                                     .split_first()
                                     .ok_or(AttestationErr::Len)
-                                    .and_then(|(len, len_rem)| {
-                                        if *len == ES384 {
-                                            len_rem
-                                                .split_at_checked(SIG.len())
-                                                .ok_or(AttestationErr::Len)
-                                                .and_then(|(sig, sig_rem)| {
-                                                    if sig == SIG {
-                                                        P384DerSig::from_cbor(sig_rem).map(
-                                                            |success| CborSuccess {
-                                                                value: Sig::P384(success.value.0),
-                                                                remaining: success.remaining,
-                                                            },
-                                                        )
-                                                    } else {
-                                                        Err(AttestationErr::PackedFormatMissingSig)
-                                                    }
-                                                })
-                                        } else {
-                                            Err(AttestationErr::PackedFormatUnsupportedAlg)
-                                        }
+                                    .and_then(|(len, len_rem)| match *len {
+                                        ES384 => len_rem
+                                            .split_at_checked(SIG.len())
+                                            .ok_or(AttestationErr::Len)
+                                            .and_then(|(sig, sig_rem)| {
+                                                if sig == SIG {
+                                                    P384DerSig::from_cbor(sig_rem).map(|success| {
+                                                        CborSuccess {
+                                                            value: Sig::P384(success.value.0),
+                                                            remaining: success.remaining,
+                                                        }
+                                                    })
+                                                } else {
+                                                    Err(AttestationErr::PackedFormatMissingSig)
+                                                }
+                                            }),
+                                        MLDSA44 => len_rem
+                                            .split_at_checked(SIG.len())
+                                            .ok_or(AttestationErr::Len)
+                                            .and_then(|(sig, sig_rem)| {
+                                                if sig == SIG {
+                                                    MlDsa44Signature::from_cbor(sig_rem).map(
+                                                        |success| CborSuccess {
+                                                            value: Sig::MlDsa44(success.value.0),
+                                                            remaining: success.remaining,
+                                                        },
+                                                    )
+                                                } else {
+                                                    Err(AttestationErr::PackedFormatMissingSig)
+                                                }
+                                            }),
+                                        MLDSA65 => len_rem
+                                            .split_at_checked(SIG.len())
+                                            .ok_or(AttestationErr::Len)
+                                            .and_then(|(sig, sig_rem)| {
+                                                if sig == SIG {
+                                                    MlDsa65Signature::from_cbor(sig_rem).map(
+                                                        |success| CborSuccess {
+                                                            value: Sig::MlDsa65(success.value.0),
+                                                            remaining: success.remaining,
+                                                        },
+                                                    )
+                                                } else {
+                                                    Err(AttestationErr::PackedFormatMissingSig)
+                                                }
+                                            }),
+                                        MLDSA87 => len_rem
+                                            .split_at_checked(SIG.len())
+                                            .ok_or(AttestationErr::Len)
+                                            .and_then(|(sig, sig_rem)| {
+                                                if sig == SIG {
+                                                    MlDsa87Signature::from_cbor(sig_rem).map(
+                                                        |success| CborSuccess {
+                                                            value: Sig::MlDsa87(success.value.0),
+                                                            remaining: success.remaining,
+                                                        },
+                                                    )
+                                                } else {
+                                                    Err(AttestationErr::PackedFormatMissingSig)
+                                                }
+                                            }),
+                                        _ => Err(AttestationErr::PackedFormatUnsupportedAlg),
                                     }),
                                 cbor::NEG_INFO_25 => cose_rem
                                     .split_at_checked(2)
@@ -2801,6 +3423,21 @@ impl<'a> AttestationObject<'a> {
                                                 match att.value {
                                                     AttestationFormat::None => Ok(()),
                                                     AttestationFormat::Packed(ref val) => match val.signature {
+                                                        Sig::MlDsa87(_) => if matches!(auth_data.value.attested_credential_data.credential_public_key, UncompressedPubKey::MlDsa87(_)) {
+                                                            Ok(())
+                                                        } else {
+                                                            Err(AttestationObjectErr::SelfAttestationAlgorithmMismatch)
+                                                        },
+                                                        Sig::MlDsa65(_) => if matches!(auth_data.value.attested_credential_data.credential_public_key, UncompressedPubKey::MlDsa65(_)) {
+                                                            Ok(())
+                                                        } else {
+                                                            Err(AttestationObjectErr::SelfAttestationAlgorithmMismatch)
+                                                        },
+                                                        Sig::MlDsa44(_) => if matches!(auth_data.value.attested_credential_data.credential_public_key, UncompressedPubKey::MlDsa44(_)) {
+                                                            Ok(())
+                                                        } else {
+                                                            Err(AttestationObjectErr::SelfAttestationAlgorithmMismatch)
+                                                        },
                                                         Sig::Ed25519(_) => if matches!(auth_data.value.attested_credential_data.credential_public_key, UncompressedPubKey::Ed25519(_)) {
                                                             Ok(())
                                                         } else {
@@ -2964,6 +3601,33 @@ impl AuthResponse for AuthenticatorAttestation {
                 .map_err(AuthRespErr::Auth)
                 .and_then(|val| {
                     match val.data.auth_data.attested_credential_data.credential_public_key {
+                        UncompressedPubKey::MlDsa87(key) => {
+                            match val.data.attestation {
+                                AttestationFormat::None => Ok(()),
+                                AttestationFormat::Packed(packed) => match packed.signature {
+                                    Sig::MlDsa87(sig) => MlDsaSignature::<MlDsa87>::decode(sig.as_array().unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")).into()).ok_or(AuthRespErr::Signature).and_then(|s| key.into_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
+                                    Sig::MlDsa65(_) | Sig::MlDsa44(_) | Sig::Ed25519(_) | Sig::P256(_) | Sig::P384(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
+                                }
+                            }
+                        }
+                        UncompressedPubKey::MlDsa65(key) => {
+                            match val.data.attestation {
+                                AttestationFormat::None => Ok(()),
+                                AttestationFormat::Packed(packed) => match packed.signature {
+                                    Sig::MlDsa65(sig) => MlDsaSignature::<MlDsa65>::decode(sig.as_array().unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")).into()).ok_or(AuthRespErr::Signature).and_then(|s| key.into_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
+                                    Sig::MlDsa87(_) | Sig::MlDsa44(_) | Sig::Ed25519(_) | Sig::P256(_) | Sig::P384(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
+                                }
+                            }
+                        }
+                        UncompressedPubKey::MlDsa44(key) => {
+                            match val.data.attestation {
+                                AttestationFormat::None => Ok(()),
+                                AttestationFormat::Packed(packed) => match packed.signature {
+                                    Sig::MlDsa44(sig) => MlDsaSignature::<MlDsa44>::decode(sig.as_array().unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")).into()).ok_or(AuthRespErr::Signature).and_then(|s| key.into_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
+                                    Sig::MlDsa87(_) | Sig::MlDsa65(_) | Sig::Ed25519(_) | Sig::P256(_) | Sig::P384(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
+                                }
+                            }
+                        }
                         UncompressedPubKey::Ed25519(key) => key.into_ver_key().map_err(AuthRespErr::PubKey).and_then(|ver_key| {
                             match val.data.attestation {
                                 AttestationFormat::None => Ok(()),
@@ -2975,7 +3639,7 @@ impl AuthResponse for AuthenticatorAttestation {
                                     // doesn't provide additional benefits and is still not enough to comply
                                     // with standards like RFC 8032 or NIST SP 800-186.
                                     Sig::Ed25519(sig) => ver_key.verify(val.auth_data_and_32_trailing_bytes, &sig.into_sig()).map_err(|_e| AuthRespErr::Signature),
-                                    Sig::P256(_) | Sig::P384(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
+                                    Sig::MlDsa87(_) | Sig::MlDsa65(_) | Sig::MlDsa44(_) | Sig::P256(_) | Sig::P384(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
                                 }
                             }
                         }),
@@ -2984,7 +3648,7 @@ impl AuthResponse for AuthenticatorAttestation {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
                                     Sig::P256(sig) => P256Sig::from_bytes(sig).map_err(|_e| AuthRespErr::Signature).and_then(|s| ver_key.verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
-                                    Sig::Ed25519(_) | Sig::P384(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
+                                    Sig::MlDsa87(_) | Sig::MlDsa65(_) | Sig::MlDsa44(_) | Sig::Ed25519(_) | Sig::P384(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
                                 }
                             }
                         }),
@@ -2993,7 +3657,7 @@ impl AuthResponse for AuthenticatorAttestation {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
                                     Sig::P384(sig) => P384Sig::from_bytes(sig).map_err(|_e| AuthRespErr::Signature).and_then(|s| ver_key.verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
-                                    Sig::Ed25519(_) | Sig::P256(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
+                                    Sig::MlDsa87(_) | Sig::MlDsa65(_) | Sig::MlDsa44(_) | Sig::Ed25519(_) | Sig::P256(_) | Sig::Rs256(_) => unreachable!("there is a bug in AttestationObject::from_data"),
                                 }
                             }
                         }),
@@ -3001,7 +3665,7 @@ impl AuthResponse for AuthenticatorAttestation {
                             AttestationFormat::None => Ok(()),
                             AttestationFormat::Packed(packed) => match packed.signature {
                                 Sig::Rs256(sig) => pkcs1v15::Signature::try_from(sig).map_err(|_e| AuthRespErr::Signature).and_then(|s| key.as_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
-                                Sig::Ed25519(_) | Sig::P256(_) | Sig::P384(_) => unreachable!("there is a bug in AttestationObject::from_data"),
+                                Sig::MlDsa87(_) | Sig::MlDsa65(_) | Sig::MlDsa44(_) | Sig::Ed25519(_) | Sig::P256(_) | Sig::P384(_) => unreachable!("there is a bug in AttestationObject::from_data"),
                             }
                         },
                     }.map(|()| (client_data_json, val.data))
@@ -3389,12 +4053,21 @@ pub struct StaticState<PublicKey> {
     /// output during registration that are used during authentication ceremonies.
     pub client_extension_results: ClientExtensionsOutputsStaticState,
 }
-impl<'a: 'b, 'b, T: AsRef<[u8]>, T2: AsRef<[u8]>, T3: AsRef<[u8]>, T4: AsRef<[u8]>>
-    From<&'a StaticState<CompressedPubKey<T, T2, T3, T4>>>
-    for StaticState<CompressedPubKey<&'b [u8], &'b [u8], &'b [u8], &'b [u8]>>
+impl<
+    'a: 'b,
+    'b,
+    T: AsRef<[u8]>,
+    T2: AsRef<[u8]>,
+    T3: AsRef<[u8]>,
+    T4: AsRef<[u8]>,
+    T5: AsRef<[u8]>,
+    T6: AsRef<[u8]>,
+    T7: AsRef<[u8]>,
+> From<&'a StaticState<CompressedPubKey<T, T2, T3, T4, T5, T6, T7>>>
+    for StaticState<CompressedPubKeyBorrowed<'b>>
 {
     #[inline]
-    fn from(value: &'a StaticState<CompressedPubKey<T, T2, T3, T4>>) -> Self {
+    fn from(value: &'a StaticState<CompressedPubKey<T, T2, T3, T4, T5, T6, T7>>) -> Self {
         Self {
             credential_public_key: (&value.credential_public_key).into(),
             extensions: value.extensions,
@@ -3476,6 +4149,8 @@ mod tests {
     };
     use ed25519_dalek::Verifier as _;
     use p256::ecdsa::{DerSignature as P256Sig, SigningKey as P256Key};
+    #[cfg(not(feature = "serde"))]
+    use pkcs8 as _;
     use rsa::sha2::{Digest as _, Sha256};
     #[expect(clippy::panic, reason = "OK in tests")]
     #[expect(
@@ -3631,7 +4306,12 @@ mod tests {
             AttestationFormat::None => false,
             AttestationFormat::Packed(attest) => {
                 match attest.signature {
-                    Sig::Ed25519(_) | Sig::P384(_) | Sig::Rs256(_) => false,
+                    Sig::MlDsa87(_)
+                    | Sig::MlDsa65(_)
+                    | Sig::MlDsa44(_)
+                    | Sig::Ed25519(_)
+                    | Sig::P384(_)
+                    | Sig::Rs256(_) => false,
                     Sig::P256(sig) => {
                         let s = P256Sig::from_bytes(sig).unwrap();
                         key.verify(

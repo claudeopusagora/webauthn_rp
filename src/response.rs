@@ -237,7 +237,7 @@ pub mod error;
 /// /// an empty `Vec` should be passed.
 /// fn get_registered_credentials(
 ///     user: UserHandle<USER_HANDLE_MAX_LEN>,
-/// ) -> Vec<PublicKeyCredentialDescriptor<Vec<u8>>> {
+/// ) -> Vec<PublicKeyCredentialDescriptor<Box<[u8]>>> {
 ///     // ⋮
 /// #     Vec::new()
 /// }
@@ -513,28 +513,28 @@ impl<T: Borrow<[u8]>> Borrow<[u8]> for CredentialId<T> {
         self.0.borrow()
     }
 }
-impl<'a: 'b, 'b> From<&'a CredentialId<Vec<u8>>> for CredentialId<&'b Vec<u8>> {
+impl<'a: 'b, 'b> From<&'a CredentialId<Box<[u8]>>> for CredentialId<&'b Box<[u8]>> {
     #[inline]
-    fn from(value: &'a CredentialId<Vec<u8>>) -> Self {
+    fn from(value: &'a CredentialId<Box<[u8]>>) -> Self {
         Self(&value.0)
     }
 }
-impl<'a: 'b, 'b> From<CredentialId<&'a Vec<u8>>> for CredentialId<&'b [u8]> {
+impl<'a: 'b, 'b> From<CredentialId<&'a Box<[u8]>>> for CredentialId<&'b [u8]> {
     #[inline]
-    fn from(value: CredentialId<&'a Vec<u8>>) -> Self {
-        Self(value.0.as_slice())
+    fn from(value: CredentialId<&'a Box<[u8]>>) -> Self {
+        Self(value.0)
     }
 }
-impl<'a: 'b, 'b> From<&'a CredentialId<Vec<u8>>> for CredentialId<&'b [u8]> {
+impl<'a: 'b, 'b> From<&'a CredentialId<Box<[u8]>>> for CredentialId<&'b [u8]> {
     #[inline]
-    fn from(value: &'a CredentialId<Vec<u8>>) -> Self {
-        Self(value.0.as_slice())
+    fn from(value: &'a CredentialId<Box<[u8]>>) -> Self {
+        Self(&value.0)
     }
 }
-impl From<CredentialId<&[u8]>> for CredentialId<Vec<u8>> {
+impl From<CredentialId<&[u8]>> for CredentialId<Box<[u8]>> {
     #[inline]
     fn from(value: CredentialId<&[u8]>) -> Self {
-        Self(value.0.to_owned())
+        Self(value.0.into())
     }
 }
 impl<T: PartialEq<T2>, T2: PartialEq<T>> PartialEq<CredentialId<T>> for CredentialId<T2> {
@@ -1614,7 +1614,7 @@ pub struct AllAcceptedCredentialsOptions<'rp, 'user, const USER_LEN: usize> {
     /// [`userId`](https://www.w3.org/TR/webauthn-3/#dictdef-allacceptedcredentialsoptions-userid).
     pub user_id: &'user UserHandle<USER_LEN>,
     /// [`allAcceptedCredentialIds`](https://www.w3.org/TR/webauthn-3/#dictdef-allacceptedcredentialsoptions-allacceptedcredentialids).
-    pub all_accepted_credential_ids: Vec<CredentialId<Vec<u8>>>,
+    pub all_accepted_credential_ids: Vec<CredentialId<Box<[u8]>>>,
 }
 /// [`CurrentUserDetailsOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-currentuserdetailsoptions).
 ///

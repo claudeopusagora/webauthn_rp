@@ -62,7 +62,7 @@ impl EncodeBuffer for CredInfo {
 impl<'a> DecodeBuffer<'a> for CredInfo {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        CredentialId::<Vec<u8>>::decode_from_buffer(data).and_then(|id| {
+        CredentialId::<Box<[u8]>>::decode_from_buffer(data).and_then(|id| {
             ServerCredSpecificExtensionInfo::decode_from_buffer(data).map(|ext| Self { id, ext })
         })
     }
@@ -115,16 +115,16 @@ impl EncodeBufferFallible for &[CredInfo] {
             })
     }
 }
-impl<'a> DecodeBuffer<'a> for Vec<CredInfo> {
+impl<'a> DecodeBuffer<'a> for Box<[CredInfo]> {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         u16::decode_from_buffer(data).and_then(|len| {
             let l = usize::from(len);
-            let mut creds = Self::with_capacity(l);
+            let mut creds = Vec::with_capacity(l);
             while creds.len() < l {
                 creds.push(CredInfo::decode_from_buffer(data)?);
             }
-            Ok(creds)
+            Ok(creds.into_boxed_slice())
         })
     }
 }
@@ -214,7 +214,7 @@ impl Encode for NonDiscoverableAuthenticationServerState {
             .map_err(EncodeNonDiscoverableAuthenticationServerStateErr::SystemTime)
             .and_then(|()| {
                 self.allow_credentials
-                    .as_slice()
+                    .as_ref()
                     .encode_into_buffer(&mut buffer)
                     .map_err(|_e| {
                         EncodeNonDiscoverableAuthenticationServerStateErr::AllowedCredentialsCount
@@ -304,7 +304,7 @@ impl Decode for NonDiscoverableAuthenticationServerState {
         AuthenticationServerState::decode_from_buffer(&mut input)
             .map_err(|_e| DecodeNonDiscoverableAuthenticationServerStateErr::Other)
             .and_then(|state| {
-                Vec::decode_from_buffer(&mut input)
+                Box::<[_]>::decode_from_buffer(&mut input)
                     .map_err(|_e| DecodeNonDiscoverableAuthenticationServerStateErr::Other)
                     .and_then(|allow_credentials| {
                         if allow_credentials.is_empty() {

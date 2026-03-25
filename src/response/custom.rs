@@ -7,11 +7,11 @@ impl<'a: 'b, 'b> TryFrom<&'a [u8]> for CredentialId<&'b [u8]> {
         Self::from_slice(value)
     }
 }
-impl TryFrom<Vec<u8>> for CredentialId<Vec<u8>> {
+impl TryFrom<Box<[u8]>> for CredentialId<Box<[u8]>> {
     type Error = CredentialIdErr;
     #[inline]
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        match CredentialId::<&[u8]>::try_from(value.as_slice()) {
+    fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
+        match CredentialId::<&[u8]>::try_from(&*value) {
             Ok(_) => Ok(Self(value)),
             Err(e) => Err(e),
         }

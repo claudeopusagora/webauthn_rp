@@ -5,9 +5,10 @@ use super::{
     Aaguid, Attestation, AuthenticationExtensionsPrfOutputs, AuthenticatorAttachment,
     AuthenticatorExtensionOutputMetadata, AuthenticatorExtensionOutputStaticState, Backup,
     ClientExtensionsOutputsMetadata, ClientExtensionsOutputsStaticState, CompressedP256PubKey,
-    CompressedP384PubKey, CompressedPubKey, CredentialPropertiesOutput, CredentialProtectionPolicy,
-    DynamicState, Ed25519PubKey, FourToSixtyThree, Metadata, ResidentKeyRequirement, RsaPubKey,
-    StaticState, UncompressedP256PubKey, UncompressedP384PubKey, UncompressedPubKey,
+    CompressedP384PubKey, CompressedPubKeyOwned, CredentialPropertiesOutput,
+    CredentialProtectionPolicy, DynamicState, Ed25519PubKey, FourToSixtyThree, Metadata,
+    MlDsa44PubKey, MlDsa65PubKey, MlDsa87PubKey, ResidentKeyRequirement, RsaPubKey, StaticState,
+    UncompressedP256PubKey, UncompressedP384PubKey, UncompressedPubKey,
 };
 use core::{
     convert::Infallible,
@@ -61,6 +62,75 @@ impl<'a> DecodeBuffer<'a> for ResidentKeyRequirement {
             2 => Ok(Self::Preferred),
             _ => Err(EncDecErr),
         })
+    }
+}
+impl EncodeBuffer for MlDsa87PubKey<&[u8]> {
+    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
+        // We don't rely on `[u8]::encode_into_buffer` since
+        // we always know the `slice` has length 2592; thus
+        // we want to "pretend" this is an array (i.e., don't encode the length).
+        buffer.extend_from_slice(self.0);
+    }
+}
+impl<'a> DecodeBuffer<'a> for MlDsa87PubKey<Box<[u8]>> {
+    type Err = EncDecErr;
+    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        // Only `array`s that implement `Default` implement `DecodeBuffer`;
+        // thus we must manually implement it.
+        let mut key = vec![0; 2592];
+        data.split_at_checked(key.len())
+            .ok_or(EncDecErr)
+            .map(|(key_slice, rem)| {
+                *data = rem;
+                key.copy_from_slice(key_slice);
+                Self(key.into_boxed_slice())
+            })
+    }
+}
+impl EncodeBuffer for MlDsa65PubKey<&[u8]> {
+    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
+        // We don't rely on `[u8]::encode_into_buffer` since
+        // we always know the `slice` has length 1952; thus
+        // we want to "pretend" this is an array (i.e., don't encode the length).
+        buffer.extend_from_slice(self.0);
+    }
+}
+impl<'a> DecodeBuffer<'a> for MlDsa65PubKey<Box<[u8]>> {
+    type Err = EncDecErr;
+    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        // Only `array`s that implement `Default` implement `DecodeBuffer`;
+        // thus we must manually implement it.
+        let mut key = vec![0; 1952];
+        data.split_at_checked(key.len())
+            .ok_or(EncDecErr)
+            .map(|(key_slice, rem)| {
+                *data = rem;
+                key.copy_from_slice(key_slice);
+                Self(key.into_boxed_slice())
+            })
+    }
+}
+impl EncodeBuffer for MlDsa44PubKey<&[u8]> {
+    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
+        // We don't rely on `[u8]::encode_into_buffer` since
+        // we always know the `slice` has length 1312; thus
+        // we want to "pretend" this is an array (i.e., don't encode the length).
+        buffer.extend_from_slice(self.0);
+    }
+}
+impl<'a> DecodeBuffer<'a> for MlDsa44PubKey<Box<[u8]>> {
+    type Err = EncDecErr;
+    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
+        // Only `array`s that implement `Default` implement `DecodeBuffer`;
+        // thus we must manually implement it.
+        let mut key = vec![0; 1312];
+        data.split_at_checked(key.len())
+            .ok_or(EncDecErr)
+            .map(|(key_slice, rem)| {
+                *data = rem;
+                key.copy_from_slice(key_slice);
+                Self(key.into_boxed_slice())
+            })
     }
 }
 impl EncodeBuffer for Ed25519PubKey<&[u8]> {
@@ -159,7 +229,7 @@ impl EncodeBuffer for RsaPubKey<&[u8]> {
         self.1.encode_into_buffer(buffer);
     }
 }
-impl<'a> DecodeBuffer<'a> for RsaPubKey<Vec<u8>> {
+impl<'a> DecodeBuffer<'a> for RsaPubKey<Box<[u8]>> {
     type Err = EncDecErr;
     // We don't verify `Self` is in fact "valid" (i.e., we don't call
     // [`Self::validate`]) since that's expensive and an error will
@@ -168,7 +238,7 @@ impl<'a> DecodeBuffer<'a> for RsaPubKey<Vec<u8>> {
     // storage in such a way that it's still valid; thus there is no
     // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        Vec::decode_from_buffer(data).and_then(|n| {
+        Box::decode_from_buffer(data).and_then(|n| {
             u32::decode_from_buffer(data)
                 .and_then(|e| Self::try_from((n, e)).map_err(|_e| EncDecErr))
         })
@@ -177,33 +247,38 @@ impl<'a> DecodeBuffer<'a> for RsaPubKey<Vec<u8>> {
 impl EncodeBuffer for UncompressedPubKey<'_> {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         match *self {
-            Self::Ed25519(key) => {
+            Self::MlDsa87(key) => {
                 0u8.encode_into_buffer(buffer);
                 key.encode_into_buffer(buffer);
             }
-            Self::P256(key) => {
+            Self::MlDsa65(key) => {
                 1u8.encode_into_buffer(buffer);
                 key.encode_into_buffer(buffer);
             }
-            Self::P384(key) => {
+            Self::MlDsa44(key) => {
                 2u8.encode_into_buffer(buffer);
                 key.encode_into_buffer(buffer);
             }
-            Self::Rsa(key) => {
+            Self::Ed25519(key) => {
                 3u8.encode_into_buffer(buffer);
+                key.encode_into_buffer(buffer);
+            }
+            Self::P256(key) => {
+                4u8.encode_into_buffer(buffer);
+                key.encode_into_buffer(buffer);
+            }
+            Self::P384(key) => {
+                5u8.encode_into_buffer(buffer);
+                key.encode_into_buffer(buffer);
+            }
+            Self::Rsa(key) => {
+                6u8.encode_into_buffer(buffer);
                 key.encode_into_buffer(buffer);
             }
         }
     }
 }
-impl<'a> DecodeBuffer<'a>
-    for CompressedPubKey<
-        [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
-        [u8; <NistP256 as Curve>::FieldBytesSize::INT],
-        [u8; <NistP384 as Curve>::FieldBytesSize::INT],
-        Vec<u8>,
-    >
-{
+impl<'a> DecodeBuffer<'a> for CompressedPubKeyOwned {
     type Err = EncDecErr;
     // We don't verify `Self` is in fact "valid" (i.e., we don't call
     // [`Self::validate`]) since that's expensive and an error will
@@ -213,10 +288,13 @@ impl<'a> DecodeBuffer<'a>
     // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         u8::decode_from_buffer(data).and_then(|val| match val {
-            0 => Ed25519PubKey::decode_from_buffer(data).map(Self::Ed25519),
-            1 => CompressedP256PubKey::decode_from_buffer(data).map(Self::P256),
-            2 => CompressedP384PubKey::decode_from_buffer(data).map(Self::P384),
-            3 => RsaPubKey::decode_from_buffer(data).map(Self::Rsa),
+            0 => MlDsa87PubKey::decode_from_buffer(data).map(Self::MlDsa87),
+            1 => MlDsa65PubKey::decode_from_buffer(data).map(Self::MlDsa65),
+            2 => MlDsa44PubKey::decode_from_buffer(data).map(Self::MlDsa44),
+            3 => Ed25519PubKey::decode_from_buffer(data).map(Self::Ed25519),
+            4 => CompressedP256PubKey::decode_from_buffer(data).map(Self::P256),
+            5 => CompressedP384PubKey::decode_from_buffer(data).map(Self::P384),
+            6 => RsaPubKey::decode_from_buffer(data).map(Self::Rsa),
             _ => Err(EncDecErr),
         })
     }
@@ -468,7 +546,7 @@ impl Encode for StaticState<UncompressedPubKey<'_>> {
         Self: 'a;
     type Err = Infallible;
     /// Transforms `self` into a `Vec` that can subsequently be [`StaticState::decode`]d into a [`StaticState`] of
-    /// [`CompressedPubKey`].
+    /// [`CompressedPubKeyOwned`].
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "comment justifies its correctness"
@@ -476,9 +554,12 @@ impl Encode for StaticState<UncompressedPubKey<'_>> {
     #[inline]
     fn encode(&self) -> Result<Self::Output<'_>, Self::Err> {
         let mut buffer = Vec::with_capacity(
-            // The maximum value is 1 + 2 + 2048 + 4 + 1 + 1 + 1 + 1 + 1 = 2060 so overflow cannot happen.
+            // The maximum value is 2593 so overflow cannot happen.
             // `key.0.len() <= MAX_RSA_N_BYTES` which is 2048.
             match self.credential_public_key {
+                UncompressedPubKey::MlDsa87(_) => 2593,
+                UncompressedPubKey::MlDsa65(_) => 1953,
+                UncompressedPubKey::MlDsa44(_) => 1313,
                 UncompressedPubKey::Ed25519(_) => 33,
                 UncompressedPubKey::P256(_) => 34,
                 UncompressedPubKey::P384(_) => 50,
@@ -520,22 +601,13 @@ impl Display for DecodeStaticStateErr {
     }
 }
 impl Error for DecodeStaticStateErr {}
-impl Decode
-    for StaticState<
-        CompressedPubKey<
-            [u8; ed25519_dalek::PUBLIC_KEY_LENGTH],
-            [u8; <NistP256 as Curve>::FieldBytesSize::INT],
-            [u8; <NistP384 as Curve>::FieldBytesSize::INT],
-            Vec<u8>,
-        >,
-    >
-{
+impl Decode for StaticState<CompressedPubKeyOwned> {
     type Input<'a> = &'a [u8];
     type Err = DecodeStaticStateErr;
     /// Interprets `input` as the [`StaticState::Output`] of [`StaticState::encode`].
     #[inline]
     fn decode(mut input: Self::Input<'_>) -> Result<Self, Self::Err> {
-        CompressedPubKey::decode_from_buffer(&mut input)
+        CompressedPubKeyOwned::decode_from_buffer(&mut input)
             .map_err(|_e| DecodeStaticStateErr::CredentialPublicKey)
             .and_then(|credential_public_key| {
                 AuthenticatorExtensionOutputStaticState::decode_from_buffer(&mut input)
