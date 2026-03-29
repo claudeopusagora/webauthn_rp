@@ -1740,7 +1740,7 @@ mod tests {
     use ed25519_dalek::{Signer as _, SigningKey};
     #[cfg(feature = "custom")]
     use ml_dsa::{
-        MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSignature, SigningKey as MlDsaSigKey,
+        ExpandedSigningKey as MlDsaSigKey, MlDsa44, MlDsa65, MlDsa87, Signature as MlDsaSignature,
     };
     #[cfg(feature = "custom")]
     use p256::{
