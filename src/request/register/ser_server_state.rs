@@ -2,10 +2,9 @@ use super::{
     super::super::bin::{
         Decode, DecodeBuffer, EncDecErr, Encode, EncodeBuffer, EncodeBufferFallible as _,
     },
-    AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, CoseAlgorithmIdentifiers,
-    CredProtect, CredentialMediationRequirement, CrossPlatformHint, ExtensionInfo, Hint,
-    PlatformHint, RegistrationServerState, ResidentKeyRequirement, SentChallenge,
-    ServerExtensionInfo, ServerPrfInfo, UserHandle, UserVerificationRequirement,
+    AuthenticatorAttachment, AuthenticatorSelectionCriteria, CoseAlgorithmIdentifiers, CredProtect,
+    CredentialMediationRequirement, ExtensionInfo, RegistrationServerState, ResidentKeyRequirement,
+    SentChallenge, ServerExtensionInfo, ServerPrfInfo, UserHandle, UserVerificationRequirement,
 };
 use core::{
     error::Error,
@@ -29,79 +28,6 @@ impl<'a> DecodeBuffer<'a> for CoseAlgorithmIdentifiers {
         })
     }
 }
-impl EncodeBuffer for PlatformHint {
-    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
-        match *self {
-            Self::None => 0u8,
-            Self::ClientDevice => 1,
-        }
-        .encode_into_buffer(buffer);
-    }
-}
-impl<'a> DecodeBuffer<'a> for PlatformHint {
-    type Err = EncDecErr;
-    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        u8::decode_from_buffer(data).and_then(|val| match val {
-            0 => Ok(Self::None),
-            1 => Ok(Self::ClientDevice),
-            _ => Err(EncDecErr),
-        })
-    }
-}
-impl EncodeBuffer for CrossPlatformHint {
-    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
-        match *self {
-            Self::None => 0u8,
-            Self::SecurityKey => 1,
-            Self::Hybrid => 2,
-            Self::SecurityKeyHybrid => 3,
-            Self::HybridSecurityKey => 4,
-        }
-        .encode_into_buffer(buffer);
-    }
-}
-impl<'a> DecodeBuffer<'a> for CrossPlatformHint {
-    type Err = EncDecErr;
-    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        u8::decode_from_buffer(data).and_then(|val| match val {
-            0 => Ok(Self::None),
-            1 => Ok(Self::SecurityKey),
-            2 => Ok(Self::Hybrid),
-            3 => Ok(Self::SecurityKeyHybrid),
-            4 => Ok(Self::HybridSecurityKey),
-            _ => Err(EncDecErr),
-        })
-    }
-}
-impl EncodeBuffer for AuthenticatorAttachmentReq {
-    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
-        match *self {
-            Self::None(hint) => {
-                0u8.encode_into_buffer(buffer);
-                hint.encode_into_buffer(buffer);
-            }
-            Self::Platform(hint) => {
-                1u8.encode_into_buffer(buffer);
-                hint.encode_into_buffer(buffer);
-            }
-            Self::CrossPlatform(hint) => {
-                2u8.encode_into_buffer(buffer);
-                hint.encode_into_buffer(buffer);
-            }
-        }
-    }
-}
-impl<'a> DecodeBuffer<'a> for AuthenticatorAttachmentReq {
-    type Err = EncDecErr;
-    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        u8::decode_from_buffer(data).and_then(|val| match val {
-            0 => Hint::decode_from_buffer(data).map(Self::None),
-            1 => PlatformHint::decode_from_buffer(data).map(Self::Platform),
-            2 => CrossPlatformHint::decode_from_buffer(data).map(Self::CrossPlatform),
-            _ => Err(EncDecErr),
-        })
-    }
-}
 impl EncodeBuffer for AuthenticatorSelectionCriteria {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         self.authenticator_attachment.encode_into_buffer(buffer);
@@ -112,7 +38,7 @@ impl EncodeBuffer for AuthenticatorSelectionCriteria {
 impl<'a> DecodeBuffer<'a> for AuthenticatorSelectionCriteria {
     type Err = EncDecErr;
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        AuthenticatorAttachmentReq::decode_from_buffer(data).and_then(|authenticator_attachment| {
+        AuthenticatorAttachment::decode_from_buffer(data).and_then(|authenticator_attachment| {
             ResidentKeyRequirement::decode_from_buffer(data).and_then(|resident_key| {
                 UserVerificationRequirement::decode_from_buffer(data).map(|user_verification| {
                     Self {
@@ -256,7 +182,7 @@ impl<const USER_LEN: usize> Encode for RegistrationServerState<USER_LEN> {
         // * 1 for `CredentialMediationRequirement`
         // * 16 for `SentChallenge`
         // * 1 for `CoseAlgorithmIdentifiers`
-        // * 4 for `AuthenticatorSelectionCriteria`
+        // * 3 for `AuthenticatorSelectionCriteria`
         // * 4–10 for `Extension`
         // * 12 for `SystemTime`
         // * 1–64 for `UserHandle<USER_LEN>`
@@ -264,7 +190,7 @@ impl<const USER_LEN: usize> Encode for RegistrationServerState<USER_LEN> {
         let mut buffer = Vec::with_capacity(
             1 + 16
                 + 1
-                + 4
+                + 3
                 + (1 + usize::from(self.extensions.cred_props.is_some())
                     + if matches!(self.extensions.cred_protect, CredProtect::None) {
                         1

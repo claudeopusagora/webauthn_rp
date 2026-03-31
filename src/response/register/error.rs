@@ -7,9 +7,9 @@ use super::{
         request::{
             BackupReq, CredentialMediationRequirement, UserVerificationRequirement,
             register::{
-                AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
-                CredentialCreationOptions, Extension, PublicKeyCredentialCreationOptions,
-                RegistrationServerState, RegistrationVerificationOptions,
+                AuthenticatorSelectionCriteria, CredentialCreationOptions, Extension,
+                PublicKeyCredentialCreationOptions, RegistrationServerState,
+                RegistrationVerificationOptions,
             },
         },
     },
@@ -660,7 +660,7 @@ pub enum RegCeremonyErr {
     BackupDoesNotExist,
     /// [`AuthenticatorAttachment`] was not sent back despite being required.
     MissingAuthenticatorAttachment,
-    /// [`AuthenticatorAttachmentReq::Platform`] or [`AuthenticatorAttachmentReq::CrossPlatform`] was sent
+    /// [`AuthenticatorAttachment::Platform`] or [`AuthenticatorAttachment::CrossPlatform`] was sent
     /// but [`AuthenticatorAttachment`] was not the same.
     AuthenticatorAttachmentMismatch,
     /// Variant returned when there is an issue with [`Extension`]s.

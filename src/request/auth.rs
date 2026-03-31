@@ -25,8 +25,8 @@ use super::{
         },
     },
     BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, CredentialMediationRequirement,
-    Credentials, ExtensionReq, FIVE_MINUTES, Hint, Origin, PrfInput, PublicKeyCredentialDescriptor,
-    RpId, SentChallenge, TimedCeremony, UserVerificationRequirement,
+    Credentials, ExtensionReq, FIVE_MINUTES, Hints, Origin, PrfInput,
+    PublicKeyCredentialDescriptor, RpId, SentChallenge, TimedCeremony, UserVerificationRequirement,
     auth::error::{InvalidTimeout, NonDiscoverableCredentialRequestOptionsErr},
 };
 use core::{
@@ -559,7 +559,7 @@ pub struct PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
     /// [`userVerification`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-userverification).
     pub user_verification: UserVerificationRequirement,
     /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-hints).
-    pub hints: Hint,
+    pub hints: Hints,
     /// [`extensions`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialrequestoptions-extensions).
     pub extensions: Extension<'prf_first, 'prf_second>,
 }
@@ -589,7 +589,7 @@ impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
             timeout: FIVE_MINUTES,
             rp_id,
             user_verification: UserVerificationRequirement::Required,
-            hints: Hint::None,
+            hints: Hints::EMPTY,
             extensions: Extension::default(),
         }
     }

@@ -1,6 +1,6 @@
 use super::{
     super::bin::{DecodeBuffer, EncDecErr, Encode, EncodeBuffer, EncodeBufferFallible},
-    CredentialMediationRequirement, ExtensionInfo, ExtensionReq, Hint, SentChallenge,
+    CredentialMediationRequirement, ExtensionInfo, ExtensionReq, SentChallenge,
     UserVerificationRequirement,
 };
 use core::{convert::Infallible, num::NonZeroU32, time::Duration};
@@ -55,85 +55,6 @@ impl<'a> DecodeBuffer<'a> for ExtensionReq {
         u8::decode_from_buffer(data).and_then(|val| match val {
             EXT_REQ_REQUIRE => Ok(Self::Require),
             EXT_REQ_ALLOW => Ok(Self::Allow),
-            _ => Err(EncDecErr),
-        })
-    }
-}
-/// [`Hint::None`] tag.
-const HINT_NONE: u8 = 0;
-/// [`Hint::SecurityKey`] tag.
-const HINT_SEC_KEY: u8 = 1;
-/// [`Hint::ClientDevice`] tag.
-const HINT_CLIENT_DEV: u8 = 2;
-/// [`Hint::Hybrid`] tag.
-const HINT_HYBRID: u8 = 3;
-/// [`Hint::SecurityKeyClientDevice`] tag.
-const HINT_SEC_KEY_CLIENT_DEV: u8 = 4;
-/// [`Hint::ClientDeviceSecurityKey`] tag.
-const HINT_CLIENT_DEV_SEC_KEY: u8 = 5;
-/// [`Hint::SecurityKeyHybrid`] tag.
-const HINT_SEC_KEY_HYBRID: u8 = 6;
-/// [`Hint::HybridSecurityKey`] tag.
-const HINT_HYBRID_SEC_KEY: u8 = 7;
-/// [`Hint::ClientDeviceHybrid`] tag.
-const HINT_CLIENT_DEV_HYBRID: u8 = 8;
-/// [`Hint::HybridClientDevice`] tag.
-const HINT_HYBRID_CLIENT_DEV: u8 = 9;
-/// [`Hint::SecurityKeyClientDeviceHybrid`] tag.
-const HINT_SEC_KEY_CLIENT_DEV_HYBRID: u8 = 10;
-/// [`Hint::SecurityKeyHybridClientDevice`] tag.
-const HINT_SEC_KEY_HYBRID_CLIENT_DEV: u8 = 11;
-/// [`Hint::ClientDeviceSecurityKeyHybrid`] tag.
-const HINT_CLIENT_DEV_SEC_KEY_HYBRID: u8 = 12;
-/// [`Hint::ClientDeviceHybridSecurityKey`] tag.
-const HINT_CLIENT_DEV_HYBRID_SEC_KEY: u8 = 13;
-/// [`Hint::HybridSecurityKeyClientDevice`] tag.
-const HINT_HYBRID_SEC_KEY_CLIENT_DEV: u8 = 14;
-/// [`Hint::HybridClientDeviceSecurityKey`] tag.
-const HINT_HYBRID_CLIENT_DEV_SEC_KEY: u8 = 15;
-impl EncodeBuffer for Hint {
-    fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
-        match *self {
-            Self::None => HINT_NONE,
-            Self::SecurityKey => HINT_SEC_KEY,
-            Self::ClientDevice => HINT_CLIENT_DEV,
-            Self::Hybrid => HINT_HYBRID,
-            Self::SecurityKeyClientDevice => HINT_SEC_KEY_CLIENT_DEV,
-            Self::ClientDeviceSecurityKey => HINT_CLIENT_DEV_SEC_KEY,
-            Self::SecurityKeyHybrid => HINT_SEC_KEY_HYBRID,
-            Self::HybridSecurityKey => HINT_HYBRID_SEC_KEY,
-            Self::ClientDeviceHybrid => HINT_CLIENT_DEV_HYBRID,
-            Self::HybridClientDevice => HINT_HYBRID_CLIENT_DEV,
-            Self::SecurityKeyClientDeviceHybrid => HINT_SEC_KEY_CLIENT_DEV_HYBRID,
-            Self::SecurityKeyHybridClientDevice => HINT_SEC_KEY_HYBRID_CLIENT_DEV,
-            Self::ClientDeviceSecurityKeyHybrid => HINT_CLIENT_DEV_SEC_KEY_HYBRID,
-            Self::ClientDeviceHybridSecurityKey => HINT_CLIENT_DEV_HYBRID_SEC_KEY,
-            Self::HybridSecurityKeyClientDevice => HINT_HYBRID_SEC_KEY_CLIENT_DEV,
-            Self::HybridClientDeviceSecurityKey => HINT_HYBRID_CLIENT_DEV_SEC_KEY,
-        }
-        .encode_into_buffer(buffer);
-    }
-}
-impl<'a> DecodeBuffer<'a> for Hint {
-    type Err = EncDecErr;
-    fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
-        u8::decode_from_buffer(data).and_then(|val| match val {
-            HINT_NONE => Ok(Self::None),
-            HINT_SEC_KEY => Ok(Self::SecurityKey),
-            HINT_CLIENT_DEV => Ok(Self::ClientDevice),
-            HINT_HYBRID => Ok(Self::Hybrid),
-            HINT_SEC_KEY_CLIENT_DEV => Ok(Self::SecurityKeyClientDevice),
-            HINT_CLIENT_DEV_SEC_KEY => Ok(Self::ClientDeviceSecurityKey),
-            HINT_SEC_KEY_HYBRID => Ok(Self::SecurityKeyHybrid),
-            HINT_HYBRID_SEC_KEY => Ok(Self::HybridSecurityKey),
-            HINT_CLIENT_DEV_HYBRID => Ok(Self::ClientDeviceHybrid),
-            HINT_HYBRID_CLIENT_DEV => Ok(Self::HybridClientDevice),
-            HINT_SEC_KEY_CLIENT_DEV_HYBRID => Ok(Self::SecurityKeyClientDeviceHybrid),
-            HINT_SEC_KEY_HYBRID_CLIENT_DEV => Ok(Self::SecurityKeyHybridClientDevice),
-            HINT_CLIENT_DEV_SEC_KEY_HYBRID => Ok(Self::ClientDeviceSecurityKeyHybrid),
-            HINT_CLIENT_DEV_HYBRID_SEC_KEY => Ok(Self::ClientDeviceHybridSecurityKey),
-            HINT_HYBRID_SEC_KEY_CLIENT_DEV => Ok(Self::HybridSecurityKeyClientDevice),
-            HINT_HYBRID_CLIENT_DEV_SEC_KEY => Ok(Self::HybridClientDeviceSecurityKey),
             _ => Err(EncDecErr),
         })
     }

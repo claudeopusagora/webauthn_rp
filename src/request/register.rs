@@ -13,7 +13,7 @@ use super::{
         },
     },
     BackupReq, Ceremony, Challenge, CredentialMediationRequirement, ExtensionInfo, ExtensionReq,
-    FIVE_MINUTES, Hint, Origin, PrfInput, PublicKeyCredentialDescriptor, RpId, SentChallenge,
+    FIVE_MINUTES, Hints, Origin, PrfInput, PublicKeyCredentialDescriptor, RpId, SentChallenge,
     TimedCeremony, UserVerificationRequirement,
     register::error::{CreationOptionsErr, NicknameErr, UsernameErr},
 };
@@ -1314,112 +1314,38 @@ pub enum ResidentKeyRequirement {
     /// [`preferred`](https://www.w3.org/TR/webauthn-3/#dom-residentkeyrequirement-preferred).
     Preferred,
 }
-/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint)
-/// for [`AuthenticatorAttachment::CrossPlatform`] authenticators.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum CrossPlatformHint {
-    /// No hints.
-    #[default]
-    None,
-    /// [`security-key`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-security-key).
-    SecurityKey,
-    /// [`hybrid`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-hybrid).
-    Hybrid,
-    /// [`Self::SecurityKey`] and [`Self::Hybrid`].
-    SecurityKeyHybrid,
-    /// [`Self::Hybrid`] and [`Self::SecurityKey`].
-    HybridSecurityKey,
-}
-impl From<CrossPlatformHint> for Hint {
-    #[inline]
-    fn from(value: CrossPlatformHint) -> Self {
-        match value {
-            CrossPlatformHint::None => Self::None,
-            CrossPlatformHint::SecurityKey => Self::SecurityKey,
-            CrossPlatformHint::Hybrid => Self::Hybrid,
-            CrossPlatformHint::SecurityKeyHybrid => Self::SecurityKeyHybrid,
-            CrossPlatformHint::HybridSecurityKey => Self::HybridSecurityKey,
-        }
-    }
-}
-/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint)
-/// for [`AuthenticatorAttachment::Platform`] authenticators.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum PlatformHint {
-    /// No hints.
-    #[default]
-    None,
-    /// [`client-device`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-client-device).
-    ClientDevice,
-}
-impl From<PlatformHint> for Hint {
-    #[inline]
-    fn from(value: PlatformHint) -> Self {
-        match value {
-            PlatformHint::None => Self::None,
-            PlatformHint::ClientDevice => Self::ClientDevice,
-        }
-    }
-}
-/// [`AuthenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#enumdef-authenticatorattachment)
-/// requirement with associated hints for further refinement.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AuthenticatorAttachmentReq {
-    /// No attachment information (i.e., any [`AuthenticatorAttachment`]).
-    None(Hint),
-    /// [`platform`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorattachment-platform) is required
-    /// to be used.
-    Platform(PlatformHint),
-    /// [`cross-platform`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorattachment-cross-platform) is
-    /// required to be used.
-    CrossPlatform(CrossPlatformHint),
-}
-impl Default for AuthenticatorAttachmentReq {
-    #[inline]
-    fn default() -> Self {
-        Self::None(Hint::default())
-    }
-}
-impl AuthenticatorAttachmentReq {
-    /// Validates `self` against `other` ignoring [`Self::immutable_attachment`].
-    const fn validate(
-        self,
-        require_response: bool,
-        other: AuthenticatorAttachment,
-    ) -> Result<(), RegCeremonyErr> {
+impl AuthenticatorAttachment {
+    /// Validates `self` against `other` based on `require_response`.
+    const fn validate(self, require_response: bool, other: Self) -> Result<(), RegCeremonyErr> {
         match self {
-            Self::None(_) => {
-                if require_response && matches!(other, AuthenticatorAttachment::None) {
+            Self::None => {
+                if require_response && matches!(other, Self::None) {
                     Err(RegCeremonyErr::MissingAuthenticatorAttachment)
                 } else {
                     Ok(())
                 }
             }
-            Self::Platform(_) => match other {
-                AuthenticatorAttachment::None => {
+            Self::Platform => match other {
+                Self::None => {
                     if require_response {
                         Err(RegCeremonyErr::MissingAuthenticatorAttachment)
                     } else {
                         Ok(())
                     }
                 }
-                AuthenticatorAttachment::Platform => Ok(()),
-                AuthenticatorAttachment::CrossPlatform => {
-                    Err(RegCeremonyErr::AuthenticatorAttachmentMismatch)
-                }
+                Self::Platform => Ok(()),
+                Self::CrossPlatform => Err(RegCeremonyErr::AuthenticatorAttachmentMismatch),
             },
-            Self::CrossPlatform(_) => match other {
-                AuthenticatorAttachment::None => {
+            Self::CrossPlatform => match other {
+                Self::None => {
                     if require_response {
                         Err(RegCeremonyErr::MissingAuthenticatorAttachment)
                     } else {
                         Ok(())
                     }
                 }
-                AuthenticatorAttachment::CrossPlatform => Ok(()),
-                AuthenticatorAttachment::Platform => {
-                    Err(RegCeremonyErr::AuthenticatorAttachmentMismatch)
-                }
+                Self::CrossPlatform => Ok(()),
+                Self::Platform => Err(RegCeremonyErr::AuthenticatorAttachmentMismatch),
             },
         }
     }
@@ -1428,7 +1354,7 @@ impl AuthenticatorAttachmentReq {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AuthenticatorSelectionCriteria {
     /// [`authenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorselectioncriteria-authenticatorattachment).
-    pub authenticator_attachment: AuthenticatorAttachmentReq,
+    pub authenticator_attachment: AuthenticatorAttachment,
     /// [`residentKey`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorselectioncriteria-residentkey).
     pub resident_key: ResidentKeyRequirement,
     /// [`userVerification`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorselectioncriteria-userverification).
@@ -1442,30 +1368,22 @@ impl AuthenticatorSelectionCriteria {
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::{
+    /// # use webauthn_rp::{request::{
     /// #     register::{
-    /// #         AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, ResidentKeyRequirement,
+    /// #         AuthenticatorSelectionCriteria, ResidentKeyRequirement,
     /// #     },
-    /// #     Hint, UserVerificationRequirement,
-    /// # };
+    /// #     UserVerificationRequirement,
+    /// # }, response::AuthenticatorAttachment};
     /// let crit = AuthenticatorSelectionCriteria::passkey();
-    /// assert!(
-    ///     matches!(crit.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
-    /// );
-    /// assert!(matches!(
-    ///     crit.resident_key,
-    ///     ResidentKeyRequirement::Required
-    /// ));
-    /// assert!(matches!(
-    ///     crit.user_verification,
-    ///     UserVerificationRequirement::Required
-    /// ));
+    /// assert_eq!(crit.authenticator_attachment, AuthenticatorAttachment::None);
+    /// assert_eq!(crit.resident_key, ResidentKeyRequirement::Required);
+    /// assert_eq!(crit.user_verification, UserVerificationRequirement::Required);
     /// ```
     #[inline]
     #[must_use]
     pub fn passkey() -> Self {
         Self {
-            authenticator_attachment: AuthenticatorAttachmentReq::default(),
+            authenticator_attachment: AuthenticatorAttachment::default(),
             resident_key: ResidentKeyRequirement::Required,
             user_verification: UserVerificationRequirement::Required,
         }
@@ -1488,30 +1406,22 @@ impl AuthenticatorSelectionCriteria {
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::{
+    /// # use webauthn_rp::{request::{
     /// #     register::{
-    /// #         AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, ResidentKeyRequirement,
+    /// #         AuthenticatorSelectionCriteria, ResidentKeyRequirement,
     /// #     },
-    /// #     Hint, UserVerificationRequirement,
-    /// # };
+    /// #     UserVerificationRequirement,
+    /// # }, response::AuthenticatorAttachment};
     /// let crit = AuthenticatorSelectionCriteria::second_factor();
-    /// assert!(
-    ///     matches!(crit.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
-    /// );
-    /// assert!(matches!(
-    ///     crit.resident_key,
-    ///     ResidentKeyRequirement::Discouraged
-    /// ));
-    /// assert!(matches!(
-    ///     crit.user_verification,
-    ///     UserVerificationRequirement::Discouraged
-    /// ));
+    /// assert_eq!(crit.authenticator_attachment, AuthenticatorAttachment::None);
+    /// assert_eq!(crit.resident_key, ResidentKeyRequirement::Discouraged);
+    /// assert_eq!(crit.user_verification, UserVerificationRequirement::Discouraged);
     /// ```
     #[inline]
     #[must_use]
     pub fn second_factor() -> Self {
         Self {
-            authenticator_attachment: AuthenticatorAttachmentReq::default(),
+            authenticator_attachment: AuthenticatorAttachment::default(),
             resident_key: ResidentKeyRequirement::Discouraged,
             user_verification: UserVerificationRequirement::Discouraged,
         }
@@ -1696,34 +1606,57 @@ impl<
         let extensions = self.public_key.extensions.into();
         validate_options_helper(self.public_key.authenticator_selection, extensions).and_then(
             |()| {
-                #[cfg(not(feature = "serializable_server_state"))]
-                let now = Instant::now();
-                #[cfg(feature = "serializable_server_state")]
-                let now = SystemTime::now();
-                now.checked_add(Duration::from_millis(
-                    NonZeroU64::from(self.public_key.timeout).get(),
-                ))
-                .ok_or(CreationOptionsErr::InvalidTimeout)
-                .map(|expiration| {
-                    // We remove duplicates. The order has no significance, so this is OK.
-                    self.public_key
-                        .exclude_credentials
-                        .sort_unstable_by(|a, b| a.id.as_ref().cmp(b.id.as_ref()));
-                    self.public_key
-                        .exclude_credentials
-                        .dedup_by(|a, b| a.id.as_ref() == b.id.as_ref());
-                    (
-                        RegistrationServerState {
-                            mediation: self.mediation,
-                            challenge: SentChallenge(self.public_key.challenge.0),
-                            pub_key_cred_params: self.public_key.pub_key_cred_params,
-                            authenticator_selection: self.public_key.authenticator_selection,
-                            extensions,
-                            expiration,
-                            user_id: *self.public_key.user.id,
-                        },
-                        RegistrationClientState(self),
-                    )
+                match self
+                    .public_key
+                    .authenticator_selection
+                    .authenticator_attachment
+                {
+                    AuthenticatorAttachment::None => Ok(()),
+                    AuthenticatorAttachment::Platform => {
+                        if self.public_key.hints.contains_cross_platform_hints() {
+                            Err(CreationOptionsErr::HintsIncompatibleWithAuthAttachment)
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    AuthenticatorAttachment::CrossPlatform => {
+                        if self.public_key.hints.contains_platform_hints() {
+                            Err(CreationOptionsErr::HintsIncompatibleWithAuthAttachment)
+                        } else {
+                            Ok(())
+                        }
+                    }
+                }
+                .and_then(|()| {
+                    #[cfg(not(feature = "serializable_server_state"))]
+                    let now = Instant::now();
+                    #[cfg(feature = "serializable_server_state")]
+                    let now = SystemTime::now();
+                    now.checked_add(Duration::from_millis(
+                        NonZeroU64::from(self.public_key.timeout).get(),
+                    ))
+                    .ok_or(CreationOptionsErr::InvalidTimeout)
+                    .map(|expiration| {
+                        // We remove duplicates. The order has no significance, so this is OK.
+                        self.public_key
+                            .exclude_credentials
+                            .sort_unstable_by(|a, b| a.id.as_ref().cmp(b.id.as_ref()));
+                        self.public_key
+                            .exclude_credentials
+                            .dedup_by(|a, b| a.id.as_ref() == b.id.as_ref());
+                        (
+                            RegistrationServerState {
+                                mediation: self.mediation,
+                                challenge: SentChallenge(self.public_key.challenge.0),
+                                pub_key_cred_params: self.public_key.pub_key_cred_params,
+                                authenticator_selection: self.public_key.authenticator_selection,
+                                extensions,
+                                expiration,
+                                user_id: *self.public_key.user.id,
+                            },
+                            RegistrationClientState(self),
+                        )
+                    })
                 })
             },
         )
@@ -1793,6 +1726,8 @@ pub struct PublicKeyCredentialCreationOptions<
     pub exclude_credentials: Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
     /// [`authenticatorSelection`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-authenticatorselection).
     pub authenticator_selection: AuthenticatorSelectionCriteria,
+    /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-hints).
+    pub hints: Hints,
     /// [`extensions`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-extensions).
     pub extensions: Extension<'prf_first, 'prf_second>,
 }
@@ -1857,6 +1792,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
             timeout: FIVE_MINUTES,
             exclude_credentials,
             authenticator_selection: AuthenticatorSelectionCriteria::passkey(),
+            hints: Hints::EMPTY,
             extensions: Extension {
                 cred_props: None,
                 cred_protect: CredProtect::UserVerificationRequired(
@@ -2767,7 +2703,7 @@ mod tests {
             .encode()
             .map_err(AggErr::EncodeRegistrationServerState)?;
         assert_eq!(enc_data.capacity(), enc_data.len());
-        assert_eq!(enc_data.len(), 1 + 16 + 1 + 4 + (1 + 3 + 3 + 2) + 12 + 1);
+        assert_eq!(enc_data.len(), 1 + 16 + 1 + 3 + (1 + 3 + 3 + 2) + 12 + 1);
         assert!(server.is_eq(&RegistrationServerState::decode(enc_data.as_slice())?));
         Ok(())
     }

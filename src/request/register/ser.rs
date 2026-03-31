@@ -5,16 +5,13 @@ use super::{
         auth::PrfInputOwned,
         ser::PrfHelper,
     },
-    AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, Challenge, CoseAlgorithmIdentifier,
+    AuthenticatorAttachment, AuthenticatorSelectionCriteria, Challenge, CoseAlgorithmIdentifier,
     CoseAlgorithmIdentifiers, CredProtect, CredentialCreationOptions,
-    CredentialMediationRequirement, CrossPlatformHint, DisplayName, Extension, ExtensionInfo,
-    ExtensionReq, FIVE_MINUTES, FourToSixtyThree, Hint, Nickname, PlatformHint, PrfInput,
-    PublicKeyCredentialCreationOptions, PublicKeyCredentialDescriptor,
-    PublicKeyCredentialUserEntity, RegistrationClientState, ResidentKeyRequirement, RpId,
-    UserHandle, UserVerificationRequirement, Username,
+    CredentialMediationRequirement, DisplayName, Extension, ExtensionInfo, ExtensionReq,
+    FIVE_MINUTES, FourToSixtyThree, Hints, Nickname, PrfInput, PublicKeyCredentialCreationOptions,
+    PublicKeyCredentialDescriptor, PublicKeyCredentialUserEntity, RegistrationClientState,
+    ResidentKeyRequirement, RpId, UserHandle, UserVerificationRequirement, Username,
 };
-#[cfg(doc)]
-use crate::response::AuthenticatorAttachment;
 use alloc::borrow::Cow;
 #[cfg(doc)]
 use core::str::FromStr;
@@ -403,70 +400,6 @@ impl Serialize for ResidentKeyRequirement {
         })
     }
 }
-impl Serialize for CrossPlatformHint {
-    /// Serializes `self` to conform with
-    /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptionsjson-hints).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::CrossPlatformHint;
-    /// assert_eq!(
-    ///     serde_json::to_string(&CrossPlatformHint::None)?,
-    ///     r#"[]"#
-    /// );
-    /// assert_eq!(
-    ///     serde_json::to_string(&CrossPlatformHint::SecurityKey)?,
-    ///     r#"["security-key"]"#
-    /// );
-    /// assert_eq!(
-    ///     serde_json::to_string(&CrossPlatformHint::Hybrid)?,
-    ///     r#"["hybrid"]"#
-    /// );
-    /// assert_eq!(
-    ///     serde_json::to_string(&CrossPlatformHint::SecurityKeyHybrid)?,
-    ///     r#"["security-key","hybrid"]"#
-    /// );
-    /// assert_eq!(
-    ///     serde_json::to_string(&CrossPlatformHint::HybridSecurityKey)?,
-    ///     r#"["hybrid","security-key"]"#
-    /// );
-    /// # Ok::<_, serde_json::Error>(())
-    /// ```
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        Hint::from(*self).serialize(serializer)
-    }
-}
-impl Serialize for PlatformHint {
-    /// Serializes `self` to conform with
-    /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptionsjson-hints).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::PlatformHint;
-    /// assert_eq!(
-    ///     serde_json::to_string(&PlatformHint::None)?,
-    ///     r#"[]"#
-    /// );
-    /// assert_eq!(
-    ///     serde_json::to_string(&PlatformHint::ClientDevice)?,
-    ///     r#"["client-device"]"#
-    /// );
-    /// # Ok::<_, serde_json::Error>(())
-    /// ```
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        Hint::from(*self).serialize(serializer)
-    }
-}
 /// `"platform"`.
 const PLATFORM: &str = "platform";
 /// `"cross-platform"`.
@@ -486,7 +419,7 @@ impl Serialize for AuthenticatorSelectionCriteria {
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::register::{AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria, CrossPlatformHint};
+    /// # use webauthn_rp::{request::register::AuthenticatorSelectionCriteria, response::AuthenticatorAttachment};
     /// assert_eq!(
     ///     serde_json::to_string(&AuthenticatorSelectionCriteria::passkey())?,
     ///     r#"{"residentKey":"required","requireResidentKey":true,"userVerification":"required"}"#
@@ -496,9 +429,7 @@ impl Serialize for AuthenticatorSelectionCriteria {
     ///     r#"{"residentKey":"discouraged","requireResidentKey":false,"userVerification":"discouraged"}"#
     /// );
     /// let mut crit = AuthenticatorSelectionCriteria::passkey();
-    /// crit.authenticator_attachment = AuthenticatorAttachmentReq::CrossPlatform(
-    ///     CrossPlatformHint::SecurityKey,
-    /// );
+    /// crit.authenticator_attachment = AuthenticatorAttachment::CrossPlatform;
     /// assert_eq!(
     ///     serde_json::to_string(&crit)?,
     ///     r#"{"authenticatorAttachment":"cross-platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"}"#
@@ -510,10 +441,7 @@ impl Serialize for AuthenticatorSelectionCriteria {
     where
         S: Serializer,
     {
-        let count = if matches!(
-            self.authenticator_attachment,
-            AuthenticatorAttachmentReq::None(_)
-        ) {
+        let count = if matches!(self.authenticator_attachment, AuthenticatorAttachment::None) {
             3
         } else {
             4
@@ -528,7 +456,7 @@ impl Serialize for AuthenticatorSelectionCriteria {
                         AUTHENTICATOR_ATTACHMENT,
                         if matches!(
                             self.authenticator_attachment,
-                            AuthenticatorAttachmentReq::Platform(_)
+                            AuthenticatorAttachment::Platform
                         ) {
                             PLATFORM
                         } else {
@@ -739,33 +667,42 @@ where
                                         &self.pub_key_cred_params,
                                     )
                                     .and_then(|()| {
-                                        ser.serialize_field(TIMEOUT, &self.timeout).and_then(
-                                            |()| {
-                                                ser.serialize_field(
-                                                    EXCLUDE_CREDENTIALS,
-                                                    self.exclude_credentials.as_slice(),
-                                                )
-                                                .and_then(|()| {
+                                        ser.serialize_field(TIMEOUT, &self.timeout).and_then(|()| {
+                                            ser.serialize_field(
+                                                EXCLUDE_CREDENTIALS,
+                                                self.exclude_credentials.as_slice(),
+                                            )
+                                            .and_then(
+                                                |()| {
                                                     ser.serialize_field(
                                                         AUTHENTICATOR_SELECTION,
                                                         &self.authenticator_selection,
                                                     )
                                                     .and_then(|()| {
-                                                        ser.serialize_field(HINTS, &match self.authenticator_selection.authenticator_attachment {
-                                                            AuthenticatorAttachmentReq::None(hint) => hint,
-                                                            AuthenticatorAttachmentReq::Platform(hint) => hint.into(),
-                                                            AuthenticatorAttachmentReq::CrossPlatform(hint) => hint.into(),
-                                                        }).and_then(|()| {
-                                                            ser.serialize_field(ATTESTATION, NONE).and_then(|()| {
-                                                                ser.serialize_field(ATTESTATION_FORMATS, [NONE].as_slice()).and_then(|()| {
-                                                                    ser.serialize_field(EXTENSIONS, &self.extensions).and_then(|()| ser.end())
+                                                        ser.serialize_field(HINTS, &self.hints)
+                                                            .and_then(|()| {
+                                                                ser.serialize_field(
+                                                                    ATTESTATION,
+                                                                    NONE,
+                                                                )
+                                                                .and_then(|()| {
+                                                                    ser.serialize_field(
+                                                                        ATTESTATION_FORMATS,
+                                                                        [NONE].as_slice(),
+                                                                    )
+                                                                    .and_then(|()| {
+                                                                        ser.serialize_field(
+                                                                            EXTENSIONS,
+                                                                            &self.extensions,
+                                                                        )
+                                                                        .and_then(|()| ser.end())
+                                                                    })
                                                                 })
                                                             })
-                                                        })
                                                     })
-                                                })
-                                            },
-                                        )
+                                                },
+                                            )
+                                        })
                                     })
                                 })
                         })
@@ -867,11 +804,11 @@ where
     /// # use webauthn_rp::{
     /// #     request::{
     /// #         register::{
-    /// #             FourToSixtyThree, UserHandle64, AuthenticatorAttachmentReq, CredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
+    /// #             FourToSixtyThree, UserHandle64, CredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle
     /// #         },
-    /// #         AsciiDomain, ExtensionInfo, Hint, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
+    /// #         AsciiDomain, ExtensionInfo, Hints, PublicKeyCredentialHint, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
     /// #     },
-    /// #     response::{AuthTransports, CredentialId},
+    /// #     response::{AuthTransports, AuthenticatorAttachment, CredentialId},
     /// # };
     /// /// Retrieves the `AuthTransports` associated with the unique `cred_id`
     /// /// from the database.
@@ -893,7 +830,8 @@ where
     /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
     /// let user_handle = UserHandle64::new();
     /// let mut options = CredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: &user_handle, display_name: "Pierre de Fermat".try_into()?, }, creds);
-    /// options.public_key.authenticator_selection.authenticator_attachment = AuthenticatorAttachmentReq::None(Hint::SecurityKey);
+    /// options.public_key.authenticator_selection.authenticator_attachment = AuthenticatorAttachment::None;
+    /// options.public_key.hints = Hints::EMPTY.add(PublicKeyCredentialHint::SecurityKey);
     /// options.public_key.extensions.min_pin_length = Some((FourToSixtyThree::Sixteen, ExtensionInfo::RequireEnforceValue));
     /// # #[cfg(all(feature = "bin", feature = "custom"))]
     /// let client_state = serde_json::to_string(&options.start_ceremony()?.1).unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState::serialize"));
@@ -1959,53 +1897,6 @@ impl<'de> Deserialize<'de> for UserVerificationRequirement {
         Requirement::deserialize(deserializer).map(Self::from)
     }
 }
-impl<'de> Deserialize<'de> for AuthenticatorAttachmentReq {
-    /// Deserializes a [`prim@str`] according to
-    /// [`AuthenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#enumdef-authenticatorattachment).
-    ///
-    /// Note the contained hint will be none (e.g., [`PlatformHint::None`]).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::{AuthenticatorAttachmentReq, PlatformHint};
-    /// assert!(matches!(
-    ///     serde_json::from_str(r#""platform""#)?,
-    ///     AuthenticatorAttachmentReq::Platform(hint) if matches!(hint, PlatformHint::None)
-    /// ));
-    /// # Ok::<_, serde_json::Error>(())
-    /// ```
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        /// `Visitor` for `AuthenticatorAttachmentReq`.
-        struct AuthenticatorAttachmentReqVisitor;
-        impl Visitor<'_> for AuthenticatorAttachmentReqVisitor {
-            type Value = AuthenticatorAttachmentReq;
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                write!(formatter, "'{PLATFORM}' or '{CROSS_PLATFORM}'")
-            }
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                match v {
-                    PLATFORM => Ok(AuthenticatorAttachmentReq::Platform(PlatformHint::None)),
-                    CROSS_PLATFORM => Ok(AuthenticatorAttachmentReq::CrossPlatform(
-                        CrossPlatformHint::None,
-                    )),
-                    _ => Err(E::invalid_value(
-                        Unexpected::Str(v),
-                        &format!("'{PLATFORM}' or '{CROSS_PLATFORM}'").as_str(),
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_str(AuthenticatorAttachmentReqVisitor)
-    }
-}
 impl<'de> Deserialize<'de> for AuthenticatorSelectionCriteria {
     /// Deserializes a `struct` based on
     /// [`AuthenticatorSelectionCriteria`](https://www.w3.org/TR/webauthn-3/#dictdef-authenticatorselectioncriteria).
@@ -2021,12 +1912,10 @@ impl<'de> Deserialize<'de> for AuthenticatorSelectionCriteria {
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::{Hint, register::{AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria}};
-    /// assert!(
-    ///     matches!(
-    ///         serde_json::from_str::<AuthenticatorSelectionCriteria>(r#"{"authenticatorAttachment":null,"residentKey":"required","requireResidentKey":true,"userVerification":"required"}"#)?.authenticator_attachment,
-    ///         AuthenticatorAttachmentReq::None(hints) if matches!(hints, Hint::None)
-    ///     )
+    /// # use webauthn_rp::{request::register::AuthenticatorSelectionCriteria, response::AuthenticatorAttachment};
+    /// assert_eq!(
+    ///     serde_json::from_str::<AuthenticatorSelectionCriteria>(r#"{"authenticatorAttachment":null,"residentKey":"required","requireResidentKey":true,"userVerification":"required"}"#)?.authenticator_attachment,
+    ///     AuthenticatorAttachment::None,
     /// );
     /// # Ok::<_, serde_json::Error>(())
     /// ```
@@ -2599,6 +2488,8 @@ pub struct PublicKeyCredentialCreationOptionsOwned<
     pub timeout: NonZeroU32,
     /// See [`PublicKeyCredentialCreationOptions::authenticator_selection`].
     pub authenticator_selection: AuthenticatorSelectionCriteria,
+    /// See [`PublicKeyCredentialCreationOptions::hints`].
+    pub hints: Hints,
     /// See [`PublicKeyCredentialCreationOptions::extensions`].
     pub extensions: ExtensionOwned,
 }
@@ -2657,6 +2548,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
                         timeout: self.timeout,
                         exclude_credentials,
                         authenticator_selection: self.authenticator_selection,
+                        hints: self.hints,
                         extensions: self.extensions.as_extension(),
                     })
             })
@@ -2688,6 +2580,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
                 timeout: self.timeout,
                 exclude_credentials,
                 authenticator_selection: self.authenticator_selection,
+                hints: self.hints,
                 extensions: self.extensions.as_extension(),
             })
     }
@@ -2726,6 +2619,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
                 timeout: self.timeout,
                 exclude_credentials,
                 authenticator_selection: self.authenticator_selection,
+                hints: self.hints,
                 extensions: self.extensions.as_extension(),
             })
     }
@@ -2760,6 +2654,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
                         timeout: self.timeout,
                         exclude_credentials,
                         authenticator_selection: self.authenticator_selection,
+                        hints: self.hints,
                         extensions,
                     })
             })
@@ -2792,6 +2687,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
             timeout: self.timeout,
             exclude_credentials,
             authenticator_selection: self.authenticator_selection,
+            hints: self.hints,
             extensions: self.extensions.as_extension(),
         }
     }
@@ -2825,6 +2721,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
                 timeout: self.timeout,
                 exclude_credentials,
                 authenticator_selection: self.authenticator_selection,
+                hints: self.hints,
                 extensions,
             })
     }
@@ -2872,6 +2769,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
                 timeout: self.timeout,
                 exclude_credentials,
                 authenticator_selection: self.authenticator_selection,
+                hints: self.hints,
                 extensions,
             })
     }
@@ -2912,6 +2810,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
             timeout: self.timeout,
             exclude_credentials,
             authenticator_selection: self.authenticator_selection,
+            hints: self.hints,
             extensions,
         }
     }
@@ -2925,10 +2824,11 @@ impl<const USER_LEN: usize> Default for PublicKeyCredentialCreationOptionsOwned<
             pub_key_cred_params: CoseAlgorithmIdentifiers::default(),
             timeout: FIVE_MINUTES,
             authenticator_selection: AuthenticatorSelectionCriteria {
-                authenticator_attachment: AuthenticatorAttachmentReq::None(Hint::None),
+                authenticator_attachment: AuthenticatorAttachment::default(),
                 resident_key: ResidentKeyRequirement::Discouraged,
                 user_verification: UserVerificationRequirement::Preferred,
             },
+            hints: Hints::EMPTY,
             extensions: ExtensionOwned::default(),
         }
     }
@@ -3058,7 +2958,7 @@ where
                 let mut time = None;
                 let mut exclude = None;
                 let mut auth = None;
-                let mut hint: Option<Hint> = None;
+                let mut hint = None;
                 let mut ext = None;
                 let mut attest = None;
                 let mut formats = None;
@@ -3107,98 +3007,13 @@ where
                             if auth.is_some() {
                                 return Err(Error::duplicate_field(AUTHENTICATOR_SELECTION));
                             }
-                            auth = map.next_value::<Option<AuthenticatorSelectionCriteria>>().and_then(|opt| {
-                                opt.map_or(Ok(Some(AuthenticatorSelectionCriteria { authenticator_attachment: AuthenticatorAttachmentReq::default(), resident_key: ResidentKeyRequirement::Discouraged, user_verification: UserVerificationRequirement::Preferred, })), |mut crit| {
-                                    let h = hint.unwrap_or_default();
-                                    match crit.authenticator_attachment {
-                                        AuthenticatorAttachmentReq::None(ref mut hi) => {
-                                            *hi = h;
-                                            Ok(Some(crit))
-                                        }
-                                        AuthenticatorAttachmentReq::Platform(ref mut hi) => {
-                                            match h {
-                                                Hint::None => Ok(Some(crit)),
-                                                Hint::ClientDevice => {
-                                                    *hi = PlatformHint::ClientDevice;
-                                                    Ok(Some(crit))
-                                                }
-                                                Hint::SecurityKey | Hint::Hybrid | Hint::SecurityKeyClientDevice | Hint::ClientDeviceSecurityKey | Hint::SecurityKeyHybrid | Hint::HybridSecurityKey | Hint::ClientDeviceHybrid | Hint::HybridClientDevice | Hint::SecurityKeyClientDeviceHybrid | Hint::SecurityKeyHybridClientDevice | Hint::ClientDeviceSecurityKeyHybrid | Hint::ClientDeviceHybridSecurityKey | Hint::HybridSecurityKeyClientDevice | Hint::HybridClientDeviceSecurityKey => Err(Error::custom("'platform' authenticator attachment modality must coincide with no hints or 'client-device' hint")),
-                                            }
-                                        }
-                                        AuthenticatorAttachmentReq::CrossPlatform(ref mut hi) => {
-                                            match h {
-                                                Hint::None => Ok(Some(crit)),
-                                                Hint::SecurityKey => {
-                                                    *hi = CrossPlatformHint::SecurityKey;
-                                                    Ok(Some(crit))
-                                                }
-                                                Hint::Hybrid => {
-                                                    *hi = CrossPlatformHint::Hybrid;
-                                                    Ok(Some(crit))
-                                                }
-                                                Hint::SecurityKeyHybrid => {
-                                                    *hi = CrossPlatformHint::SecurityKeyHybrid;
-                                                    Ok(Some(crit))
-                                                }
-                                                Hint::HybridSecurityKey => {
-                                                    *hi = CrossPlatformHint::HybridSecurityKey;
-                                                    Ok(Some(crit))
-                                                }
-                                                Hint::ClientDevice | Hint::SecurityKeyClientDevice | Hint::ClientDeviceSecurityKey | Hint::ClientDeviceHybrid | Hint::HybridClientDevice | Hint::SecurityKeyClientDeviceHybrid | Hint::SecurityKeyHybridClientDevice | Hint::ClientDeviceSecurityKeyHybrid | Hint::ClientDeviceHybridSecurityKey | Hint::HybridSecurityKeyClientDevice | Hint::HybridClientDeviceSecurityKey => Err(Error::custom("'cross-platform' authenticator attachment modality must coincide with no hints or hints that lack 'client-device'")),
-                                            }
-                                        }
-                                    }
-                                })
-                            })?;
+                            auth = map.next_value::<Option<_>>().map(Some)?;
                         }
                         Field::Hints => {
                             if hint.is_some() {
                                 return Err(Error::duplicate_field(HINTS));
                             }
-                            hint = map.next_value::<Option<Hint>>().and_then(|opt| {
-                                opt.map_or(Ok(Some(Hint::None)), |h| {
-                                    auth.as_mut().map_or(Ok(Some(h)), |crit| {
-                                        match crit.authenticator_attachment {
-                                            AuthenticatorAttachmentReq::None(ref mut hi) => {
-                                                *hi = h;
-                                                Ok(Some(h))
-                                            }
-                                            AuthenticatorAttachmentReq::Platform(ref mut hi) => {
-                                                match h{
-                                                    Hint::None => Ok(Some(h)),
-                                                    Hint::ClientDevice => {
-                                                        *hi = PlatformHint::ClientDevice;
-                                                        Ok(Some(h))
-                                                    }
-                                                    Hint::SecurityKey | Hint::Hybrid | Hint::SecurityKeyClientDevice | Hint::ClientDeviceSecurityKey | Hint::SecurityKeyHybrid | Hint::HybridSecurityKey | Hint::ClientDeviceHybrid | Hint::HybridClientDevice | Hint::SecurityKeyClientDeviceHybrid | Hint::SecurityKeyHybridClientDevice | Hint::ClientDeviceSecurityKeyHybrid | Hint::ClientDeviceHybridSecurityKey | Hint::HybridSecurityKeyClientDevice | Hint::HybridClientDeviceSecurityKey => Err(Error::custom("'platform' authenticator attachment modality must coincide with no hints or 'client-device' hint")),
-                                                }
-                                            }
-                                            AuthenticatorAttachmentReq::CrossPlatform(ref mut hi) => {
-                                                match h {
-                                                    Hint::None => Ok(Some(h)),
-                                                    Hint::SecurityKey => {
-                                                        *hi = CrossPlatformHint::SecurityKey;
-                                                        Ok(Some(h))
-                                                    }
-                                                    Hint::Hybrid => {
-                                                        *hi = CrossPlatformHint::Hybrid;
-                                                        Ok(Some(h))
-                                                    }
-                                                    Hint::SecurityKeyHybrid => {
-                                                        *hi = CrossPlatformHint::SecurityKeyHybrid;
-                                                        Ok(Some(h))
-                                                    }
-                                                    Hint::HybridSecurityKey => {
-                                                        *hi = CrossPlatformHint::HybridSecurityKey;
-                                                        Ok(Some(h))
-                                                    }
-                                                    Hint::ClientDevice | Hint::SecurityKeyClientDevice | Hint::ClientDeviceSecurityKey | Hint::ClientDeviceHybrid | Hint::HybridClientDevice | Hint::SecurityKeyClientDeviceHybrid | Hint::SecurityKeyHybridClientDevice | Hint::ClientDeviceSecurityKeyHybrid | Hint::ClientDeviceHybridSecurityKey | Hint::HybridSecurityKeyClientDevice | Hint::HybridClientDeviceSecurityKey => Err(Error::custom("'cross-platform' authenticator attachment modality must coincide with no hints or hints that lack 'client-device'")),
-                                                }
-                                            }
-                                        }
-                                    })
-                                })
-                            })?;
+                            hint = map.next_value::<Option<_>>().map(Some)?;
                         }
                         Field::Extensions => {
                             if ext.is_some() {
@@ -3225,11 +3040,14 @@ where
                     user: user_info.flatten().unwrap_or_default(),
                     pub_key_cred_params: params.flatten().unwrap_or_default(),
                     timeout: time.flatten().unwrap_or(FIVE_MINUTES),
-                    authenticator_selection: auth.unwrap_or(AuthenticatorSelectionCriteria {
-                        authenticator_attachment: AuthenticatorAttachmentReq::None(Hint::None),
-                        resident_key: ResidentKeyRequirement::Discouraged,
-                        user_verification: UserVerificationRequirement::Preferred,
-                    }),
+                    authenticator_selection: auth.flatten().unwrap_or(
+                        AuthenticatorSelectionCriteria {
+                            authenticator_attachment: AuthenticatorAttachment::None,
+                            resident_key: ResidentKeyRequirement::Discouraged,
+                            user_verification: UserVerificationRequirement::Preferred,
+                        },
+                    ),
+                    hints: hint.flatten().unwrap_or_default(),
                     extensions: ext.flatten().unwrap_or_default(),
                 })
             }
@@ -3385,12 +3203,11 @@ where
 #[cfg(test)]
 mod test {
     use super::{
-        AuthenticatorAttachmentReq, AuthenticatorSelectionCriteria,
-        ClientCredentialCreationOptions, CoseAlgorithmIdentifier, CoseAlgorithmIdentifiers,
-        CredProtect, CredentialMediationRequirement, CrossPlatformHint, ExtensionInfo,
-        ExtensionOwned, ExtensionReq, FIVE_MINUTES, FourToSixtyThree, Hint, NonZeroU32,
-        PlatformHint, PublicKeyCredentialCreationOptionsOwned, PublicKeyCredentialUserEntityOwned,
-        ResidentKeyRequirement, UserVerificationRequirement,
+        AuthenticatorAttachment, AuthenticatorSelectionCriteria, ClientCredentialCreationOptions,
+        CoseAlgorithmIdentifier, CoseAlgorithmIdentifiers, CredProtect,
+        CredentialMediationRequirement, ExtensionInfo, ExtensionOwned, ExtensionReq, FIVE_MINUTES,
+        FourToSixtyThree, NonZeroU32, PublicKeyCredentialCreationOptionsOwned,
+        PublicKeyCredentialUserEntityOwned, ResidentKeyRequirement, UserVerificationRequirement,
     };
     use serde_json::Error;
     #[expect(
@@ -3434,8 +3251,12 @@ mod test {
             CoseAlgorithmIdentifiers::ALL.0
         );
         assert_eq!(options.public_key.timeout, FIVE_MINUTES);
-        assert!(
-            matches!(options.public_key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+        assert_eq!(
+            options
+                .public_key
+                .authenticator_selection
+                .authenticator_attachment,
+            AuthenticatorAttachment::None,
         );
         assert!(matches!(
             options.public_key.authenticator_selection.resident_key,
@@ -3468,8 +3289,12 @@ mod test {
             CoseAlgorithmIdentifiers::ALL.0
         );
         assert_eq!(options.public_key.timeout, FIVE_MINUTES);
-        assert!(
-            matches!(options.public_key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+        assert_eq!(
+            options
+                .public_key
+                .authenticator_selection
+                .authenticator_attachment,
+            AuthenticatorAttachment::None,
         );
         assert!(matches!(
             options.public_key.authenticator_selection.resident_key,
@@ -3498,8 +3323,12 @@ mod test {
             CoseAlgorithmIdentifiers::ALL.0
         );
         assert_eq!(options.public_key.timeout, FIVE_MINUTES);
-        assert!(
-            matches!(options.public_key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+        assert_eq!(
+            options
+                .public_key
+                .authenticator_selection
+                .authenticator_attachment,
+            AuthenticatorAttachment::None,
         );
         assert!(matches!(
             options.public_key.authenticator_selection.resident_key,
@@ -3562,8 +3391,12 @@ mod test {
                 .0
         );
         assert_eq!(options.public_key.timeout, FIVE_MINUTES);
-        assert!(
-            matches!(options.public_key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::CrossPlatform(hint) if matches!(hint, CrossPlatformHint::SecurityKey))
+        assert_eq!(
+            options
+                .public_key
+                .authenticator_selection
+                .authenticator_attachment,
+            AuthenticatorAttachment::CrossPlatform,
         );
         assert!(matches!(
             options.public_key.authenticator_selection.resident_key,
@@ -3633,15 +3466,6 @@ mod test {
             Some("duplicate field `attestation`")
         );
         err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
-            r#"{"authenticatorSelection":{"authenticatorAttachment":"platform"},"hints":["client-device", "security-key"]}"#,
-        ).unwrap_err();
-        assert_eq!(
-            err.to_string().get(..96),
-            Some(
-                "'platform' authenticator attachment modality must coincide with no hints or 'client-device' hint"
-            )
-        );
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
             r#"{"challenge":"AAAAAAAAAAAAAAAAAAAAAA"}"#,
         )
         .unwrap_err();
@@ -3704,8 +3528,9 @@ mod test {
         assert!(key.user.display_name.is_none());
         assert_eq!(key.pub_key_cred_params.0, CoseAlgorithmIdentifiers::ALL.0);
         assert_eq!(key.timeout, FIVE_MINUTES);
-        assert!(
-            matches!(key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+        assert_eq!(
+            key.authenticator_selection.authenticator_attachment,
+            AuthenticatorAttachment::None,
         );
         assert!(matches!(
             key.authenticator_selection.resident_key,
@@ -3728,8 +3553,9 @@ mod test {
         assert!(key.user.display_name.is_none());
         assert_eq!(key.pub_key_cred_params.0, CoseAlgorithmIdentifiers::ALL.0);
         assert_eq!(key.timeout, FIVE_MINUTES);
-        assert!(
-            matches!(key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+        assert_eq!(
+            key.authenticator_selection.authenticator_attachment,
+            AuthenticatorAttachment::None,
         );
         assert!(matches!(
             key.authenticator_selection.resident_key,
@@ -3751,8 +3577,9 @@ mod test {
         assert!(key.user.id.is_none());
         assert!(key.user.display_name.is_none());
         assert_eq!(key.pub_key_cred_params.0, CoseAlgorithmIdentifiers::ALL.0);
-        assert!(
-            matches!(key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+        assert_eq!(
+            key.authenticator_selection.authenticator_attachment,
+            AuthenticatorAttachment::None,
         );
         assert!(matches!(
             key.authenticator_selection.resident_key,
@@ -3774,8 +3601,9 @@ mod test {
         assert!(key.user.id.is_none());
         assert!(key.user.display_name.is_none());
         assert_eq!(key.pub_key_cred_params.0, CoseAlgorithmIdentifiers::ALL.0);
-        assert!(
-            matches!(key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
+        assert_eq!(
+            key.authenticator_selection.authenticator_attachment,
+            AuthenticatorAttachment::None,
         );
         assert!(matches!(
             key.authenticator_selection.resident_key,
@@ -3812,8 +3640,9 @@ mod test {
                 .0
         );
         assert_eq!(key.timeout, FIVE_MINUTES);
-        assert!(
-            matches!(key.authenticator_selection.authenticator_attachment, AuthenticatorAttachmentReq::CrossPlatform(hint) if matches!(hint, CrossPlatformHint::SecurityKey))
+        assert_eq!(
+            key.authenticator_selection.authenticator_attachment,
+            AuthenticatorAttachment::CrossPlatform,
         );
         assert!(matches!(
             key.authenticator_selection.resident_key,
@@ -4034,8 +3863,9 @@ mod test {
         let mut crit = serde_json::from_str::<AuthenticatorSelectionCriteria>(
             r#"{"authenticatorAttachment":"platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"}"#,
         )?;
-        assert!(
-            matches!(crit.authenticator_attachment, AuthenticatorAttachmentReq::Platform(hint) if matches!(hint, PlatformHint::None))
+        assert_eq!(
+            crit.authenticator_attachment,
+            AuthenticatorAttachment::Platform,
         );
         assert!(matches!(
             crit.resident_key,
@@ -4048,9 +3878,7 @@ mod test {
         crit = serde_json::from_str::<AuthenticatorSelectionCriteria>(
             r#"{"authenticatorAttachment":null,"residentKey":null,"requireResidentKey":null,"userVerification":null}"#,
         )?;
-        assert!(
-            matches!(crit.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
-        );
+        assert_eq!(crit.authenticator_attachment, AuthenticatorAttachment::None,);
         assert!(matches!(
             crit.resident_key,
             ResidentKeyRequirement::Discouraged
@@ -4060,9 +3888,7 @@ mod test {
             UserVerificationRequirement::Preferred
         ));
         crit = serde_json::from_str::<AuthenticatorSelectionCriteria>("{}")?;
-        assert!(
-            matches!(crit.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
-        );
+        assert_eq!(crit.authenticator_attachment, AuthenticatorAttachment::None,);
         assert!(matches!(
             crit.resident_key,
             ResidentKeyRequirement::Discouraged
@@ -4074,9 +3900,7 @@ mod test {
         crit = serde_json::from_str::<AuthenticatorSelectionCriteria>(
             r#"{"residentKey":"preferred","requireResidentKey":false}"#,
         )?;
-        assert!(
-            matches!(crit.authenticator_attachment, AuthenticatorAttachmentReq::None(hint) if matches!(hint, Hint::None))
-        );
+        assert_eq!(crit.authenticator_attachment, AuthenticatorAttachment::None,);
         assert!(matches!(
             crit.resident_key,
             ResidentKeyRequirement::Preferred

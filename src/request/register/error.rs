@@ -56,6 +56,9 @@ pub enum CreationOptionsErr {
     /// Error when [`Extension::cred_protect`] is [`CredProtect::UserVerificationRequired`] but [`AuthenticatorSelectionCriteria::user_verification`] is not
     /// [`UserVerificationRequirement::Required`].
     CredProtectRequiredWithoutUserVerification,
+    /// Error when [`PublicKeyCredentialCreationOptions::hints`] is not compatible with
+    /// [`AuthenticatorSelectionCriteria::authenticator_attachment`].
+    HintsIncompatibleWithAuthAttachment,
     /// [`PublicKeyCredentialCreationOptions::timeout`] could not be added to [`Instant::now`] or [`SystemTime::now`].
     InvalidTimeout,
 }
@@ -64,6 +67,7 @@ impl Display for CreationOptionsErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match *self {
             Self::CredProtectRequiredWithoutUserVerification => "credProtect extension with a value of user verification required was requested without requiring user verification",
+            Self::HintsIncompatibleWithAuthAttachment => "hints are not compatible with the requested authenticator attachment modality",
             Self::InvalidTimeout => "the timeout could not be added to the current Instant",
         })
     }

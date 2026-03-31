@@ -10,7 +10,7 @@ use super::{
         },
         register::{CredentialCreationOptions, RegistrationServerState},
     },
-    response::register::ClientExtensionsOutputs,
+    response::{AuthenticatorAttachment, register::ClientExtensionsOutputs},
 };
 use crate::{
     request::{
@@ -1148,42 +1148,214 @@ pub enum UserVerificationRequirement {
     /// [`preferred`](https://www.w3.org/TR/webauthn-3/#dom-userverificationrequirement-preferred).
     Preferred,
 }
-/// [`PublicKeyCredentialHints`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint).
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Hint {
-    /// No hints.
-    #[default]
-    None,
+/// [`PublicKeyCredentialHint`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PublicKeyCredentialHint {
     /// [`security-key`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-security-key).
     SecurityKey,
     /// [`client-device`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-client-device).
     ClientDevice,
     /// [`hybrid`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhint-hybrid).
     Hybrid,
-    /// [`Self::SecurityKey`] and [`Self::ClientDevice`].
-    SecurityKeyClientDevice,
-    /// [`Self::ClientDevice`] and [`Self::SecurityKey`].
-    ClientDeviceSecurityKey,
-    /// [`Self::SecurityKey`] and [`Self::Hybrid`].
-    SecurityKeyHybrid,
-    /// [`Self::Hybrid`] and [`Self::SecurityKey`].
-    HybridSecurityKey,
-    /// [`Self::ClientDevice`] and [`Self::Hybrid`].
-    ClientDeviceHybrid,
-    /// [`Self::Hybrid`] and [`Self::ClientDevice`].
-    HybridClientDevice,
-    /// [`Self::SecurityKeyClientDevice`] and [`Self::Hybrid`].
-    SecurityKeyClientDeviceHybrid,
-    /// [`Self::SecurityKeyHybrid`] and [`Self::ClientDevice`].
-    SecurityKeyHybridClientDevice,
-    /// [`Self::ClientDeviceSecurityKey`] and [`Self::Hybrid`].
-    ClientDeviceSecurityKeyHybrid,
-    /// [`Self::ClientDeviceHybrid`] and [`Self::SecurityKey`].
-    ClientDeviceHybridSecurityKey,
-    /// [`Self::HybridSecurityKey`] and [`Self::ClientDevice`].
-    HybridSecurityKeyClientDevice,
-    /// [`Self::HybridClientDevice`] and [`Self::SecurityKey`].
-    HybridClientDeviceSecurityKey,
+}
+impl PublicKeyCredentialHint {
+    /// Returns `true` iff `self` is the same as `other`.
+    const fn is_eq(self, other: Self) -> bool {
+        match self {
+            Self::SecurityKey => matches!(other, Self::SecurityKey),
+            Self::ClientDevice => matches!(other, Self::ClientDevice),
+            Self::Hybrid => matches!(other, Self::Hybrid),
+        }
+    }
+}
+/// Unique sequence of [`PublicKeyCredentialHint`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Hints([Option<PublicKeyCredentialHint>; 3]);
+impl Hints {
+    /// Empty sequence of [`PublicKeyCredentialHint`]s.
+    pub const EMPTY: Self = Self([None; 3]);
+    /// Adds `hint` to `self` iff `self` doesn't already contain `hint`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::{Hints, PublicKeyCredentialHint};
+    /// assert_eq!(
+    ///     Hints::EMPTY
+    ///         .add(PublicKeyCredentialHint::SecurityKey)
+    ///         .first(),
+    ///     Some(PublicKeyCredentialHint::SecurityKey)
+    /// );
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn add(mut self, hint: PublicKeyCredentialHint) -> Self {
+        let mut vals = self.0.as_mut_slice();
+        while let [ref mut first, ref mut rem @ ..] = *vals {
+            match *first {
+                None => {
+                    *first = Some(hint);
+                    return self;
+                }
+                Some(h) => {
+                    if h.is_eq(hint) {
+                        return self;
+                    }
+                }
+            }
+            vals = rem;
+        }
+        self
+    }
+    /// Returns the first `PublicKeyCredentialHint`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::Hints;
+    /// assert!(Hints::EMPTY.first().is_none());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn first(self) -> Option<PublicKeyCredentialHint> {
+        self.0[0]
+    }
+    /// Returns the second `PublicKeyCredentialHint`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::Hints;
+    /// assert!(Hints::EMPTY.second().is_none());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn second(self) -> Option<PublicKeyCredentialHint> {
+        self.0[1]
+    }
+    /// Returns the third `PublicKeyCredentialHint`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::Hints;
+    /// assert!(Hints::EMPTY.third().is_none());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn third(self) -> Option<PublicKeyCredentialHint> {
+        self.0[2]
+    }
+    /// Returns the number of [`PublicKeyCredentialHint`]s in `self`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::Hints;
+    /// assert_eq!(Hints::EMPTY.count(), 0);
+    /// ```
+    #[expect(
+        clippy::arithmetic_side_effects,
+        clippy::as_conversions,
+        reason = "comment justifies correctness"
+    )]
+    #[inline]
+    #[must_use]
+    pub const fn count(self) -> u8 {
+        // `bool as u8` is well-defined. This maxes at 3, so overflow isn't possible.
+        self.first().is_some() as u8 + self.second().is_some() as u8 + self.third().is_some() as u8
+    }
+    /// Returns `true` iff `self` is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::Hints;
+    /// assert!(Hints::EMPTY.is_empty());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.count() == 0
+    }
+    /// Returns `true` iff `self` contains `hint`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::{Hints, PublicKeyCredentialHint};
+    /// assert!(!Hints::EMPTY.contains(PublicKeyCredentialHint::Hybrid));
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn contains(self, hint: PublicKeyCredentialHint) -> bool {
+        let mut vals = self.0.as_slice();
+        while let [ref first, ref rem @ ..] = *vals {
+            match *first {
+                None => return false,
+                Some(h) => {
+                    if h.is_eq(hint) {
+                        return true;
+                    }
+                }
+            }
+            vals = rem;
+        }
+        false
+    }
+    /// Returns `true` iff `self` contains a `hint` that maps to [`AuthenticatorAttachment::CrossPlatform`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::Hints;
+    /// assert!(!Hints::EMPTY.contains_platform_hints());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn contains_cross_platform_hints(self) -> bool {
+        let mut vals = self.0.as_slice();
+        while let [ref first, ref rem @ ..] = *vals {
+            match *first {
+                None => return false,
+                Some(h) => {
+                    if matches!(
+                        h,
+                        PublicKeyCredentialHint::SecurityKey | PublicKeyCredentialHint::Hybrid
+                    ) {
+                        return true;
+                    }
+                }
+            }
+            vals = rem;
+        }
+        false
+    }
+    /// Returns `true` iff `self` contains a `hint` that maps to [`AuthenticatorAttachment::Platform`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::Hints;
+    /// assert!(!Hints::EMPTY.contains_platform_hints());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn contains_platform_hints(self) -> bool {
+        let mut vals = self.0.as_slice();
+        while let [ref first, ref rem @ ..] = *vals {
+            match *first {
+                None => return false,
+                Some(h) => {
+                    if h.is_eq(PublicKeyCredentialHint::ClientDevice) {
+                        return true;
+                    }
+                }
+            }
+            vals = rem;
+        }
+        false
+    }
 }
 /// Controls if the response to a requested extension is required to be sent back.
 ///
@@ -1702,7 +1874,6 @@ impl<'first, 'second> PrfInput<'first, 'second> {
 pub const FIVE_MINUTES: NonZeroU32 = NonZeroU32::new(300_000).unwrap();
 #[cfg(test)]
 mod tests {
-    use super::AsciiDomainStatic;
     #[cfg(feature = "custom")]
     use super::{
         super::{
@@ -1736,6 +1907,7 @@ mod tests {
             UserHandle,
         },
     };
+    use super::{AsciiDomainStatic, Hints, PublicKeyCredentialHint};
     #[cfg(feature = "custom")]
     use ed25519_dalek::{Signer as _, SigningKey};
     #[cfg(feature = "custom")]
@@ -10538,5 +10710,145 @@ mod tests {
             &AuthenticationVerificationOptions::<&str, &str>::default(),
         )?);
         Ok(())
+    }
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "a lot to test"
+    )]
+    #[test]
+    fn hints() {
+        assert_eq!(Hints::EMPTY.0, [None; 3]);
+        assert!(
+            Hints::EMPTY.first().is_none()
+                && Hints::EMPTY.second().is_none()
+                && Hints::EMPTY.third().is_none()
+        );
+        assert_eq!(Hints::EMPTY.count(), 0);
+        assert!(Hints::EMPTY.is_empty());
+        assert!(
+            !(Hints::EMPTY.contains_cross_platform_hints()
+                || Hints::EMPTY.contains_platform_hints())
+        );
+        assert!(!Hints::EMPTY.contains(PublicKeyCredentialHint::SecurityKey));
+        assert!(!Hints::EMPTY.contains(PublicKeyCredentialHint::ClientDevice));
+        assert!(!Hints::EMPTY.contains(PublicKeyCredentialHint::Hybrid));
+        let mut hints = Hints::EMPTY.add(PublicKeyCredentialHint::SecurityKey);
+        assert_eq!(
+            hints.0,
+            [Some(PublicKeyCredentialHint::SecurityKey), None, None]
+        );
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::SecurityKey).0);
+        assert!(
+            hints.first() == Some(PublicKeyCredentialHint::SecurityKey)
+                && hints.second().is_none()
+                && hints.third().is_none()
+        );
+        assert_eq!(hints.count(), 1);
+        assert!(!hints.is_empty());
+        assert!(hints.contains_cross_platform_hints() && !hints.contains_platform_hints());
+        assert!(hints.contains(PublicKeyCredentialHint::SecurityKey));
+        assert!(!hints.contains(PublicKeyCredentialHint::ClientDevice));
+        assert!(!hints.contains(PublicKeyCredentialHint::Hybrid));
+        hints = Hints::EMPTY.add(PublicKeyCredentialHint::Hybrid);
+        assert_eq!(hints.0, [Some(PublicKeyCredentialHint::Hybrid), None, None]);
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::Hybrid).0);
+        assert!(
+            hints.first() == Some(PublicKeyCredentialHint::Hybrid)
+                && hints.second().is_none()
+                && hints.third().is_none()
+        );
+        assert_eq!(hints.count(), 1);
+        assert!(!hints.is_empty());
+        assert!(hints.contains_cross_platform_hints() && !hints.contains_platform_hints());
+        assert!(hints.contains(PublicKeyCredentialHint::Hybrid));
+        assert!(!hints.contains(PublicKeyCredentialHint::SecurityKey));
+        assert!(!hints.contains(PublicKeyCredentialHint::ClientDevice));
+        hints = Hints::EMPTY.add(PublicKeyCredentialHint::ClientDevice);
+        assert_eq!(
+            hints.0,
+            [Some(PublicKeyCredentialHint::ClientDevice), None, None]
+        );
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::ClientDevice).0);
+        assert!(
+            hints.first() == Some(PublicKeyCredentialHint::ClientDevice)
+                && hints.second().is_none()
+                && hints.third().is_none()
+        );
+        assert_eq!(hints.count(), 1);
+        assert!(!hints.is_empty());
+        assert!(!hints.contains_cross_platform_hints() && hints.contains_platform_hints());
+        assert!(hints.contains(PublicKeyCredentialHint::ClientDevice));
+        assert!(!hints.contains(PublicKeyCredentialHint::SecurityKey));
+        assert!(!hints.contains(PublicKeyCredentialHint::Hybrid));
+        hints = hints.add(PublicKeyCredentialHint::Hybrid);
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::ClientDevice).0);
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::Hybrid).0);
+        assert_eq!(
+            hints.0,
+            [
+                Some(PublicKeyCredentialHint::ClientDevice),
+                Some(PublicKeyCredentialHint::Hybrid),
+                None
+            ]
+        );
+        assert!(
+            hints.first() == Some(PublicKeyCredentialHint::ClientDevice)
+                && hints.second() == Some(PublicKeyCredentialHint::Hybrid)
+                && hints.third().is_none()
+        );
+        assert_eq!(hints.count(), 2);
+        assert!(!hints.is_empty());
+        assert!(hints.contains_cross_platform_hints() && hints.contains_platform_hints());
+        assert!(hints.contains(PublicKeyCredentialHint::ClientDevice));
+        assert!(!hints.contains(PublicKeyCredentialHint::SecurityKey));
+        assert!(hints.contains(PublicKeyCredentialHint::Hybrid));
+        hints = hints.add(PublicKeyCredentialHint::SecurityKey);
+        assert_eq!(
+            hints.0,
+            [
+                Some(PublicKeyCredentialHint::ClientDevice),
+                Some(PublicKeyCredentialHint::Hybrid),
+                Some(PublicKeyCredentialHint::SecurityKey),
+            ]
+        );
+        assert!(
+            hints.first() == Some(PublicKeyCredentialHint::ClientDevice)
+                && hints.second() == Some(PublicKeyCredentialHint::Hybrid)
+                && hints.third() == Some(PublicKeyCredentialHint::SecurityKey)
+        );
+        assert_eq!(hints.count(), 3);
+        assert!(!hints.is_empty());
+        assert!(hints.contains_cross_platform_hints() && hints.contains_platform_hints());
+        assert!(hints.contains(PublicKeyCredentialHint::ClientDevice));
+        assert!(hints.contains(PublicKeyCredentialHint::SecurityKey));
+        assert!(hints.contains(PublicKeyCredentialHint::Hybrid));
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::SecurityKey).0);
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::Hybrid).0);
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::ClientDevice).0);
+        hints = Hints::EMPTY
+            .add(PublicKeyCredentialHint::Hybrid)
+            .add(PublicKeyCredentialHint::SecurityKey);
+        assert_eq!(
+            hints.0,
+            [
+                Some(PublicKeyCredentialHint::Hybrid),
+                Some(PublicKeyCredentialHint::SecurityKey),
+                None,
+            ]
+        );
+        assert!(
+            hints.first() == Some(PublicKeyCredentialHint::Hybrid)
+                && hints.second() == Some(PublicKeyCredentialHint::SecurityKey)
+                && hints.third().is_none()
+        );
+        assert_eq!(hints.count(), 2);
+        assert!(!hints.is_empty());
+        assert!(hints.contains_cross_platform_hints() && !hints.contains_platform_hints());
+        assert!(!hints.contains(PublicKeyCredentialHint::ClientDevice));
+        assert!(hints.contains(PublicKeyCredentialHint::SecurityKey));
+        assert!(hints.contains(PublicKeyCredentialHint::Hybrid));
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::SecurityKey).0);
+        assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::Hybrid).0);
     }
 }

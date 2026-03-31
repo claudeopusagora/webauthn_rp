@@ -1,7 +1,8 @@
 use super::{
     super::response::ser::Base64DecodedVal, AsciiDomain, AsciiDomainStatic, Challenge,
-    CredentialId, CredentialMediationRequirement, ExtensionReq, Hint, PrfInput,
-    PublicKeyCredentialDescriptor, RpId, Url, UserVerificationRequirement, auth::PrfInputOwned,
+    CredentialId, CredentialMediationRequirement, ExtensionReq, Hints, PrfInput,
+    PublicKeyCredentialDescriptor, PublicKeyCredentialHint, RpId, Url, UserVerificationRequirement,
+    auth::PrfInputOwned,
 };
 use core::{
     fmt::{self, Formatter},
@@ -249,76 +250,164 @@ const SECURITY_KEY: &str = "security-key";
 const CLIENT_DEVICE: &str = "client-device";
 /// [`hybrid`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialhints-hybrid).
 const HYBRID: &str = "hybrid";
-impl Serialize for Hint {
+impl Serialize for PublicKeyCredentialHint {
+    /// Serializes `self` as a [`prim@str`] conforming with
+    /// [`PublicKeyCredentialHint`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::PublicKeyCredentialHint;
+    /// assert_eq!(
+    ///     serde_json::to_string(&PublicKeyCredentialHint::SecurityKey)?,
+    ///     r#""security-key""#
+    /// );
+    /// assert_eq!(
+    ///     serde_json::to_string(&PublicKeyCredentialHint::ClientDevice)?,
+    ///     r#""client-device""#
+    /// );
+    /// assert_eq!(
+    ///     serde_json::to_string(&PublicKeyCredentialHint::Hybrid)?,
+    ///     r#""hybrid""#
+    /// );
+    /// # Ok::<_, serde_json::Error>(())
+    /// ```
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(match *self {
+            Self::SecurityKey => SECURITY_KEY,
+            Self::ClientDevice => CLIENT_DEVICE,
+            Self::Hybrid => HYBRID,
+        })
+    }
+}
+impl Serialize for Hints {
     /// Serializes `self` to conform with
     /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptionsjson-hints).
     ///
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::Hint;
+    /// # use webauthn_rp::request::{Hints, PublicKeyCredentialHint};
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::None)?,
+    ///     serde_json::to_string(&Hints::EMPTY)?,
     ///     r#"[]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::SecurityKey)?,
+    ///     serde_json::to_string(&Hints::EMPTY.add(PublicKeyCredentialHint::SecurityKey))?,
     ///     r#"["security-key"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::ClientDevice)?,
+    ///     serde_json::to_string(&Hints::EMPTY.add(PublicKeyCredentialHint::ClientDevice))?,
     ///     r#"["client-device"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::Hybrid)?,
+    ///     serde_json::to_string(&Hints::EMPTY.add(PublicKeyCredentialHint::Hybrid))?,
     ///     r#"["hybrid"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::SecurityKeyClientDevice)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///     )?,
     ///     r#"["security-key","client-device"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::ClientDeviceSecurityKey)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///     )?,
     ///     r#"["client-device","security-key"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::SecurityKeyHybrid)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///     )?,
     ///     r#"["security-key","hybrid"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::HybridSecurityKey)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///     )?,
     ///     r#"["hybrid","security-key"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::ClientDeviceHybrid)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///     )?,
     ///     r#"["client-device","hybrid"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::HybridClientDevice)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///     )?,
     ///     r#"["hybrid","client-device"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::SecurityKeyClientDeviceHybrid)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///     )?,
     ///     r#"["security-key","client-device","hybrid"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::SecurityKeyHybridClientDevice)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///     )?,
     ///     r#"["security-key","hybrid","client-device"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::ClientDeviceSecurityKeyHybrid)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///     )?,
     ///     r#"["client-device","security-key","hybrid"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::ClientDeviceHybridSecurityKey)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///     )?,
     ///     r#"["client-device","hybrid","security-key"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::HybridSecurityKeyClientDevice)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///     )?,
     ///     r#"["hybrid","security-key","client-device"]"#
     /// );
     /// assert_eq!(
-    ///     serde_json::to_string(&Hint::HybridClientDeviceSecurityKey)?,
+    ///     serde_json::to_string(
+    ///         &Hints::EMPTY
+    ///             .add(PublicKeyCredentialHint::Hybrid)
+    ///             .add(PublicKeyCredentialHint::ClientDevice)
+    ///             .add(PublicKeyCredentialHint::SecurityKey)
+    ///     )?,
     ///     r#"["hybrid","client-device","security-key"]"#
     /// );
     /// # Ok::<_, serde_json::Error>(())
@@ -328,85 +417,18 @@ impl Serialize for Hint {
     where
         S: Serializer,
     {
-        let count = match *self {
-            Self::None => 0,
-            Self::SecurityKey | Self::ClientDevice | Self::Hybrid => 1,
-            Self::SecurityKeyClientDevice
-            | Self::ClientDeviceSecurityKey
-            | Self::SecurityKeyHybrid
-            | Self::HybridSecurityKey
-            | Self::ClientDeviceHybrid
-            | Self::HybridClientDevice => 2,
-            Self::SecurityKeyClientDeviceHybrid
-            | Self::SecurityKeyHybridClientDevice
-            | Self::ClientDeviceSecurityKeyHybrid
-            | Self::ClientDeviceHybridSecurityKey
-            | Self::HybridSecurityKeyClientDevice
-            | Self::HybridClientDeviceSecurityKey => 3,
-        };
-        serializer.serialize_seq(Some(count)).and_then(|mut ser| {
-            match *self {
-                Self::None => Ok(()),
-                Self::SecurityKey => ser.serialize_element(SECURITY_KEY),
-                Self::ClientDevice => ser.serialize_element(CLIENT_DEVICE),
-                Self::Hybrid => ser.serialize_element(HYBRID),
-                Self::SecurityKeyClientDevice => ser
-                    .serialize_element(SECURITY_KEY)
-                    .and_then(|()| ser.serialize_element(CLIENT_DEVICE)),
-                Self::ClientDeviceSecurityKey => ser
-                    .serialize_element(CLIENT_DEVICE)
-                    .and_then(|()| ser.serialize_element(SECURITY_KEY)),
-                Self::SecurityKeyHybrid => ser
-                    .serialize_element(SECURITY_KEY)
-                    .and_then(|()| ser.serialize_element(HYBRID)),
-                Self::HybridSecurityKey => ser
-                    .serialize_element(HYBRID)
-                    .and_then(|()| ser.serialize_element(SECURITY_KEY)),
-                Self::ClientDeviceHybrid => ser
-                    .serialize_element(CLIENT_DEVICE)
-                    .and_then(|()| ser.serialize_element(HYBRID)),
-                Self::HybridClientDevice => ser
-                    .serialize_element(HYBRID)
-                    .and_then(|()| ser.serialize_element(CLIENT_DEVICE)),
-                Self::SecurityKeyClientDeviceHybrid => {
-                    ser.serialize_element(SECURITY_KEY).and_then(|()| {
-                        ser.serialize_element(CLIENT_DEVICE)
-                            .and_then(|()| ser.serialize_element(HYBRID))
+        serializer
+            .serialize_seq(Some(usize::from(self.count())))
+            .and_then(|mut ser| {
+                self.0
+                    .iter()
+                    .try_fold((), |(), opt| {
+                        opt.ok_or_else(|| None)
+                            .and_then(|hint| ser.serialize_element(&hint).map_err(Some))
                     })
-                }
-                Self::SecurityKeyHybridClientDevice => {
-                    ser.serialize_element(SECURITY_KEY).and_then(|()| {
-                        ser.serialize_element(HYBRID)
-                            .and_then(|()| ser.serialize_element(CLIENT_DEVICE))
-                    })
-                }
-                Self::ClientDeviceSecurityKeyHybrid => {
-                    ser.serialize_element(CLIENT_DEVICE).and_then(|()| {
-                        ser.serialize_element(SECURITY_KEY)
-                            .and_then(|()| ser.serialize_element(HYBRID))
-                    })
-                }
-                Self::ClientDeviceHybridSecurityKey => {
-                    ser.serialize_element(CLIENT_DEVICE).and_then(|()| {
-                        ser.serialize_element(HYBRID)
-                            .and_then(|()| ser.serialize_element(SECURITY_KEY))
-                    })
-                }
-                Self::HybridSecurityKeyClientDevice => {
-                    ser.serialize_element(HYBRID).and_then(|()| {
-                        ser.serialize_element(SECURITY_KEY)
-                            .and_then(|()| ser.serialize_element(CLIENT_DEVICE))
-                    })
-                }
-                Self::HybridClientDeviceSecurityKey => {
-                    ser.serialize_element(HYBRID).and_then(|()| {
-                        ser.serialize_element(CLIENT_DEVICE)
-                            .and_then(|()| ser.serialize_element(SECURITY_KEY))
-                    })
-                }
-            }
-            .and_then(|()| ser.end())
-        })
+                    .or_else(|e| e.map_or(Ok(()), Err))
+                    .and_then(|()| ser.end())
+            })
     }
 }
 /// `"first"`.
@@ -656,24 +678,42 @@ impl<'de> Deserialize<'de> for RpId {
         String::deserialize(deserializer).and_then(|dom| Self::try_from(dom).map_err(Error::custom))
     }
 }
-/// Helper for `Hint::deserialize`.
-enum HintHelper {
-    /// `"security-key"`
-    SecurityKey,
-    /// `"client-device"`
-    ClientDevice,
-    /// `"hybrid"`
-    Hybrid,
-}
-impl<'de> Deserialize<'de> for HintHelper {
+impl<'de> Deserialize<'de> for PublicKeyCredentialHint {
+    /// Deserializes a [`prim@str`] based on
+    /// [`PublicKeyCredentialHint`](https://www.w3.org/TR/webauthn-3/#enumdef-publickeycredentialhint).
+    ///
+    /// Note unknown values will lead to an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::PublicKeyCredentialHint;
+    /// assert_eq!(
+    ///     serde_json::from_str::<PublicKeyCredentialHint>(r#""security-key""#)?,
+    ///     PublicKeyCredentialHint::SecurityKey,
+    /// );
+    /// assert_eq!(
+    ///     serde_json::from_str::<PublicKeyCredentialHint>(r#""client-device""#)?,
+    ///     PublicKeyCredentialHint::ClientDevice,
+    /// );
+    /// assert_eq!(
+    ///     serde_json::from_str::<PublicKeyCredentialHint>(r#""hybrid""#)?,
+    ///     PublicKeyCredentialHint::Hybrid,
+    /// );
+    /// assert!(
+    ///     serde_json::from_str::<PublicKeyCredentialHint>(r#""foo""#).is_err()
+    /// );
+    /// # Ok::<_, serde_json::Error>(())
+    /// ```
+    #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        /// `Visitor` for `HintHelper`.
-        struct HintHelperVisitor;
-        impl Visitor<'_> for HintHelperVisitor {
-            type Value = HintHelper;
+        /// `Visitor` for `PublicKeyCredentialHint`.
+        struct PublicKeyCredentialHintVisitor;
+        impl Visitor<'_> for PublicKeyCredentialHintVisitor {
+            type Value = PublicKeyCredentialHint;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 write!(
                     formatter,
@@ -685,9 +725,9 @@ impl<'de> Deserialize<'de> for HintHelper {
                 E: Error,
             {
                 match v {
-                    SECURITY_KEY => Ok(HintHelper::SecurityKey),
-                    CLIENT_DEVICE => Ok(HintHelper::ClientDevice),
-                    HYBRID => Ok(HintHelper::Hybrid),
+                    SECURITY_KEY => Ok(PublicKeyCredentialHint::SecurityKey),
+                    CLIENT_DEVICE => Ok(PublicKeyCredentialHint::ClientDevice),
+                    HYBRID => Ok(PublicKeyCredentialHint::Hybrid),
                     _ => Err(E::invalid_value(
                         Unexpected::Str(v),
                         &format!("'{SECURITY_KEY}', '{CLIENT_DEVICE}', or '{HYBRID}'").as_str(),
@@ -695,39 +735,43 @@ impl<'de> Deserialize<'de> for HintHelper {
                 }
             }
         }
-        deserializer.deserialize_str(HintHelperVisitor)
+        deserializer.deserialize_str(PublicKeyCredentialHintVisitor)
     }
 }
-impl<'de> Deserialize<'de> for Hint {
+impl<'de> Deserialize<'de> for Hints {
     /// Deserializes a sequence based on
     /// [`hints`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptionsjson-hints).
     ///
-    /// Note duplicates and unknown values will lead to an error.
+    /// Note unknown values will lead to an error.
     ///
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::Hint;
-    /// assert!(
-    ///     matches!(
-    ///         serde_json::from_str(r#"["security-key", "hybrid", "client-device"]"#)?,
-    ///         Hint::SecurityKeyHybridClientDevice
-    ///     )
+    /// # use webauthn_rp::request::{Hints, PublicKeyCredentialHint};
+    /// assert_eq!(
+    ///     serde_json::from_str::<Hints>(r#"["security-key", "hybrid", "client-device"]"#)?,
+    ///     Hints::EMPTY
+    ///         .add(PublicKeyCredentialHint::SecurityKey)
+    ///         .add(PublicKeyCredentialHint::Hybrid)
+    ///         .add(PublicKeyCredentialHint::ClientDevice),
     /// );
-    /// assert!(
-    ///     matches!(
-    ///         serde_json::from_str(r#"["hybrid", "security-key", "client-device"]"#)?,
-    ///         Hint::HybridSecurityKeyClientDevice
-    ///     )
+    /// assert_eq!(
+    ///     serde_json::from_str::<Hints>(r#"["hybrid", "security-key", "client-device"]"#)?,
+    ///     Hints::EMPTY
+    ///         .add(PublicKeyCredentialHint::Hybrid)
+    ///         .add(PublicKeyCredentialHint::SecurityKey)
+    ///         .add(PublicKeyCredentialHint::ClientDevice),
     /// );
-    /// assert!(
-    ///     matches!(
-    ///         serde_json::from_str(r#"[]"#)?,
-    ///         Hint::None
-    ///     )
+    /// assert_eq!(
+    ///     serde_json::from_str::<Hints>(r#"[]"#)?,
+    ///     Hints::EMPTY
     /// );
-    /// assert!(
-    ///         serde_json::from_str::<Hint>(r#"["security-key", "hybrid", "hybrid"]"#).is_err()
+    /// // Only the first instances are retained while duplicates are ignored.
+    /// assert_eq!(
+    ///     serde_json::from_str::<Hints>(r#"["hybrid", "client-device", "hybrid"]"#)?,
+    ///     Hints::EMPTY
+    ///         .add(PublicKeyCredentialHint::Hybrid)
+    ///         .add(PublicKeyCredentialHint::ClientDevice)
     /// );
     /// # Ok::<_, serde_json::Error>(())
     /// ```
@@ -736,92 +780,27 @@ impl<'de> Deserialize<'de> for Hint {
     where
         D: Deserializer<'de>,
     {
-        /// `Visitor` for `Hint`.
-        struct HintVisitor;
-        impl<'d> Visitor<'d> for HintVisitor {
-            type Value = Hint;
+        /// `Visitor` for `Hints`.
+        struct HintsVisitor;
+        impl<'d> Visitor<'d> for HintsVisitor {
+            type Value = Hints;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                formatter.write_str("unique sequence of hints")
+                formatter.write_str("sequence of hints")
             }
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'d>,
             {
-                let mut hint = Hint::None;
-                while let Some(elem) = seq.next_element::<HintHelper>()? {
-                    hint = match elem {
-                        HintHelper::SecurityKey => match hint {
-                            Hint::None => Hint::SecurityKey,
-                            Hint::SecurityKey
-                            | Hint::SecurityKeyClientDevice
-                            | Hint::ClientDeviceSecurityKey
-                            | Hint::SecurityKeyHybrid
-                            | Hint::HybridSecurityKey
-                            | Hint::SecurityKeyClientDeviceHybrid
-                            | Hint::SecurityKeyHybridClientDevice
-                            | Hint::ClientDeviceSecurityKeyHybrid
-                            | Hint::ClientDeviceHybridSecurityKey
-                            | Hint::HybridSecurityKeyClientDevice
-                            | Hint::HybridClientDeviceSecurityKey => {
-                                return Err(Error::custom(format!(
-                                    "'{SECURITY_KEY}' hint appeared more than once"
-                                )));
-                            }
-                            Hint::ClientDevice => Hint::ClientDeviceSecurityKey,
-                            Hint::Hybrid => Hint::HybridSecurityKey,
-                            Hint::ClientDeviceHybrid => Hint::ClientDeviceHybridSecurityKey,
-                            Hint::HybridClientDevice => Hint::HybridClientDeviceSecurityKey,
-                        },
-                        HintHelper::ClientDevice => match hint {
-                            Hint::None => Hint::ClientDevice,
-                            Hint::SecurityKey => Hint::SecurityKeyClientDevice,
-                            Hint::ClientDevice
-                            | Hint::ClientDeviceSecurityKey
-                            | Hint::SecurityKeyClientDevice
-                            | Hint::ClientDeviceHybrid
-                            | Hint::HybridClientDevice
-                            | Hint::ClientDeviceSecurityKeyHybrid
-                            | Hint::ClientDeviceHybridSecurityKey
-                            | Hint::SecurityKeyClientDeviceHybrid
-                            | Hint::SecurityKeyHybridClientDevice
-                            | Hint::HybridClientDeviceSecurityKey
-                            | Hint::HybridSecurityKeyClientDevice => {
-                                return Err(Error::custom(format!(
-                                    "'{CLIENT_DEVICE}' hint appeared more than once"
-                                )));
-                            }
-                            Hint::Hybrid => Hint::HybridClientDevice,
-                            Hint::SecurityKeyHybrid => Hint::SecurityKeyHybridClientDevice,
-                            Hint::HybridSecurityKey => Hint::HybridSecurityKeyClientDevice,
-                        },
-                        HintHelper::Hybrid => match hint {
-                            Hint::None => Hint::Hybrid,
-                            Hint::Hybrid
-                            | Hint::HybridClientDevice
-                            | Hint::ClientDeviceHybrid
-                            | Hint::HybridSecurityKey
-                            | Hint::SecurityKeyHybrid
-                            | Hint::HybridClientDeviceSecurityKey
-                            | Hint::HybridSecurityKeyClientDevice
-                            | Hint::ClientDeviceHybridSecurityKey
-                            | Hint::ClientDeviceSecurityKeyHybrid
-                            | Hint::SecurityKeyHybridClientDevice
-                            | Hint::SecurityKeyClientDeviceHybrid => {
-                                return Err(Error::custom(format!(
-                                    "'{HYBRID}' hint appeared more than once"
-                                )));
-                            }
-                            Hint::ClientDevice => Hint::ClientDeviceHybrid,
-                            Hint::SecurityKey => Hint::SecurityKeyHybrid,
-                            Hint::ClientDeviceSecurityKey => Hint::ClientDeviceSecurityKeyHybrid,
-                            Hint::SecurityKeyClientDevice => Hint::SecurityKeyClientDeviceHybrid,
-                        },
-                    };
+                let mut hints = Hints::EMPTY;
+                while let Some(elem) = seq.next_element()?
+                    && hints.count() < 3
+                {
+                    hints = hints.add(elem);
                 }
-                Ok(hint)
+                Ok(hints)
             }
         }
-        deserializer.deserialize_seq(HintVisitor)
+        deserializer.deserialize_seq(HintsVisitor)
     }
 }
 impl<'de> Deserialize<'de> for CredentialMediationRequirement {

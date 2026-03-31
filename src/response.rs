@@ -434,9 +434,10 @@ impl AuthTransports {
     }
 }
 /// [`AuthenticatorAttachment`](https://www.w3.org/TR/webauthn-3/#enumdef-authenticatorattachment).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AuthenticatorAttachment {
     /// No attachment information.
+    #[default]
     None,
     /// [`platform`](https://www.w3.org/TR/webauthn-3/#dom-authenticatorattachment-platform).
     Platform,

@@ -2,7 +2,7 @@ use super::{
     super::{super::response::ser::Null, ser::PrfHelper},
     AllowedCredential, AllowedCredentials, Challenge, CredentialMediationRequirement,
     Credentials as _, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions,
-    Extension, ExtensionReq, FIVE_MINUTES, Hint, NonDiscoverableAuthenticationClientState,
+    Extension, ExtensionReq, FIVE_MINUTES, Hints, NonDiscoverableAuthenticationClientState,
     NonDiscoverableCredentialRequestOptions, PrfInput, PrfInputOwned,
     PublicKeyCredentialRequestOptions, RpId, UserVerificationRequirement,
 };
@@ -348,13 +348,13 @@ impl Serialize for DiscoverableAuthenticationClientState<'_, '_, '_> {
     /// #             AllowedCredential, AllowedCredentials, CredentialSpecificExtension, Extension,
     /// #             PrfInputOwned, DiscoverableCredentialRequestOptions
     /// #         },
-    /// #         AsciiDomain, ExtensionReq, Hint, PrfInput, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
+    /// #         AsciiDomain, ExtensionReq, Hints, PublicKeyCredentialHint, PrfInput, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
     /// #     },
     /// #     response::{AuthTransports, CredentialId},
     /// # };
     /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
     /// let mut options = DiscoverableCredentialRequestOptions::passkey(&rp_id);
-    /// options.public_key.hints = Hint::SecurityKey;
+    /// options.public_key.hints = Hints::EMPTY.add(PublicKeyCredentialHint::SecurityKey);
     /// options.public_key.extensions = Extension {
     ///     prf: Some((PrfInput {
     ///         first: [0; 4].as_slice(),
@@ -412,7 +412,7 @@ impl Serialize for NonDiscoverableAuthenticationClientState<'_, '_, '_> {
     /// #             AllowedCredential, AllowedCredentials, CredentialSpecificExtension, Extension,
     /// #             PrfInputOwned, NonDiscoverableCredentialRequestOptions
     /// #         },
-    /// #         AsciiDomain, ExtensionReq, Hint, PrfInput, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
+    /// #         AsciiDomain, ExtensionReq, Hints, PublicKeyCredentialHint, PrfInput, RpId, PublicKeyCredentialDescriptor, Credentials, UserVerificationRequirement,
     /// #     },
     /// #     response::{AuthTransports, CredentialId},
     /// # };
@@ -449,7 +449,7 @@ impl Serialize for NonDiscoverableAuthenticationClientState<'_, '_, '_> {
     /// let opts = &mut options.options;
     /// # #[cfg(not(all(feature = "bin", feature = "custom")))]
     /// # let mut opts = webauthn_rp::DiscoverableCredentialRequestOptions::passkey(&rp_id).public_key;
-    /// opts.hints = Hint::SecurityKey;
+    /// opts.hints = Hints::EMPTY.add(PublicKeyCredentialHint::SecurityKey);
     /// // This is actually useless since `CredentialSpecificExtension` takes priority
     /// // when the client receives the payload. We set it for illustration purposes only.
     /// // If `creds` contained an `AllowedCredential` that didn't set
@@ -681,7 +681,7 @@ pub struct PublicKeyCredentialRequestOptionsOwned {
     /// See [`PublicKeyCredentialRequestOptions::user_verification`].
     pub user_verification: UserVerificationRequirement,
     /// See [`PublicKeyCredentialRequestOptions::hints`].
-    pub hints: Hint,
+    pub hints: Hints,
     /// See [`PublicKeyCredentialRequestOptions::extensions`].
     pub extensions: ExtensionOwned,
 }
@@ -783,7 +783,7 @@ impl Default for PublicKeyCredentialRequestOptionsOwned {
             rp_id: None,
             timeout: FIVE_MINUTES,
             user_verification: UserVerificationRequirement::Preferred,
-            hints: Hint::default(),
+            hints: Hints::default(),
             extensions: ExtensionOwned::default(),
         }
     }
@@ -1076,8 +1076,9 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
 #[cfg(test)]
 mod test {
     use super::{
-        super::ExtensionReq, ClientCredentialRequestOptions, CredentialMediationRequirement,
-        ExtensionOwned, FIVE_MINUTES, Hint, NonZeroU32, PublicKeyCredentialRequestOptionsOwned,
+        super::{super::PublicKeyCredentialHint, ExtensionReq},
+        ClientCredentialRequestOptions, CredentialMediationRequirement, ExtensionOwned,
+        FIVE_MINUTES, Hints, NonZeroU32, PublicKeyCredentialRequestOptionsOwned,
         UserVerificationRequirement,
     };
     use serde_json::Error;
@@ -1114,7 +1115,7 @@ mod test {
             options.public_key.user_verification,
             UserVerificationRequirement::Preferred
         ));
-        assert!(matches!(options.public_key.hints, Hint::None));
+        assert_eq!(options.public_key.hints, Hints::EMPTY);
         assert!(options.public_key.extensions.prf.is_none());
         options = serde_json::from_str::<ClientCredentialRequestOptions>(
             r#"{"mediation":null,"publicKey":null}"#,
@@ -1129,7 +1130,7 @@ mod test {
             options.public_key.user_verification,
             UserVerificationRequirement::Preferred
         ));
-        assert!(matches!(options.public_key.hints, Hint::None));
+        assert_eq!(options.public_key.hints, Hints::EMPTY);
         assert!(options.public_key.extensions.prf.is_none());
         options = serde_json::from_str::<ClientCredentialRequestOptions>(r#"{"publicKey":{}}"#)?;
         assert!(options.public_key.rp_id.is_none());
@@ -1138,7 +1139,7 @@ mod test {
             options.public_key.user_verification,
             UserVerificationRequirement::Preferred
         ));
-        assert!(matches!(options.public_key.hints, Hint::None));
+        assert_eq!(options.public_key.hints, Hints::EMPTY);
         assert!(options.public_key.extensions.prf.is_none());
         options = serde_json::from_str::<ClientCredentialRequestOptions>(
             r#"{"mediation":"conditional","publicKey":{"rpId":"example.com","timeout":300000,"allowCredentials":[],"userVerification":"required","extensions":{"prf":{"eval":{"first":"","second":""}}},"hints":["security-key"],"challenge":null}}"#,
@@ -1226,7 +1227,7 @@ mod test {
             UserVerificationRequirement::Preferred
         ));
         assert!(key.extensions.prf.is_none());
-        assert!(matches!(key.hints, Hint::None));
+        assert_eq!(key.hints, Hints::EMPTY);
         key = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"rpId":null,"timeout":null,"allowCredentials":null,"userVerification":null,"extensions":null,"hints":null,"challenge":null}"#,
         )?;
@@ -1237,7 +1238,7 @@ mod test {
             UserVerificationRequirement::Preferred
         ));
         assert!(key.extensions.prf.is_none());
-        assert!(matches!(key.hints, Hint::None));
+        assert_eq!(key.hints, Hints::EMPTY);
         key = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"allowCredentials":[],"extensions":{},"hints":[]}"#,
         )?;
@@ -1245,7 +1246,7 @@ mod test {
             key.user_verification,
             UserVerificationRequirement::Preferred
         ));
-        assert!(matches!(key.hints, Hint::None));
+        assert_eq!(key.hints, Hints::EMPTY);
         assert!(key.extensions.prf.is_none());
         key = serde_json::from_str::<PublicKeyCredentialRequestOptionsOwned>(
             r#"{"extensions":{"prf":null}}"#,
@@ -1260,7 +1261,10 @@ mod test {
             key.user_verification,
             UserVerificationRequirement::Required
         ));
-        assert!(matches!(key.hints, Hint::SecurityKey));
+        assert_eq!(
+            key.hints,
+            Hints::EMPTY.add(PublicKeyCredentialHint::SecurityKey)
+        );
         assert!(key.extensions.prf.is_some_and(|prf| prf.first.is_empty()
             && prf.second.is_some_and(|p| p.is_empty())
             && matches!(prf.ext_req, ExtensionReq::Allow)));
