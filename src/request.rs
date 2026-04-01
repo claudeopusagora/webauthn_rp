@@ -106,7 +106,7 @@ pub mod error;
 /// #     hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
 /// #     request::{
 /// #         register::{
-/// #             CredentialCreationOptions, DisplayName, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
+/// #             CredentialCreationOptions, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64,
 /// #         },
 /// #         PublicKeyCredentialDescriptor, RpId
 /// #     },
@@ -154,9 +154,9 @@ pub mod error;
 /// fn get_user_entity(user: &UserHandle64) -> Result<PublicKeyCredentialUserEntity<'_, '_, '_, USER_HANDLE_MAX_LEN>, AggErr> {
 ///     // ⋮
 /// #     Ok(PublicKeyCredentialUserEntity {
-/// #         name: "foo".try_into()?,
+/// #         name: "foo",
 /// #         id: user,
-/// #         display_name: DisplayName::Blank,
+/// #         display_name: "",
 /// #     })
 /// }
 /// /// Fetch the `PublicKeyCredentialDescriptor`s associated with `user`.
@@ -1902,9 +1902,8 @@ mod tests {
             Extension as AuthExt, NonDiscoverableCredentialRequestOptions, PrfInputOwned,
         },
         register::{
-            CredProtect, CredentialCreationOptions, DisplayName, Extension as RegExt,
-            FourToSixtyThree, PublicKeyCredentialUserEntity, RegistrationVerificationOptions,
-            UserHandle,
+            CredProtect, CredentialCreationOptions, Extension as RegExt, FourToSixtyThree,
+            PublicKeyCredentialUserEntity, RegistrationVerificationOptions, UserHandle,
         },
     };
     use super::{AsciiDomainStatic, Hints, PublicKeyCredentialHint};
@@ -1991,9 +1990,9 @@ mod tests {
         let mut opts = CredentialCreationOptions::passkey(
             RP_ID,
             PublicKeyCredentialUserEntity {
-                name: "foo".try_into()?,
+                name: "foo",
                 id: &id,
-                display_name: DisplayName::Blank,
+                display_name: "",
             },
             Vec::new(),
         );
@@ -2558,9 +2557,9 @@ mod tests {
         let mut opts = CredentialCreationOptions::passkey(
             RP_ID,
             PublicKeyCredentialUserEntity {
-                name: "foo".try_into()?,
+                name: "foo",
                 id: &id,
-                display_name: DisplayName::Blank,
+                display_name: "",
             },
             Vec::new(),
         );
@@ -5425,9 +5424,9 @@ mod tests {
         let mut opts = CredentialCreationOptions::passkey(
             RP_ID,
             PublicKeyCredentialUserEntity {
-                name: "foo".try_into()?,
+                name: "foo",
                 id: &id,
-                display_name: DisplayName::Blank,
+                display_name: "",
             },
             Vec::new(),
         );
@@ -7652,9 +7651,9 @@ mod tests {
         let mut opts = CredentialCreationOptions::passkey(
             RP_ID,
             PublicKeyCredentialUserEntity {
-                name: "foo".try_into()?,
+                name: "foo",
                 id: &id,
-                display_name: DisplayName::Blank,
+                display_name: "",
             },
             Vec::new(),
         );
@@ -9244,9 +9243,9 @@ mod tests {
         let mut opts = CredentialCreationOptions::passkey(
             RP_ID,
             PublicKeyCredentialUserEntity {
-                name: "foo".try_into()?,
+                name: "foo",
                 id: &id,
-                display_name: DisplayName::Blank,
+                display_name: "",
             },
             Vec::new(),
         );
@@ -9623,9 +9622,9 @@ mod tests {
         let mut opts = CredentialCreationOptions::passkey(
             RP_ID,
             PublicKeyCredentialUserEntity {
-                name: "foo".try_into()?,
+                name: "foo",
                 id: &id,
-                display_name: DisplayName::Blank,
+                display_name: "",
             },
             Vec::new(),
         );
@@ -10039,9 +10038,9 @@ mod tests {
         let mut opts = CredentialCreationOptions::passkey(
             RP_ID,
             PublicKeyCredentialUserEntity {
-                name: "foo".try_into()?,
+                name: "foo",
                 id: &id,
-                display_name: DisplayName::Blank,
+                display_name: "",
             },
             Vec::new(),
         );

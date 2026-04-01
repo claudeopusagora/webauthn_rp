@@ -861,15 +861,15 @@ where
     /// # #[cfg(feature = "bin")]
     /// # use webauthn_rp::bin::Decode;
     /// # use webauthn_rp::{
-    /// #     request::{register::{DisplayName, PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MIN_LEN, Username}, AsciiDomain, RpId},
+    /// #     request::{register::{PublicKeyCredentialUserEntity, UserHandle, USER_HANDLE_MIN_LEN}, AsciiDomain, RpId},
     /// #     response::CurrentUserDetailsOptions,
     /// #     AggErr,
     /// # };
     /// /// Retrieves the `PublicKeyCredentialUserEntity` info associated with `user_id` from the database.
     /// # #[cfg(feature = "bin")]
-    /// fn get_user_info(user_id: UserHandle<USER_HANDLE_MIN_LEN>) -> Result<(Username<'static>, DisplayName<'static>), AggErr> {
+    /// fn get_user_info(user_id: UserHandle<USER_HANDLE_MIN_LEN>) -> Result<(String, String), AggErr> {
     ///     // ⋮
-    /// #     Ok((Username::decode("foo").unwrap(), DisplayName::decode("foo").unwrap()))
+    /// #     Ok(("foo".to_owned(), "foo".to_owned()))
     /// }
     /// /// Retrieves the `UserHandle` from a session cookie.
     /// # #[cfg(feature = "custom")]
@@ -885,7 +885,7 @@ where
     /// assert_eq!(
     ///     serde_json::to_string(&CurrentUserDetailsOptions {
     ///         rp_id: &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
-    ///         user: PublicKeyCredentialUserEntity { name, id: &user_handle, display_name, },
+    ///         user: PublicKeyCredentialUserEntity { name: &name, id: &user_handle, display_name: &display_name, },
     ///     })
     ///     .unwrap(),
     ///     r#"{"rpId":"example.com","userId":"AA","name":"foo","displayName":"foo"}"#

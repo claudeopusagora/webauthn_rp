@@ -22,13 +22,13 @@ use webauthn_rp::{
     AuthenticatedCredential64, DiscoverableAuthentication64, DiscoverableAuthenticationServerState,
     DiscoverableCredentialRequestOptions, CredentialCreationOptions64, RegisteredCredential64,
     Registration, RegistrationServerState64,
-    hash::hash_set::FixedCapHashSet,
+    hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
     request::{
-        AsciiDomainStatic, PublicKeyCredentialDescriptor, RpId,
+        PublicKeyCredentialDescriptor, RpId,
         auth::AuthenticationVerificationOptions,
         register::{
-            Nickname, PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
-            UserHandle64, Username,
+            PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
+            UserHandle64,
         },
     },
     response::{
@@ -40,7 +40,7 @@ use webauthn_rp::{
 use serde::de::{Deserialize, Deserializer};
 use serde_json::Error as JsonErr;
 /// The RP ID our application uses.
-const RP_ID: &RpId = &RpId::StaticDomain(AsciiDomainStatic::new("example.com").unwrap());
+const RP_ID: &RpId = &RpId::from_static_domain("example.com").unwrap();
 /// The registration verification options.
 const REG_OPTS: &RegistrationVerificationOptions::<'static, 'static, &'static str, &'static str> = &RegistrationVerificationOptions::new();
 /// The authentication verification options.
@@ -84,12 +84,12 @@ impl From<AuthCeremonyErr> for AppErr {
 /// This gets sent from the user after an account is created on their side. The registration ceremony
 /// still has to be successfully completed for the account to be created server side. In the event of an error,
 /// the user should delete the created passkey since it won't be usable.
-struct AccountReg<'a, 'b> {
+struct AccountReg {
     registration: Registration,
-    user_name: Username<'a>,
-    user_display_name: Nickname<'b>,
+    user_name: String,
+    user_display_name: String,
 }
-impl<'de: 'a + 'b, 'a, 'b> Deserialize<'de> for AccountReg<'a, 'b> {
+impl<'de> Deserialize<'de> for AccountReg {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -103,18 +103,18 @@ impl<'de: 'a + 'b, 'a, 'b> Deserialize<'de> for AccountReg<'a, 'b> {
 /// already exist otherwise. This is similar to credential creation except a random `UserHandle64` is generated and
 /// will be used for subsequent credential registrations.
 fn start_account_creation(
-    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
+    reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 ) -> Result<Vec<u8>, AppErr> {
     let user_id = UserHandle64::new();
     let (server, client) =
-        CredentialCreationOptions64::first_passkey_with_blank_user_info(
-            RP_ID, &user_id,
+        CredentialCreationOptions64::passkey(
+            RP_ID, PublicKeyCredentialUserEntity64 { id: &user_id, name: "", display_name: "", }, Vec::new()
         )
         .start_ceremony()
         .unwrap_or_else(|_e| {
             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
         });
-    if reg_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+    if matches!(reg_ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success)
     {
         Ok(serde_json::to_vec(&client)
             .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState64::serialize")))
@@ -131,10 +131,10 @@ fn start_account_creation(
 /// Note if this errors, then the user should be notified to delete the passkey created on their
 /// authenticator.
 fn finish_account_creation(
-    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
+    reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
     client_data: &[u8],
 ) -> Result<(), AppErr> {
-    let account = serde_json::from_slice::<AccountReg<'_, '_>>(client_data)?;
+    let account = serde_json::from_slice::<AccountReg>(client_data)?;
     insert_account(
         &account,
         reg_ceremonies
@@ -156,15 +156,15 @@ fn finish_account_creation(
 /// the authenticator.
 fn start_cred_registration(
     user_id: &UserHandle64,
-    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
+    reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 ) -> Result<Vec<u8>, AppErr> {
-    let (entity, creds) = select_user_info(user_id)?.ok_or(AppErr::NoAccount)?;
-    let (server, client) = CredentialCreationOptions64::passkey(RP_ID, entity, creds)
+    let (username, user_display_name, creds) = select_user_info(user_id)?.ok_or(AppErr::NoAccount)?;
+    let (server, client) = CredentialCreationOptions64::passkey(RP_ID, PublicKeyCredentialUserEntity64 { name: &username, id: user_id, display_name: &user_display_name, }, creds)
         .start_ceremony()
         .unwrap_or_else(|_e| {
             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
         });
-    if reg_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+    if matches!(reg_ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success)
     {
         Ok(serde_json::to_vec(&client)
             .unwrap_or_else(|_e| unreachable!("bug in RegistrationClientState64::serialize")))
@@ -181,7 +181,7 @@ fn start_cred_registration(
 /// Note if this errors, then the user should be notified to delete the passkey created on their
 /// authenticator.
 fn finish_cred_registration(
-    reg_ceremonies: &mut FixedCapHashSet<RegistrationServerState64>,
+    reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
     client_data: &[u8],
 ) -> Result<(), AppErr> {
     // `Registration::from_json_custom` is available iff `serde_relaxed` is enabled.
@@ -200,14 +200,14 @@ fn finish_cred_registration(
 }
 /// Starts the passkey authentication ceremony.
 fn start_auth(
-    auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
+    auth_ceremonies: &mut MaxLenHashSet<DiscoverableAuthenticationServerState>,
 ) -> Result<Vec<u8>, AppErr> {
     let (server, client) = DiscoverableCredentialRequestOptions::passkey(RP_ID)
         .start_ceremony()
         .unwrap_or_else(|_e| {
             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
         });
-    if auth_ceremonies.insert_remove_all_expired(server).is_some_and(convert::identity)
+    if matches!(auth_ceremonies.insert_remove_all_expired(server), InsertRemoveExpired::Success)
     {
         Ok(serde_json::to_vec(&client).unwrap_or_else(|_e| {
             unreachable!("bug in DiscoverableAuthenticationClientState::serialize")
@@ -218,7 +218,7 @@ fn start_auth(
 }
 /// Finishes the passkey authentication ceremony.
 fn finish_auth(
-    auth_ceremonies: &mut FixedCapHashSet<DiscoverableAuthenticationServerState>,
+    auth_ceremonies: &mut MaxLenHashSet<DiscoverableAuthenticationServerState>,
     client_data: &[u8],
 ) -> Result<(), AppErr> {
     // `DiscoverableAuthentication64::from_json_custom` is available iff `serde_relaxed` is enabled.
@@ -252,7 +252,7 @@ fn finish_auth(
 /// Errors iff writing `account` or `cred` errors,  there already exists a credential using the same
 /// `CredentialId`, or there already exists an account using the same `UserHandle64`.
 fn insert_account(
-    account: &AccountReg<'_, '_>,
+    account: &AccountReg,
     cred: RegisteredCredential64<'_>,
 ) -> Result<(), AppErr> {
     // ⋮
@@ -266,8 +266,9 @@ fn select_user_info(
     user_id: &UserHandle64,
 ) -> Result<
     Option<(
-        PublicKeyCredentialUserEntity64<'static, 'static, '_>,
-        Vec<PublicKeyCredentialDescriptor<Vec<u8>>>,
+        String,
+        String,
+        Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
     )>,
     AppErr,
 > {
@@ -330,9 +331,8 @@ unsuitable or only partially suitable (e.g., human-readable output is desired), 
 [`custom`](#custom) to allow construction of certain types (e.g., `AuthenticatedCredential`).
 
 If possible and desired, one may wish to save the data "directly" to avoid any potential temporary allocations.
-For example `StaticState::encode` will return a `Vec` containing hundreds (and possibly thousands in the
-extreme case) of bytes if the underlying public key is an RSA key. This additional allocation and copy of data
-is obviously avoided if `StaticState` is stored as a
+For example `StaticState::encode` will return a `Vec` containing thousands of bytes if the underlying public key
+is an ML-DSA key. This additional allocation and copy of data is obviously avoided if `StaticState` is stored as a
 [composite type](https://www.postgresql.org/docs/current/rowtypes.html) or its fields are stored in separate
 columns when written to a relational database (RDB).
 
@@ -409,7 +409,7 @@ storing such data in memory:
       increasing. If data resides in memory, a monotonic `Instant` can be used instead.
 
 It is for those reasons data like `RegistrationServerState` are not serializable by default and require the
-use of in-memory collections (e.g., `FixedCapHashSet`). To better ensure OOM is not a concern, RPs should set
+use of in-memory collections (e.g., `MaxLenHashSet`). To better ensure OOM is not a concern, RPs should set
 reasonable timeouts. Since ceremonies can only be completed by moving data (e.g.,
 `RegistrationServerState::verify`), ceremony completion is guaranteed to free up the memory used—
 `RegistrationServerState` instances are as small as 48 bytes on `x86_64-unknown-linux-gnu` platforms. To avoid
@@ -425,6 +425,12 @@ not guaranteed to be the server that finishes the ceremony.
 
 The only supported signature algorithms are the following:
 
+* ML-DSA-87 as defined in [NIST FIPS 204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). This
+  corresponds to `CoseAlgorithmIdentifier::Mldsa87`.
+* ML-DSA-65 as defined in [NIST FIPS 204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). This
+  corresponds to `CoseAlgorithmIdentifier::Mldsa65`.
+* ML-DSA-44 as defined in [NIST FIPS 204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). This
+  corresponds to `CoseAlgorithmIdentifier::Mldsa44`.
 * Ed25519 as defined in [RFC 8032 § 5.1](https://www.rfc-editor.org/rfc/rfc8032#section-5.1). This corresponds
   to `CoseAlgorithmIdentifier::Eddsa`.
 * ECDSA as defined in [SEC 1 Version 2.0 § 4.1](https://www.secg.org/sec1-v2.pdf#subsection.4.1) using SHA-256
@@ -445,8 +451,7 @@ the following ways:
 * [CTAP2 canonical CBOR encoding form](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#ctap2-canonical-cbor-encoding-form).
 * `Deserialize` implementations requiring _exact_ conformance (e.g., not allowing unknown data).
 * More thorough interrelated data validation (e.g., all places a Credential ID exists must match).
-* Implement a lot of recommended (i.e., SHOULD) criteria (e.g.,
-  [User display names conforming to the Nickname Profile as defined in RFC 8266](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialentity-name)).
+* Implement a lot of recommended (i.e., SHOULD) criteria.
 
 Unfortunately like almost all software, this library has not been formally verified; however great care is
 employed in the following ways:

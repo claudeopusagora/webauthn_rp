@@ -1,4 +1,3 @@
-extern crate alloc;
 use super::{
     super::{
         super::response::ser::{Null, Type},
@@ -7,19 +6,17 @@ use super::{
     },
     AuthenticatorAttachment, AuthenticatorSelectionCriteria, Challenge, CoseAlgorithmIdentifier,
     CoseAlgorithmIdentifiers, CredProtect, CredentialCreationOptions,
-    CredentialMediationRequirement, DisplayName, Extension, ExtensionInfo, ExtensionReq,
-    FIVE_MINUTES, FourToSixtyThree, Hints, Nickname, PrfInput, PublicKeyCredentialCreationOptions,
+    CredentialMediationRequirement, Extension, ExtensionInfo, ExtensionReq, FIVE_MINUTES,
+    FourToSixtyThree, Hints, PrfInput, PublicKeyCredentialCreationOptions,
     PublicKeyCredentialDescriptor, PublicKeyCredentialUserEntity, RegistrationClientState,
-    ResidentKeyRequirement, RpId, UserHandle, UserVerificationRequirement, Username,
+    ResidentKeyRequirement, RpId, UserHandle, UserVerificationRequirement,
 };
-use alloc::borrow::Cow;
 #[cfg(doc)]
 use core::str::FromStr;
 use core::{
     convert,
     error::Error as E,
     fmt::{self, Display, Formatter},
-    marker::PhantomData,
     num::NonZeroU32,
     str,
 };
@@ -27,69 +24,6 @@ use serde::{
     de::{Deserialize, Deserializer, Error, MapAccess, SeqAccess, Unexpected, Visitor},
     ser::{Serialize, SerializeSeq as _, SerializeStruct as _, Serializer},
 };
-impl Serialize for Nickname<'_> {
-    /// Serializes `self` as a [`prim@str`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::Nickname;
-    /// assert_eq!(
-    ///     serde_json::to_string(&Nickname::try_from("Giuseppe Luigi Lagrangia")?).unwrap(),
-    ///     r#""Giuseppe Luigi Lagrangia""#
-    /// );
-    /// # Ok::<_, webauthn_rp::AggErr>(())
-    /// ```
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.0.as_ref())
-    }
-}
-impl Serialize for DisplayName<'_> {
-    /// Serializes `self` as a [`prim@str`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::DisplayName;
-    /// assert_eq!(
-    ///     serde_json::to_string(&DisplayName::try_from("Terence Tao")?).unwrap(),
-    ///     r#""Terence Tao""#
-    /// );
-    /// # Ok::<_, webauthn_rp::AggErr>(())
-    /// ```
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.as_ref())
-    }
-}
-impl Serialize for Username<'_> {
-    /// Serializes `self` as a [`prim@str`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::Username;
-    /// assert_eq!(
-    ///     serde_json::to_string(&Username::try_from("john.von.neumann")?).unwrap(),
-    ///     r#""john.von.neumann""#
-    /// );
-    /// # Ok::<_, webauthn_rp::AggErr>(())
-    /// ```
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.0.as_ref())
-    }
-}
 /// `"type"`
 const TYPE: &str = "type";
 /// `"public-key"`
@@ -316,7 +250,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use webauthn_rp::request::register::{DisplayName, PublicKeyCredentialUserEntity, UserHandle};
+    /// # use webauthn_rp::request::register::{PublicKeyCredentialUserEntity, UserHandle};
     /// # #[cfg(feature = "custom")]
     /// // We create this manually purely for example. One should almost always
     /// // randomly generate this (e.g., `UserHandle::new`).
@@ -324,9 +258,9 @@ where
     /// # #[cfg(feature = "custom")]
     /// assert_eq!(
     ///     serde_json::to_string(&PublicKeyCredentialUserEntity {
-    ///         name: "georg.cantor".try_into()?,
+    ///         name: "georg.cantor",
     ///         id: &id,
-    ///         display_name: "Гео́рг Ка́нтор".try_into()?,
+    ///         display_name: "Гео́рг Ка́нтор",
     ///     }).unwrap(),
     ///     r#"{"name":"georg.cantor","id":"AA","displayName":"Гео́рг Ка́нтор"}"#
     /// );
@@ -335,9 +269,9 @@ where
     /// # #[cfg(feature = "custom")]
     /// assert_eq!(
     ///     serde_json::to_string(&PublicKeyCredentialUserEntity {
-    ///         name: "georg.cantor".try_into()?,
+    ///         name: "georg.cantor",
     ///         id: &id,
-    ///         display_name: DisplayName::Blank,
+    ///         display_name: "",
     ///     }).unwrap(),
     ///     r#"{"name":"georg.cantor","id":"AA","displayName":""}"#
     /// );
@@ -829,7 +763,7 @@ where
     /// creds.push(PublicKeyCredentialDescriptor { id, transports });
     /// let rp_id = RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?);
     /// let user_handle = UserHandle64::new();
-    /// let mut options = CredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat".try_into()?, id: &user_handle, display_name: "Pierre de Fermat".try_into()?, }, creds);
+    /// let mut options = CredentialCreationOptions::passkey(&rp_id, PublicKeyCredentialUserEntity { name: "pierre.de.fermat", id: &user_handle, display_name: "Pierre de Fermat", }, creds);
     /// options.public_key.authenticator_selection.authenticator_attachment = AuthenticatorAttachment::None;
     /// options.public_key.hints = Hints::EMPTY.add(PublicKeyCredentialHint::SecurityKey);
     /// options.public_key.extensions.min_pin_length = Some((FourToSixtyThree::Sixteen, ExtensionInfo::RequireEnforceValue));
@@ -922,139 +856,6 @@ where
         S: Serializer,
     {
         self.0.serialize(serializer)
-    }
-}
-impl<'de: 'a, 'a> Deserialize<'de> for Nickname<'a> {
-    /// Deserializes [`prim@str`] and parses it according to [`Self::try_from`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::Nickname;
-    /// assert_eq!(
-    ///     serde_json::from_str::<Nickname>(r#""Henri Poincaré""#)?.as_ref(),
-    ///     "Henri Poincaré"
-    /// );
-    /// # Ok::<_, serde_json::Error>(())
-    ///```
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        /// `Visitor` for `Nickname`.
-        struct NicknameVisitor<'b>(PhantomData<fn() -> &'b ()>);
-        impl<'d: 'b, 'b> Visitor<'d> for NicknameVisitor<'b> {
-            type Value = Nickname<'b>;
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                formatter.write_str("Nickname")
-            }
-            fn visit_borrowed_str<E>(self, v: &'d str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                Nickname::try_from(v).map_err(E::custom)
-            }
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                Nickname::try_from(v)
-                    .map_err(E::custom)
-                    .map(|name| Nickname(Cow::Owned(name.0.into_owned())))
-            }
-        }
-        deserializer.deserialize_str(NicknameVisitor(PhantomData))
-    }
-}
-impl<'de: 'a, 'a> Deserialize<'de> for DisplayName<'a> {
-    /// Deserializes [`prim@str`] and parses it according to [`Self::try_from`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::DisplayName;
-    /// assert_eq!(
-    ///     serde_json::from_str::<DisplayName>(r#""Alexander Grothendieck""#)?.as_ref(),
-    ///     "Alexander Grothendieck"
-    /// );
-    /// # Ok::<_, serde_json::Error>(())
-    ///```
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        /// `Visitor` for `DisplayName`.
-        struct DisplayNameVisitor<'b>(PhantomData<fn() -> &'b ()>);
-        impl<'d: 'b, 'b> Visitor<'d> for DisplayNameVisitor<'b> {
-            type Value = DisplayName<'b>;
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                formatter.write_str("DisplayName")
-            }
-            fn visit_borrowed_str<E>(self, v: &'d str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                DisplayName::try_from(v).map_err(E::custom)
-            }
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                if v.is_empty() {
-                    Ok(DisplayName::Blank)
-                } else {
-                    Nickname::try_from(v).map_err(E::custom).map(|name| {
-                        DisplayName::Nickname(Nickname(Cow::Owned(name.0.into_owned())))
-                    })
-                }
-            }
-        }
-        deserializer.deserialize_str(DisplayNameVisitor(PhantomData))
-    }
-}
-impl<'de: 'a, 'a> Deserialize<'de> for Username<'a> {
-    /// Deserializes [`prim@str`] and parses it according to [`Self::try_from`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webauthn_rp::request::register::Username;
-    /// assert_eq!(
-    ///     serde_json::from_str::<Username>(r#""augustin.cauchy""#)?.as_ref(),
-    ///     "augustin.cauchy"
-    /// );
-    /// # Ok::<_, serde_json::Error>(())
-    ///```
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        /// `Visitor` for `Username`.
-        struct UsernameVisitor<'b>(PhantomData<fn() -> &'b ()>);
-        impl<'d: 'b, 'b> Visitor<'d> for UsernameVisitor<'b> {
-            type Value = Username<'b>;
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                formatter.write_str("Username")
-            }
-            fn visit_borrowed_str<E>(self, v: &'d str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                Username::try_from(v).map_err(E::custom)
-            }
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                Username::try_from(v)
-                    .map_err(E::custom)
-                    .map(|name| Username(Cow::Owned(name.0.into_owned())))
-            }
-        }
-        deserializer.deserialize_str(UsernameVisitor(PhantomData))
     }
 }
 impl<'de, const LEN: usize> Deserialize<'de> for UserHandle<LEN>
@@ -1178,7 +979,7 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRpEntityHelper {
     /// ```json
     /// {
     ///   "id": null | <RpId>,
-    ///   "name": null | "" | <RpId> | <Nickname>
+    ///   "name": null | <RpId> | <Nickname>
     /// }
     /// ```
     ///
@@ -1246,19 +1047,11 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRpEntityHelper {
                             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                                 formatter.write_str("RpId name")
                             }
-                            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                            fn visit_str<E>(self, _: &str) -> Result<Self::Value, E>
                             where
                                 E: Error,
                             {
-                                if v.is_empty() {
-                                    Ok(Name)
-                                } else {
-                                    Nickname::try_from(v).map(|_n| Name).or_else(|_e| {
-                                        RpId::try_from(v.to_owned())
-                                            .map_err(E::custom)
-                                            .map(|_r| Name)
-                                    })
-                                }
+                                Ok(Name)
                             }
                         }
                         deserializer.deserialize_str(NameVisitor)
@@ -1299,13 +1092,13 @@ impl<'de> Deserialize<'de> for PublicKeyCredentialRpEntityHelper {
 ///
 /// This is primarily useful to assist [`ClientCredentialCreationOptions::deserialize`].
 #[derive(Debug, Default)]
-pub struct PublicKeyCredentialUserEntityOwned<'name, 'display_name, const LEN: usize> {
+pub struct PublicKeyCredentialUserEntityOwned<const LEN: usize> {
     /// See [`PublicKeyCredentialUserEntity::name`].
-    pub name: Option<Username<'name>>,
+    pub name: Option<String>,
     /// See [`PublicKeyCredentialUserEntity::id`].
     pub id: Option<UserHandle<LEN>>,
     /// See [`PublicKeyCredentialUserEntity::display_name`].
-    pub display_name: Option<DisplayName<'display_name>>,
+    pub display_name: Option<String>,
 }
 /// Error returned when converting a [`PublicKeyCredentialUserEntityOwned`] into a
 /// [`PublicKeyCredentialUserEntity`] (e.g., via [`PublicKeyCredentialUserEntityOwned::with_id`]).
@@ -1329,7 +1122,7 @@ impl Display for PublicKeyCredentialUserEntityOwnedErr {
     }
 }
 impl E for PublicKeyCredentialUserEntityOwnedErr {}
-impl<const LEN: usize> PublicKeyCredentialUserEntityOwned<'_, '_, LEN> {
+impl<const LEN: usize> PublicKeyCredentialUserEntityOwned<LEN> {
     /// Returns a `PublicKeyCredentialUserEntity` based on `self`.
     ///
     /// # Errors
@@ -1352,9 +1145,9 @@ impl<const LEN: usize> PublicKeyCredentialUserEntityOwned<'_, '_, LEN> {
                             .as_ref()
                             .ok_or(PublicKeyCredentialUserEntityOwnedErr::MissingDisplayName)
                             .map(|display| PublicKeyCredentialUserEntity {
-                                name: username.into(),
+                                name: username,
                                 id,
-                                display_name: display.into(),
+                                display_name: display,
                             })
                     })
             })
@@ -1382,9 +1175,9 @@ impl<const LEN: usize> PublicKeyCredentialUserEntityOwned<'_, '_, LEN> {
                     .as_ref()
                     .ok_or(PublicKeyCredentialUserEntityOwnedErr::MissingDisplayName)
                     .map(|display| PublicKeyCredentialUserEntity {
-                        name: username.into(),
+                        name: username,
                         id,
-                        display_name: display.into(),
+                        display_name: display,
                     })
             })
     }
@@ -1399,8 +1192,8 @@ impl<const LEN: usize> PublicKeyCredentialUserEntityOwned<'_, '_, LEN> {
     #[inline]
     pub fn with_name_and_display_name<'name, 'display_name>(
         &self,
-        name: Username<'name>,
-        display_name: DisplayName<'display_name>,
+        name: &'name str,
+        display_name: &'display_name str,
     ) -> Result<
         PublicKeyCredentialUserEntity<'name, 'display_name, '_, LEN>,
         PublicKeyCredentialUserEntityOwnedErr,
@@ -1415,8 +1208,7 @@ impl<const LEN: usize> PublicKeyCredentialUserEntityOwned<'_, '_, LEN> {
             })
     }
 }
-impl<'de: 'name + 'display_name, 'name, 'display_name, const LEN: usize> Deserialize<'de>
-    for PublicKeyCredentialUserEntityOwned<'name, 'display_name, LEN>
+impl<'de, const LEN: usize> Deserialize<'de> for PublicKeyCredentialUserEntityOwned<LEN>
 where
     UserHandle<LEN>: Deserialize<'de>,
 {
@@ -1426,10 +1218,10 @@ where
     /// Note none of the fields are required and all of them are allowed to be `null`.
     /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-id) is deserialized
     /// according to [`UserHandle::deserialize`],
-    /// [`name`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-name) is deserialized
-    /// according to [`Username::deserialize`], and
-    /// [`displayName`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-displayname) is
-    /// deserialized according to [`DisplayName::deserialize`].
+    /// [`name`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-name) deserializes
+    /// [`prim@str`].
+    /// [`displayName`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentityjson-displayname)
+    /// deserializes [`prim@str`].
     ///
     /// Unknown or duplicate fields lead to an error. Missing fields are interpreted the same as if the field
     /// were assigned `null`.
@@ -1438,9 +1230,9 @@ where
     ///
     /// ```
     /// # use webauthn_rp::request::register::ser::PublicKeyCredentialUserEntityOwned;
-    /// let val = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 16>>(r#"{"name":"paul.erdos","displayName":"Erdős Pál"}"#)?;
-    /// assert!(val.name.is_some_and(|name| name.as_ref() == "paul.erdos"));
-    /// assert!(val.display_name.is_some_and(|display| display.as_ref() == "Erdős Pál"));
+    /// let val = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<16>>(r#"{"name":"paul.erdos","displayName":"Erdős Pál"}"#)?;
+    /// assert!(val.name.is_some_and(|name| name == "paul.erdos"));
+    /// assert!(val.display_name.is_some_and(|display| display == "Erdős Pál"));
     /// assert!(val.id.is_none());
     /// # Ok::<_, serde_json::Error>(())
     /// ```
@@ -1450,15 +1242,12 @@ where
         D: Deserializer<'de>,
     {
         /// `Visitor` for `PublicKeyCredentialUserEntityOwned`.
-        struct PublicKeyCredentialUserEntityOwnedVisitor<'a, 'b, const L: usize>(
-            PhantomData<fn() -> (&'a (), &'b ())>,
-        );
-        impl<'d: 'a + 'b, 'a, 'b, const L: usize> Visitor<'d>
-            for PublicKeyCredentialUserEntityOwnedVisitor<'a, 'b, L>
+        struct PublicKeyCredentialUserEntityOwnedVisitor<const L: usize>;
+        impl<'d, const L: usize> Visitor<'d> for PublicKeyCredentialUserEntityOwnedVisitor<L>
         where
             UserHandle<L>: Deserialize<'d>,
         {
-            type Value = PublicKeyCredentialUserEntityOwned<'a, 'b, L>;
+            type Value = PublicKeyCredentialUserEntityOwned<L>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("PublicKeyCredentialUserEntityOwned")
             }
@@ -1539,7 +1328,7 @@ where
         deserializer.deserialize_struct(
             "PublicKeyCredentialUserEntityOwned",
             FIELDS,
-            PublicKeyCredentialUserEntityOwnedVisitor(PhantomData),
+            PublicKeyCredentialUserEntityOwnedVisitor,
         )
     }
 }
@@ -2473,15 +2262,11 @@ impl<'de> Deserialize<'de> for ExtensionOwned {
 ///
 /// This is primarily useful to assist [`ClientCredentialCreationOptions::deserialize`].
 #[derive(Debug)]
-pub struct PublicKeyCredentialCreationOptionsOwned<
-    'user_name,
-    'user_display_name,
-    const USER_LEN: usize,
-> {
+pub struct PublicKeyCredentialCreationOptionsOwned<const USER_LEN: usize> {
     /// See [`PublicKeyCredentialCreationOptions::rp_id`].
     pub rp_id: Option<RpId>,
     /// See [`PublicKeyCredentialCreationOptions::user`].
-    pub user: PublicKeyCredentialUserEntityOwned<'user_name, 'user_display_name, USER_LEN>,
+    pub user: PublicKeyCredentialUserEntityOwned<USER_LEN>,
     /// See [`PublicKeyCredentialCreationOptions::pub_key_cred_params`].
     pub pub_key_cred_params: CoseAlgorithmIdentifiers,
     /// See [`PublicKeyCredentialCreationOptions::timeout`].
@@ -2519,7 +2304,7 @@ impl From<PublicKeyCredentialUserEntityOwnedErr> for PublicKeyCredentialCreation
         Self::UserEntity(value)
     }
 }
-impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER_LEN> {
+impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<USER_LEN> {
     /// Returns a `PublicKeyCredentialCreationOptions` based on `self` and `exclude_credentials`.
     ///
     /// # Errors
@@ -2815,7 +2600,7 @@ impl<const USER_LEN: usize> PublicKeyCredentialCreationOptionsOwned<'_, '_, USER
         }
     }
 }
-impl<const USER_LEN: usize> Default for PublicKeyCredentialCreationOptionsOwned<'_, '_, USER_LEN> {
+impl<const USER_LEN: usize> Default for PublicKeyCredentialCreationOptionsOwned<USER_LEN> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -2833,11 +2618,10 @@ impl<const USER_LEN: usize> Default for PublicKeyCredentialCreationOptionsOwned<
         }
     }
 }
-impl<'de: 'user_name + 'user_display_name, 'user_name, 'user_display_name, const USER_LEN: usize>
-    Deserialize<'de>
-    for PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>
+impl<'de, const USER_LEN: usize> Deserialize<'de>
+    for PublicKeyCredentialCreationOptionsOwned<USER_LEN>
 where
-    PublicKeyCredentialUserEntityOwned<'user_name, 'user_display_name, USER_LEN>: Deserialize<'de>,
+    PublicKeyCredentialUserEntityOwned<USER_LEN>: Deserialize<'de>,
 {
     /// Deserializes a `struct` based on
     /// [`PublicKeyCredentialCreationOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialcreationoptionsjson).
@@ -2871,15 +2655,12 @@ where
         D: Deserializer<'de>,
     {
         /// `Visitor` for `PublicKeyCredentialCreationOptionsOwned`.
-        struct PublicKeyCredentialCreationOptionsOwnedVisitor<'a, 'b, const LEN: usize>(
-            PhantomData<fn() -> (&'a (), &'b ())>,
-        );
-        impl<'d: 'a + 'b, 'a, 'b, const LEN: usize> Visitor<'d>
-            for PublicKeyCredentialCreationOptionsOwnedVisitor<'a, 'b, LEN>
+        struct PublicKeyCredentialCreationOptionsOwnedVisitor<const LEN: usize>;
+        impl<'d, const LEN: usize> Visitor<'d> for PublicKeyCredentialCreationOptionsOwnedVisitor<LEN>
         where
-            PublicKeyCredentialUserEntityOwned<'a, 'b, LEN>: Deserialize<'d>,
+            PublicKeyCredentialUserEntityOwned<LEN>: Deserialize<'d>,
         {
-            type Value = PublicKeyCredentialCreationOptionsOwned<'a, 'b, LEN>;
+            type Value = PublicKeyCredentialCreationOptionsOwned<LEN>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("PublicKeyCredentialCreationOptionsOwned")
             }
@@ -3069,7 +2850,7 @@ where
         deserializer.deserialize_struct(
             "PublicKeyCredentialCreationOptionsOwned",
             FIELDS,
-            PublicKeyCredentialCreationOptionsOwnedVisitor(PhantomData),
+            PublicKeyCredentialCreationOptionsOwnedVisitor,
         )
     }
 }
@@ -3085,18 +2866,15 @@ where
 ///
 /// To facilitate this, [`Self::deserialize`] can be used to deserialize the data sent from the client.
 #[derive(Debug)]
-pub struct ClientCredentialCreationOptions<'user_name, 'user_display_name, const USER_LEN: usize> {
+pub struct ClientCredentialCreationOptions<const USER_LEN: usize> {
     /// See [`CredentialCreationOptions::mediation`].
     pub mediation: CredentialMediationRequirement,
     /// See [`CredentialCreationOptions::public_key`].
-    pub public_key:
-        PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>,
+    pub public_key: PublicKeyCredentialCreationOptionsOwned<USER_LEN>,
 }
-impl<'de: 'user_name + 'user_display_name, 'user_name, 'user_display_name, const USER_LEN: usize>
-    Deserialize<'de> for ClientCredentialCreationOptions<'user_name, 'user_display_name, USER_LEN>
+impl<'de, const USER_LEN: usize> Deserialize<'de> for ClientCredentialCreationOptions<USER_LEN>
 where
-    PublicKeyCredentialCreationOptionsOwned<'user_name, 'user_display_name, USER_LEN>:
-        Deserialize<'de>,
+    PublicKeyCredentialCreationOptionsOwned<USER_LEN>: Deserialize<'de>,
 {
     /// Deserializes a `struct` according to the following pseudo-schema:
     ///
@@ -3118,15 +2896,12 @@ where
         D: Deserializer<'de>,
     {
         /// `Visitor` for `ClientCredentialCreationOptions`.
-        struct ClientCredentialCreationOptionsVisitor<'a, 'b, const LEN: usize>(
-            PhantomData<fn() -> (&'a (), &'b ())>,
-        );
-        impl<'d: 'a + 'b, 'a, 'b, const LEN: usize> Visitor<'d>
-            for ClientCredentialCreationOptionsVisitor<'a, 'b, LEN>
+        struct ClientCredentialCreationOptionsVisitor<const LEN: usize>;
+        impl<'d, const LEN: usize> Visitor<'d> for ClientCredentialCreationOptionsVisitor<LEN>
         where
-            PublicKeyCredentialCreationOptionsOwned<'a, 'b, LEN>: Deserialize<'d>,
+            PublicKeyCredentialCreationOptionsOwned<LEN>: Deserialize<'d>,
         {
-            type Value = ClientCredentialCreationOptions<'a, 'b, LEN>;
+            type Value = ClientCredentialCreationOptions<LEN>;
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("ClientCredentialCreationOptions")
             }
@@ -3196,7 +2971,7 @@ where
         deserializer.deserialize_struct(
             "ClientCredentialCreationOptions",
             FIELDS,
-            ClientCredentialCreationOptionsVisitor(PhantomData),
+            ClientCredentialCreationOptionsVisitor,
         )
     }
 }
@@ -3223,13 +2998,13 @@ mod test {
     #[test]
     fn client_options() -> Result<(), Error> {
         let mut err =
-            serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 16>>(r#"{"bob":true}"#)
+            serde_json::from_str::<ClientCredentialCreationOptions<16>>(r#"{"bob":true}"#)
                 .unwrap_err();
         assert_eq!(
             err.to_string().get(..56),
             Some("unknown field `bob`, expected `mediation` or `publicKey`")
         );
-        err = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>(
+        err = serde_json::from_str::<ClientCredentialCreationOptions<1>>(
             r#"{"mediation":"required","mediation":"required"}"#,
         )
         .unwrap_err();
@@ -3237,7 +3012,7 @@ mod test {
             err.to_string().get(..27),
             Some("duplicate field `mediation`")
         );
-        let mut options = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>("{}")?;
+        let mut options = serde_json::from_str::<ClientCredentialCreationOptions<1>>("{}")?;
         assert!(matches!(
             options.mediation,
             CredentialMediationRequirement::Required
@@ -3273,7 +3048,7 @@ mod test {
         ));
         assert!(options.public_key.extensions.min_pin_length.is_none());
         assert!(options.public_key.extensions.prf.is_none());
-        options = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>(
+        options = serde_json::from_str::<ClientCredentialCreationOptions<1>>(
             r#"{"mediation":null,"publicKey":null}"#,
         )?;
         assert!(matches!(
@@ -3311,9 +3086,8 @@ mod test {
         ));
         assert!(options.public_key.extensions.min_pin_length.is_none());
         assert!(options.public_key.extensions.prf.is_none());
-        options = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>(
-            r#"{"publicKey":{}}"#,
-        )?;
+        options =
+            serde_json::from_str::<ClientCredentialCreationOptions<1>>(r#"{"publicKey":{}}"#)?;
         assert!(options.public_key.rp_id.is_none());
         assert!(options.public_key.user.name.is_none());
         assert!(options.public_key.user.id.is_none());
@@ -3345,7 +3119,7 @@ mod test {
         ));
         assert!(options.public_key.extensions.min_pin_length.is_none());
         assert!(options.public_key.extensions.prf.is_none());
-        options = serde_json::from_str::<ClientCredentialCreationOptions<'_, '_, 1>>(
+        options = serde_json::from_str::<ClientCredentialCreationOptions<1>>(
             r#"{"mediation":"conditional","publicKey":{"rp":{"name":"Example.com","id":"example.com"},"user":{"name":"bob","displayName":"Bob","id":"AQ"},"timeout":300000,"excludeCredentials":[],"attestation":"none","attestationFormats":["none"],"authenticatorSelection":{"authenticatorAttachment":"cross-platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"},"extensions":{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{"eval":{"first":"","second":""}}},"pubKeyCredParams":[{"type":"public-key","alg":-8}],"hints":["security-key"],"challenge":null}}"#,
         )?;
         assert!(matches!(
@@ -3358,19 +3132,13 @@ mod test {
                 .rp_id
                 .is_some_and(|val| val.as_ref() == "example.com")
         );
-        assert!(
-            options
-                .public_key
-                .user
-                .name
-                .is_some_and(|val| val.as_ref() == "bob")
-        );
+        assert!(options.public_key.user.name.is_some_and(|val| val == "bob"));
         assert!(
             options
                 .public_key
                 .user
                 .display_name
-                .is_some_and(|val| val.as_ref() == "Bob")
+                .is_some_and(|val| val == "Bob")
         );
         assert!(
             options
@@ -3447,17 +3215,16 @@ mod test {
     )]
     #[test]
     fn key_options() -> Result<(), Error> {
-        let mut err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 16>>(
-            r#"{"bob":true}"#,
-        )
-        .unwrap_err();
+        let mut err =
+            serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<16>>(r#"{"bob":true}"#)
+                .unwrap_err();
         assert_eq!(
             err.to_string().get(..201),
             Some(
                 "unknown field `bob`, expected one of `rp`, `user`, `challenge`, `pubKeyCredParams`, `timeout`, `excludeCredentials`, `authenticatorSelection`, `hints`, `extensions`, `attestation`, `attestationFormats`"
             )
         );
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"attestation":"none","attestation":"none"}"#,
         )
         .unwrap_err();
@@ -3465,7 +3232,7 @@ mod test {
             err.to_string().get(..29),
             Some("duplicate field `attestation`")
         );
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"challenge":"AAAAAAAAAAAAAAAAAAAAAA"}"#,
         )
         .unwrap_err();
@@ -3473,12 +3240,12 @@ mod test {
             err.to_string().get(..41),
             Some("invalid type: Option value, expected null")
         );
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"excludeCredentials":[{"type":"public-key","transports":["usb"],"id":"AAAAAAAAAAAAAAAAAAAAAA"}]}"#,
         )
         .unwrap_err();
         assert_eq!(err.to_string().get(..19), Some("trailing characters"));
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"attestation":"foo"}"#,
         )
         .unwrap_err();
@@ -3486,7 +3253,7 @@ mod test {
             err.to_string().get(..27),
             Some("invalid value: string \"foo\"")
         );
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"attestationFormats":["none","none"]}"#,
         )
         .unwrap_err();
@@ -3496,7 +3263,7 @@ mod test {
                 "attestationFormats must be an empty sequence or contain exactly one string whose value is 'none'"
             )
         );
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"attestationFormats":["foo"]}"#,
         )
         .unwrap_err();
@@ -3504,15 +3271,14 @@ mod test {
             err.to_string().get(..42),
             Some("invalid value: string \"foo\", expected none")
         );
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
-            r#"{"timeout":0}"#,
-        )
-        .unwrap_err();
+        err =
+            serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(r#"{"timeout":0}"#)
+                .unwrap_err();
         assert_eq!(
             err.to_string().get(..50),
             Some("invalid value: integer `0`, expected a nonzero u32")
         );
-        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        err = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"timeout":4294967296}"#,
         )
         .unwrap_err();
@@ -3520,8 +3286,7 @@ mod test {
             err.to_string().get(..59),
             Some("invalid value: integer `4294967296`, expected a nonzero u32")
         );
-        let mut key =
-            serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>("{}")?;
+        let mut key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>("{}")?;
         assert!(key.rp_id.is_none());
         assert!(key.user.name.is_none());
         assert!(key.user.id.is_none());
@@ -3544,7 +3309,7 @@ mod test {
         assert!(matches!(key.extensions.cred_protect, CredProtect::None));
         assert!(key.extensions.min_pin_length.is_none());
         assert!(key.extensions.prf.is_none());
-        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"rp":null,"user":null,"timeout":null,"excludeCredentials":null,"attestation":null,"attestationFormats":null,"authenticatorSelection":null,"extensions":null,"pubKeyCredParams":null,"hints":null,"challenge":null}"#,
         )?;
         assert!(key.rp_id.is_none());
@@ -3569,7 +3334,7 @@ mod test {
         assert!(matches!(key.extensions.cred_protect, CredProtect::None));
         assert!(key.extensions.min_pin_length.is_none());
         assert!(key.extensions.prf.is_none());
-        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"rp":{},"user":{},"excludeCredentials":[],"attestationFormats":[],"authenticatorSelection":{},"extensions":{},"pubKeyCredParams":[],"hints":[]}"#,
         )?;
         assert!(key.rp_id.is_none());
@@ -3593,7 +3358,7 @@ mod test {
         assert!(matches!(key.extensions.cred_protect, CredProtect::None));
         assert!(key.extensions.min_pin_length.is_none());
         assert!(key.extensions.prf.is_none());
-        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"rp":{"name":null,"id":null},"user":{"name":null,"id":null,"displayName":null},"authenticatorSelection":{"residentKey":null,"requireResidentKey":null,"userVerification":null,"authenticatorAttachment":null},"extensions":{"credProps":null,"credentialProtectionPolicy":null,"enforceCredentialProtectionPolicy":null,"minPinLength":null,"prf":null}}"#,
         )?;
         assert!(key.rp_id.is_none());
@@ -3617,16 +3382,12 @@ mod test {
         assert!(matches!(key.extensions.cred_protect, CredProtect::None));
         assert!(key.extensions.min_pin_length.is_none());
         assert!(key.extensions.prf.is_none());
-        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"rp":{"name":"Example.com","id":"example.com"},"user":{"name":"bob","displayName":"Bob","id":"AQ"},"timeout":300000,"excludeCredentials":[],"attestation":"none","attestationFormats":["none"],"authenticatorSelection":{"authenticatorAttachment":"cross-platform","residentKey":"required","requireResidentKey":true,"userVerification":"required"},"extensions":{"credProps":true,"credentialProtectionPolicy":"userVerificationRequired","enforceCredentialProtectionPolicy":false,"minPinLength":true,"prf":{"eval":{"first":"","second":""}}},"pubKeyCredParams":[{"type":"public-key","alg":-8}],"hints":["security-key"],"challenge":null}"#,
         )?;
         assert!(key.rp_id.is_some_and(|val| val.as_ref() == "example.com"));
-        assert!(key.user.name.is_some_and(|val| val.as_ref() == "bob"));
-        assert!(
-            key.user
-                .display_name
-                .is_some_and(|val| val.as_ref() == "Bob")
-        );
+        assert!(key.user.name.is_some_and(|val| val == "bob"));
+        assert!(key.user.display_name.is_some_and(|val| val == "Bob"));
         assert!(key.user.id.is_some_and(|val| val.as_ref() == [1; 1]));
         assert_eq!(
             key.pub_key_cred_params.0,
@@ -3669,7 +3430,7 @@ mod test {
         assert!(key.extensions.prf.is_some_and(|prf| prf.first.is_empty()
             && prf.second.is_some_and(|p| p.is_empty())
             && matches!(prf.ext_req, ExtensionReq::Allow)));
-        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<'_, '_, 1>>(
+        key = serde_json::from_str::<PublicKeyCredentialCreationOptionsOwned<1>>(
             r#"{"timeout":4294967295}"#,
         )?;
         assert_eq!(key.timeout, NonZeroU32::MAX);
@@ -3768,35 +3529,34 @@ mod test {
     )]
     #[test]
     fn user_entity() -> Result<(), Error> {
-        let mut err = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 16>>(
-            r#"{"bob":true}"#,
-        )
-        .unwrap_err();
+        let mut err =
+            serde_json::from_str::<PublicKeyCredentialUserEntityOwned<16>>(r#"{"bob":true}"#)
+                .unwrap_err();
         assert_eq!(
             err.to_string().get(..64),
             Some("unknown field `bob`, expected one of `id`, `name`, `displayName`")
         );
-        err = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>(
+        err = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<1>>(
             r#"{"name":"bob","name":"bob"}"#,
         )
         .unwrap_err();
         assert_eq!(err.to_string().get(..22), Some("duplicate field `name`"));
-        let mut user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>(
+        let mut user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<1>>(
             r#"{"id":"AQ","name":"bob","displayName":"Bob"}"#,
         )?;
         assert!(
             user.id
                 .is_some_and(|val| val.as_slice() == [1; 1].as_slice())
         );
-        assert!(user.name.is_some_and(|val| val.as_ref() == "bob"));
-        assert!(user.display_name.is_some_and(|val| val.as_ref() == "Bob"));
-        user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>(
+        assert!(user.name.is_some_and(|val| val == "bob"));
+        assert!(user.display_name.is_some_and(|val| val == "Bob"));
+        user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<1>>(
             r#"{"id":null,"name":null,"displayName":null}"#,
         )?;
         assert!(user.name.is_none());
         assert!(user.display_name.is_none());
         assert!(user.id.is_none());
-        user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<'_, '_, 1>>("{}")?;
+        user = serde_json::from_str::<PublicKeyCredentialUserEntityOwned<1>>("{}")?;
         assert!(user.name.is_none());
         assert!(user.display_name.is_none());
         assert!(user.id.is_none());

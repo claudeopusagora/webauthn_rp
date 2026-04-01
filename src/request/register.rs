@@ -1,4 +1,3 @@
-extern crate alloc;
 use super::{
     super::{
         DynamicState, Metadata, RegisteredCredential, StaticState,
@@ -15,7 +14,7 @@ use super::{
     BackupReq, Ceremony, Challenge, CredentialMediationRequirement, ExtensionInfo, ExtensionReq,
     FIVE_MINUTES, Hints, Origin, PrfInput, PublicKeyCredentialDescriptor, RpId, SentChallenge,
     TimedCeremony, UserVerificationRequirement,
-    register::error::{CreationOptionsErr, NicknameErr, UsernameErr},
+    register::error::CreationOptionsErr,
 };
 #[cfg(doc)]
 use crate::{
@@ -25,7 +24,6 @@ use crate::{
     },
     response::{AuthTransports, AuthenticatorTransport, Backup, CollectedClientData, Flag},
 };
-use alloc::borrow::Cow;
 use core::{
     borrow::Borrow,
     cmp::Ordering,
@@ -35,7 +33,6 @@ use core::{
     num::{NonZeroU32, NonZeroU64},
     time::Duration,
 };
-use precis_profiles::{UsernameCasePreserved, precis_core::profile::Profile as _};
 #[cfg(any(doc, not(feature = "serializable_server_state")))]
 use std::time::Instant;
 #[cfg(any(doc, feature = "serializable_server_state"))]
@@ -188,500 +185,6 @@ impl Display for CredProtect {
                 )
             }
         }
-    }
-}
-/// String returned from the [Nickname Enforcement rule](https://www.rfc-editor.org/rfc/rfc8266#section-2.3)
-/// as defined in RFC 8266.
-///
-/// Note [string truncation](https://www.w3.org/TR/webauthn-3/#sctn-strings-truncation) is allowed, so one may
-/// want to enforce [`Self::RECOMMENDED_MAX_LEN`].
-#[derive(Clone, Debug)]
-pub struct Nickname<'a>(Cow<'a, str>);
-impl<'a> Nickname<'a> {
-    /// The maximum allowed length.
-    pub const MAX_LEN: usize = 1023;
-    /// The recommended maximum length to allow.
-    pub const RECOMMENDED_MAX_LEN: usize = 64;
-    /// Returns a `Nickname` that consumes `self`. When `self` owns the data, the data is simply moved;
-    /// when the data is borrowed, then it is cloned into an owned instance.
-    #[inline]
-    #[must_use]
-    pub fn into_owned<'b>(self) -> Nickname<'b> {
-        Nickname(Cow::Owned(self.0.into_owned()))
-    }
-    /// Same as [`Self::with_max_len`] except the length must not exceed [`Self::RECOMMENDED_MAX_LEN`] instead of
-    /// [`Self::MAX_LEN`].
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `value` violates [RFC 8266 § 2.3](https://www.rfc-editor.org/rfc/rfc8266.html#section-2.3)
-    /// or the resulting length exceeds [`Self::RECOMMENDED_MAX_LEN`].
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    pub fn with_recommended_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, NicknameErr> {
-        precis_profiles::Nickname::new()
-            .enforce(value)
-            .map_err(|_e| NicknameErr::Rfc8266)
-            .and_then(|val| {
-                if val.len() <= Self::RECOMMENDED_MAX_LEN {
-                    Ok(Self(val))
-                } else {
-                    Err(NicknameErr::Len)
-                }
-            })
-    }
-    /// Same as [`Self::try_from`].
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `value` violates [RFC 8266 § 2.3](https://www.rfc-editor.org/rfc/rfc8266.html#section-2.3)
-    /// or the resulting length exceeds [`Self::MAX_LEN`].
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    pub fn with_max_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, NicknameErr> {
-        Self::try_from(value)
-    }
-}
-impl AsRef<str> for Nickname<'_> {
-    #[inline]
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-impl Borrow<str> for Nickname<'_> {
-    #[inline]
-    fn borrow(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-impl<'a: 'b, 'b> From<&'a Nickname<'_>> for Nickname<'b> {
-    #[inline]
-    fn from(value: &'a Nickname<'_>) -> Self {
-        match value.0 {
-            Cow::Borrowed(val) => Self(Cow::Borrowed(val)),
-            Cow::Owned(ref val) => Self(Cow::Borrowed(val.as_str())),
-        }
-    }
-}
-impl<'a: 'b, 'b> From<Nickname<'a>> for Cow<'b, str> {
-    #[inline]
-    fn from(value: Nickname<'a>) -> Self {
-        value.0
-    }
-}
-impl<'a: 'b, 'b> TryFrom<Cow<'a, str>> for Nickname<'b> {
-    type Error = NicknameErr;
-    /// # Examples
-    ///
-    /// ```
-    /// # use std::borrow::Cow;
-    /// # use webauthn_rp::request::register::{error::NicknameErr, Nickname};
-    /// assert_eq!(
-    ///     Nickname::try_from(Cow::Borrowed("Srinivasa Ramanujan"))?.as_ref(),
-    ///     "Srinivasa Ramanujan"
-    /// );
-    /// assert_eq!(
-    ///     Nickname::try_from(Cow::Borrowed("श्रीनिवास रामानुजन्"))?.as_ref(),
-    ///     "श्रीनिवास रामानुजन्"
-    /// );
-    /// // Empty strings are not valid.
-    /// assert!(Nickname::try_from(Cow::Borrowed("")).map_or_else(
-    ///     |e| matches!(e, NicknameErr::Rfc8266),
-    ///     |_| false
-    /// ));
-    /// # Ok::<_, webauthn_rp::AggErr>(())
-    /// ```
-    #[inline]
-    fn try_from(value: Cow<'a, str>) -> Result<Self, Self::Error> {
-        precis_profiles::Nickname::new()
-            .enforce(value)
-            .map_err(|_e| NicknameErr::Rfc8266)
-            .and_then(|val| {
-                if val.len() <= Self::MAX_LEN {
-                    Ok(Self(val))
-                } else {
-                    Err(NicknameErr::Len)
-                }
-            })
-    }
-}
-impl<'a: 'b, 'b> TryFrom<&'a str> for Nickname<'b> {
-    type Error = NicknameErr;
-    /// Same as [`Nickname::try_from`] except the input is a `str`.
-    #[inline]
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        Self::try_from(Cow::Borrowed(value))
-    }
-}
-impl TryFrom<String> for Nickname<'_> {
-    type Error = NicknameErr;
-    /// Same as [`Nickname::try_from`] except the input is a `String`.
-    #[inline]
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(Cow::Owned(value))
-    }
-}
-impl PartialEq<Nickname<'_>> for Nickname<'_> {
-    #[inline]
-    fn eq(&self, other: &Nickname<'_>) -> bool {
-        self.0 == other.0
-    }
-}
-impl PartialEq<&Nickname<'_>> for Nickname<'_> {
-    #[inline]
-    fn eq(&self, other: &&Nickname<'_>) -> bool {
-        *self == **other
-    }
-}
-impl PartialEq<Nickname<'_>> for &Nickname<'_> {
-    #[inline]
-    fn eq(&self, other: &Nickname<'_>) -> bool {
-        **self == *other
-    }
-}
-impl Eq for Nickname<'_> {}
-impl Hash for Nickname<'_> {
-    #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-impl PartialOrd<Nickname<'_>> for Nickname<'_> {
-    #[inline]
-    fn partial_cmp(&self, other: &Nickname<'_>) -> Option<Ordering> {
-        self.0.partial_cmp(&other.0)
-    }
-}
-impl Ord for Nickname<'_> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-/// Name intended to be displayed to a user.
-#[derive(Clone, Debug)]
-pub enum DisplayName<'a> {
-    /// A blank string.
-    Blank,
-    /// A non-blank string conforming to RFC 8266.
-    Nickname(Nickname<'a>),
-}
-impl<'a> DisplayName<'a> {
-    /// The maximum allowed length.
-    pub const MAX_LEN: usize = 1023;
-    /// The recommended maximum length to allow.
-    pub const RECOMMENDED_MAX_LEN: usize = 64;
-    /// Returns a `DisplayName` that consumes `self`. When `self` owns the data, the data is simply moved;
-    /// when the data is borrowed, then it is cloned into an owned instance.
-    #[inline]
-    #[must_use]
-    pub fn into_owned<'b>(self) -> DisplayName<'b> {
-        match self {
-            Self::Blank => DisplayName::Blank,
-            Self::Nickname(val) => DisplayName::Nickname(val.into_owned()),
-        }
-    }
-    /// Same as [`Self::with_max_len`] except the length must not exceed [`Self::RECOMMENDED_MAX_LEN`] instead of
-    /// [`Self::MAX_LEN`].
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `value` is not empty and [`Nickname::with_recommended_len`] errors.
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    pub fn with_recommended_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, NicknameErr> {
-        if value.is_empty() {
-            Ok(Self::Blank)
-        } else {
-            Nickname::with_recommended_len(value).map(Self::Nickname)
-        }
-    }
-    /// Same as [`Self::try_from`].
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `value` is not empty and [`Nickname::with_max_len`] errors.
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    pub fn with_max_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, NicknameErr> {
-        Self::try_from(value)
-    }
-}
-impl AsRef<str> for DisplayName<'_> {
-    #[inline]
-    fn as_ref(&self) -> &str {
-        match *self {
-            Self::Blank => "",
-            Self::Nickname(ref val) => val.as_ref(),
-        }
-    }
-}
-impl Borrow<str> for DisplayName<'_> {
-    #[inline]
-    fn borrow(&self) -> &str {
-        self.as_ref()
-    }
-}
-impl<'a: 'b, 'b> From<&'a DisplayName<'_>> for DisplayName<'b> {
-    #[inline]
-    fn from(value: &'a DisplayName<'_>) -> Self {
-        match *value {
-            DisplayName::Blank => Self::Blank,
-            DisplayName::Nickname(ref val) => Self::Nickname(val.into()),
-        }
-    }
-}
-impl<'a: 'b, 'b> From<DisplayName<'a>> for Cow<'b, str> {
-    #[inline]
-    fn from(value: DisplayName<'a>) -> Self {
-        match value {
-            DisplayName::Blank => Cow::Borrowed(""),
-            DisplayName::Nickname(val) => val.into(),
-        }
-    }
-}
-impl<'a: 'b, 'b> TryFrom<Cow<'a, str>> for DisplayName<'b> {
-    type Error = NicknameErr;
-    /// # Examples
-    ///
-    /// ```
-    /// # use std::borrow::Cow;
-    /// # use webauthn_rp::request::register::{error::NicknameErr, DisplayName};
-    /// assert_eq!(
-    ///     DisplayName::try_from(Cow::Borrowed(""))?.as_ref(),
-    ///     ""
-    /// );
-    /// assert_eq!(
-    ///     DisplayName::try_from(Cow::Borrowed("Sir Isaac Newton"))?.as_ref(),
-    ///     "Sir Isaac Newton"
-    /// );
-    /// # Ok::<_, NicknameErr>(())
-    /// ```
-    #[inline]
-    fn try_from(value: Cow<'a, str>) -> Result<Self, Self::Error> {
-        if value.is_empty() {
-            Ok(Self::Blank)
-        } else {
-            Nickname::try_from(value).map(Self::Nickname)
-        }
-    }
-}
-impl<'a: 'b, 'b> TryFrom<&'a str> for DisplayName<'b> {
-    type Error = NicknameErr;
-    /// Same as [`DisplayName::try_from`] except the input is a `str`.
-    #[inline]
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        Self::try_from(Cow::Borrowed(value))
-    }
-}
-impl TryFrom<String> for DisplayName<'_> {
-    type Error = NicknameErr;
-    /// Same as [`DisplayName::try_from`] except the input is a `String`.
-    #[inline]
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(Cow::Owned(value))
-    }
-}
-impl PartialEq<DisplayName<'_>> for DisplayName<'_> {
-    #[inline]
-    fn eq(&self, other: &DisplayName<'_>) -> bool {
-        self.as_ref() == other.as_ref()
-    }
-}
-impl PartialEq<&DisplayName<'_>> for DisplayName<'_> {
-    #[inline]
-    fn eq(&self, other: &&DisplayName<'_>) -> bool {
-        *self == **other
-    }
-}
-impl PartialEq<DisplayName<'_>> for &DisplayName<'_> {
-    #[inline]
-    fn eq(&self, other: &DisplayName<'_>) -> bool {
-        **self == *other
-    }
-}
-impl Eq for DisplayName<'_> {}
-impl Hash for DisplayName<'_> {
-    #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.as_ref().hash(state);
-    }
-}
-impl PartialOrd<DisplayName<'_>> for DisplayName<'_> {
-    #[inline]
-    fn partial_cmp(&self, other: &DisplayName<'_>) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for DisplayName<'_> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.as_ref().cmp(other.as_ref())
-    }
-}
-/// String returned from the
-/// [UsernameCasePreserved Enforcement rule](https://www.rfc-editor.org/rfc/rfc8265#section-3.4.3) as defined in
-/// RFC 8265.
-///
-/// Note [string truncation](https://www.w3.org/TR/webauthn-3/#sctn-strings-truncation) is allowed, so one may
-/// want to enforce [`Self::RECOMMENDED_MAX_LEN`].
-#[derive(Clone, Debug)]
-pub struct Username<'a>(Cow<'a, str>);
-impl<'a> Username<'a> {
-    /// The maximum allowed length.
-    pub const MAX_LEN: usize = 1023;
-    /// The recommended maximum length to allow.
-    pub const RECOMMENDED_MAX_LEN: usize = 64;
-    /// Returns a `Username` that consumes `self`. When `self` owns the data, the data is simply moved;
-    /// when the data is borrowed, then it is cloned into an owned instance.
-    #[inline]
-    #[must_use]
-    pub fn into_owned<'b>(self) -> Username<'b> {
-        Username(Cow::Owned(self.0.into_owned()))
-    }
-    /// Same as [`Self::with_max_len`] except the length must not exceed [`Self::RECOMMENDED_MAX_LEN`] instead of
-    /// [`Self::MAX_LEN`].
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `value` violates [RFC 8265 § 3.4.3](https://www.rfc-editor.org/rfc/rfc8265.html#section-3.4.3)
-    /// or the resulting length exceeds [`Self::RECOMMENDED_MAX_LEN`].
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    pub fn with_recommended_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, UsernameErr> {
-        UsernameCasePreserved::default()
-            .enforce(value)
-            .map_err(|_e| UsernameErr::Rfc8265)
-            .and_then(|val| {
-                if val.len() <= Self::RECOMMENDED_MAX_LEN {
-                    Ok(Self(val))
-                } else {
-                    Err(UsernameErr::Len)
-                }
-            })
-    }
-    /// Same as [`Self::try_from`].
-    ///
-    /// # Errors
-    ///
-    /// Errors iff `value` violates [RFC 8265 § 3.4.3](https://www.rfc-editor.org/rfc/rfc8265.html#section-3.4.3)
-    /// or the resulting length exceeds [`Self::MAX_LEN`].
-    #[expect(single_use_lifetimes, reason = "false positive")]
-    #[inline]
-    pub fn with_max_len<'b: 'a>(value: Cow<'b, str>) -> Result<Self, UsernameErr> {
-        Self::try_from(value)
-    }
-}
-impl AsRef<str> for Username<'_> {
-    #[inline]
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-impl Borrow<str> for Username<'_> {
-    #[inline]
-    fn borrow(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-impl<'a: 'b, 'b> TryFrom<Cow<'a, str>> for Username<'b> {
-    type Error = UsernameErr;
-    /// # Examples
-    ///
-    /// ```
-    /// # use std::borrow::Cow;
-    /// # use webauthn_rp::request::register::{error::UsernameErr, Username};
-    /// assert_eq!(
-    ///     Username::try_from(Cow::Borrowed("leonhard.euler"))?.as_ref(),
-    ///     "leonhard.euler"
-    /// );
-    /// // Empty strings are not valid.
-    /// assert!(Username::try_from(Cow::Borrowed("")).map_or_else(
-    ///     |e| matches!(e, UsernameErr::Rfc8265),
-    ///     |_| false
-    /// ));
-    /// # Ok::<_, webauthn_rp::AggErr>(())
-    /// ```
-    #[inline]
-    fn try_from(value: Cow<'a, str>) -> Result<Self, Self::Error> {
-        UsernameCasePreserved::default()
-            .enforce(value)
-            .map_err(|_e| UsernameErr::Rfc8265)
-            .and_then(|val| {
-                if val.len() <= Self::MAX_LEN {
-                    Ok(Self(val))
-                } else {
-                    Err(UsernameErr::Len)
-                }
-            })
-    }
-}
-impl<'a: 'b, 'b> TryFrom<&'a str> for Username<'b> {
-    type Error = UsernameErr;
-    /// Same as [`Username::try_from`] except the input is a `str`.
-    #[inline]
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        Self::try_from(Cow::Borrowed(value))
-    }
-}
-impl TryFrom<String> for Username<'_> {
-    type Error = UsernameErr;
-    /// Same as [`Username::try_from`] except the input is a `String`.
-    #[inline]
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(Cow::Owned(value))
-    }
-}
-impl<'a: 'b, 'b> From<Username<'a>> for Cow<'b, str> {
-    #[inline]
-    fn from(value: Username<'a>) -> Self {
-        value.0
-    }
-}
-impl<'a: 'b, 'b> From<&'a Username<'_>> for Username<'b> {
-    #[inline]
-    fn from(value: &'a Username<'_>) -> Self {
-        match value.0 {
-            Cow::Borrowed(val) => Self(Cow::Borrowed(val)),
-            Cow::Owned(ref val) => Self(Cow::Borrowed(val.as_str())),
-        }
-    }
-}
-impl PartialEq<Username<'_>> for Username<'_> {
-    #[inline]
-    fn eq(&self, other: &Username<'_>) -> bool {
-        self.0 == other.0
-    }
-}
-impl PartialEq<&Username<'_>> for Username<'_> {
-    #[inline]
-    fn eq(&self, other: &&Username<'_>) -> bool {
-        *self == **other
-    }
-}
-impl PartialEq<Username<'_>> for &Username<'_> {
-    #[inline]
-    fn eq(&self, other: &Username<'_>) -> bool {
-        **self == *other
-    }
-}
-impl Eq for Username<'_> {}
-impl Hash for Username<'_> {
-    #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-impl PartialOrd<Username<'_>> for Username<'_> {
-    #[inline]
-    fn partial_cmp(&self, other: &Username<'_>) -> Option<Ordering> {
-        self.0.partial_cmp(&other.0)
-    }
-}
-impl Ord for Username<'_> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
     }
 }
 /// [`COSEAlgorithmIdentifier`](https://www.w3.org/TR/webauthn-3/#typedefdef-cosealgorithmidentifier).
@@ -1292,11 +795,17 @@ impl UserHandle16 {
 #[derive(Clone, Debug)]
 pub struct PublicKeyCredentialUserEntity<'name, 'display_name, 'id, const LEN: usize> {
     /// [`name`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialentity-name).
-    pub name: Username<'name>,
+    ///
+    /// Note the spec recommends RPs enforce
+    /// [RFC 8265 § 3.4.3](https://www.rfc-editor.org/rfc/rfc8265#section-3.4.3).
+    pub name: &'name str,
     /// [`id`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-id).
     pub id: &'id UserHandle<LEN>,
     /// [`displayName`](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-displayname).
-    pub display_name: DisplayName<'display_name>,
+    ///
+    /// Note the spec recommends RPs enforce [RFC 8266 § 2.3](https://www.rfc-editor.org/rfc/rfc8266#section-2.3)
+    /// when this isn't empty.
+    pub display_name: &'display_name str,
 }
 /// `PublicKeyCredentialUserEntity` based on a [`UserHandle64`].
 pub type PublicKeyCredentialUserEntity64<'name, 'display_name, 'id> =
@@ -1576,9 +1085,9 @@ impl<
     ///     CredentialCreationOptions::passkey(
     ///         &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
     ///         PublicKeyCredentialUserEntity {
-    ///             name: "bernard.riemann".try_into()?,
+    ///             name: "bernard.riemann",
     ///             id: &UserHandle64::new(),
-    ///             display_name: "Georg Friedrich Bernhard Riemann".try_into()?,
+    ///             display_name: "Georg Friedrich Bernhard Riemann",
     ///         },
     ///         Vec::new()
     ///     ).start_ceremony()?.0.expiration() > Instant::now()
@@ -1766,9 +1275,9 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     ///     PublicKeyCredentialCreationOptions::passkey(
     ///         &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
     ///         PublicKeyCredentialUserEntity {
-    ///             name: "archimedes.of.syracuse".try_into()?,
+    ///             name: "archimedes.of.syracuse",
     ///             id: &UserHandle64::new(),
-    ///             display_name: "Αρχιμήδης ο Συρακούσιος".try_into()?,
+    ///             display_name: "Αρχιμήδης ο Συρακούσιος",
     ///         },
     ///         Vec::new()
     ///     )
@@ -1837,9 +1346,9 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     ///     PublicKeyCredentialCreationOptions::second_factor(
     ///         &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
     ///         PublicKeyCredentialUserEntity {
-    ///             name: "carl.gauss".try_into()?,
+    ///             name: "carl.gauss",
     ///             id: &UserHandle64::new(),
-    ///             display_name: "Johann Carl Friedrich Gauß".try_into()?,
+    ///             display_name: "Johann Carl Friedrich Gauß",
     ///         },
     ///         Vec::new()
     ///     )
@@ -1955,9 +1464,9 @@ impl<
     ///     CredentialCreationOptions::passkey(
     ///         &RpId::Domain(AsciiDomain::try_from("example.com".to_owned())?),
     ///         PublicKeyCredentialUserEntity {
-    ///             name: "david.hilbert".try_into()?,
+    ///             name: "david.hilbert",
     ///             id: &UserHandle64::new(),
-    ///             display_name: "David Hilbert".try_into()?,
+    ///             display_name: "David Hilbert",
     ///         },
     ///         Vec::new()
     ///     )
@@ -2622,7 +2131,7 @@ mod tests {
     ))]
     use super::{
         super::{super::AggErr, ExtensionInfo},
-        Challenge, CredProtect, CredentialCreationOptions, DisplayName, FourToSixtyThree, PrfInput,
+        Challenge, CredProtect, CredentialCreationOptions, FourToSixtyThree, PrfInput,
         PublicKeyCredentialUserEntity, RpId, UserHandle,
     };
     #[cfg(all(feature = "custom", feature = "serializable_server_state"))]
@@ -2647,7 +2156,7 @@ mod tests {
             AuthTransports,
         },
         AuthenticatorAttachment, BackupReq, ExtensionErr, ExtensionReq, RegCeremonyErr,
-        Registration, RegistrationVerificationOptions, UserVerificationRequirement, Username,
+        Registration, RegistrationVerificationOptions, UserVerificationRequirement,
     };
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     use rsa::sha2::{Digest as _, Sha256};
@@ -2676,9 +2185,9 @@ mod tests {
         let mut opts = CredentialCreationOptions::passkey(
             &rp_id,
             PublicKeyCredentialUserEntity {
-                name: "foo".try_into()?,
+                name: "foo",
                 id: &id,
-                display_name: DisplayName::Blank,
+                display_name: "",
             },
             Vec::new(),
         );
@@ -3089,7 +2598,6 @@ mod tests {
         }
         attestation_object
     }
-    #[expect(clippy::unwrap_in_result, clippy::unwrap_used, reason = "OK in tests")]
     #[cfg(all(feature = "custom", not(any(feature = "bin", feature = "serde"))))]
     fn validate(options: TestOptions) -> Result<(), AggErr> {
         let rp_id = RpId::Domain("example.com".to_owned().try_into()?);
@@ -3125,8 +2633,8 @@ mod tests {
             &rp_id,
             PublicKeyCredentialUserEntity {
                 id: &user,
-                name: Username::try_from("blank").unwrap(),
-                display_name: DisplayName::Blank,
+                name: "",
+                display_name: "",
             },
             Vec::new(),
         );

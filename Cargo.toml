@@ -121,7 +121,6 @@ hashbrown = { version = "0.16.1", default-features = false }
 ml-dsa = { version = "0.1.0-rc.8", default-features = false }
 p256 = { version = "0.14.0-rc.8", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.14.0-rc.8", default-features = false, features = ["ecdsa"] }
-precis-profiles = { version = "0.1.13", default-features = false }
 rand = { version = "0.10.0", default-features = false, features = ["thread_rng"] }
 rsa = { version = "0.10.0-rc.17", default-features = false, features = ["encoding", "sha2"] }
 serde = { version = "1.0.228", default-features = false, features = ["alloc"], optional = true }

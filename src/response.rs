@@ -143,7 +143,7 @@ pub mod error;
 /// # use core::convert;
 /// # use webauthn_rp::{
 /// #     hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
-/// #     request::{register::{error::CreationOptionsErr, CredentialCreationOptions, DisplayName, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, PublicKeyCredentialDescriptor, RpId},
+/// #     request::{register::{error::CreationOptionsErr, CredentialCreationOptions, PublicKeyCredentialUserEntity, RegistrationClientState, UserHandle, UserHandle64, USER_HANDLE_MAX_LEN, RegistrationVerificationOptions}, PublicKeyCredentialDescriptor, RpId},
 /// #     response::{register::{error::RegCeremonyErr, Registration}, error::CollectedClientDataErr, CollectedClientData},
 /// #     RegisteredCredential
 /// # };
@@ -209,9 +209,9 @@ pub mod error;
 /// fn get_user_entity(user: &UserHandle<USER_HANDLE_MAX_LEN>) -> PublicKeyCredentialUserEntity<'_, '_, '_, USER_HANDLE_MAX_LEN> {
 ///     // ⋮
 /// #     PublicKeyCredentialUserEntity {
-/// #         name: "foo".try_into().unwrap(),
+/// #         name: "foo",
 /// #         id: user,
-/// #         display_name: DisplayName::Blank,
+/// #         display_name: "",
 /// #     }
 /// }
 /// /// Send `RegistrationClientState` and receive `Registration` JSON from client.

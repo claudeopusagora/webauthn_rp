@@ -27,8 +27,8 @@
 //!         PublicKeyCredentialDescriptor, RpId,
 //!         auth::AuthenticationVerificationOptions,
 //!         register::{
-//!             DisplayName, PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
-//!             UserHandle64, Username,
+//!             PublicKeyCredentialUserEntity64, RegistrationVerificationOptions,
+//!             UserHandle64,
 //!         },
 //!     },
 //!     response::{
@@ -88,13 +88,13 @@
 //! /// This gets sent from the user after an account is created on their side. The registration ceremony
 //! /// still has to be successfully completed for the account to be created server side. In the event of an error,
 //! /// the user should delete the created passkey since it won't be usable.
-//! struct AccountReg<'a, 'b> {
+//! struct AccountReg {
 //!     registration: Registration,
-//!     user_name: Username<'a>,
-//!     user_display_name: DisplayName<'b>,
+//!     user_name: String,
+//!     user_display_name: String,
 //! }
 //! # #[cfg(feature = "serde")]
-//! impl<'de: 'a + 'b, 'a, 'b> Deserialize<'de> for AccountReg<'a, 'b> {
+//! impl<'de> Deserialize<'de> for AccountReg {
 //!     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 //!     where
 //!         D: Deserializer<'de>,
@@ -113,11 +113,9 @@
 //!     reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 //! ) -> Result<Vec<u8>, AppErr> {
 //!     let user_id = UserHandle64::new();
-//!     let user_name = Username::try_from("blank").unwrap();
-//!     let user_display_name = DisplayName::Blank;
 //!     let (server, client) =
 //!         CredentialCreationOptions64::passkey(
-//!             RP_ID, PublicKeyCredentialUserEntity64 { id: &user_id, name: user_name, display_name: user_display_name, }, Vec::new()
+//!             RP_ID, PublicKeyCredentialUserEntity64 { id: &user_id, name: "", display_name: "", }, Vec::new()
 //!         )
 //!         .start_ceremony()
 //!         .unwrap_or_else(|_e| {
@@ -144,7 +142,7 @@
 //!     reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 //!     client_data: &[u8],
 //! ) -> Result<(), AppErr> {
-//!     let account = serde_json::from_slice::<AccountReg<'_, '_>>(client_data)?;
+//!     let account = serde_json::from_slice::<AccountReg>(client_data)?;
 //!     insert_account(
 //!         &account,
 //!         reg_ceremonies
@@ -169,8 +167,8 @@
 //!     user_id: &UserHandle64,
 //!     reg_ceremonies: &mut MaxLenHashSet<RegistrationServerState64>,
 //! ) -> Result<Vec<u8>, AppErr> {
-//!     let (entity, creds) = select_user_info(user_id)?.ok_or(AppErr::NoAccount)?;
-//!     let (server, client) = CredentialCreationOptions64::passkey(RP_ID, entity, creds)
+//!     let (username, user_display_name, creds) = select_user_info(user_id)?.ok_or(AppErr::NoAccount)?;
+//!     let (server, client) = CredentialCreationOptions64::passkey(RP_ID, PublicKeyCredentialUserEntity64 { name: &username, id: user_id, display_name: &user_display_name, }, creds)
 //!         .start_ceremony()
 //!         .unwrap_or_else(|_e| {
 //!             unreachable!("we don't manually mutate the options and we assume the server clock is functioning; thus this won't error")
@@ -266,7 +264,7 @@
 //! /// Errors iff writing `account` or `cred` errors,  there already exists a credential using the same
 //! /// `CredentialId`, or there already exists an account using the same `UserHandle64`.
 //! fn insert_account(
-//!     account: &AccountReg<'_, '_>,
+//!     account: &AccountReg,
 //!     cred: RegisteredCredential64<'_>,
 //! ) -> Result<(), AppErr> {
 //!     // ⋮
@@ -277,11 +275,12 @@
 //! /// # Errors
 //! ///
 //! /// Errors iff fetching the data errors.
-//! fn select_user_info<'name, 'display_name>(
+//! fn select_user_info(
 //!     user_id: &UserHandle64,
 //! ) -> Result<
 //!     Option<(
-//!         PublicKeyCredentialUserEntity64<'name, 'display_name, '_>,
+//!         String,
+//!         String,
 //!         Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>,
 //!     )>,
 //!     AppErr,
@@ -350,11 +349,10 @@
 //! [`custom`](#custom) to allow construction of certain types (e.g., [`AuthenticatedCredential`]).
 //!
 //! If possible and desired, one may wish to save the data "directly" to avoid any potential temporary allocations.
-//! For example [`StaticState::encode`] will return a [`Vec`] containing hundreds (and possibly thousands in the
-//! extreme case) of bytes if the underlying public key is an RSA key. This additional allocation and copy of data
-//! is obviously avoided if [`StaticState`] is stored as a
-//! [composite type](https://www.postgresql.org/docs/current/rowtypes.html) or its fields are stored in separate
-//! columns when written to a relational database (RDB).
+//! For example [`StaticState::encode`] will return a [`Vec`] containing thousands of bytes if the underlying
+//! public key is an ML-DSA key. This additional allocation and copy of data is obviously avoided if
+//! [`StaticState`] is stored as a [composite type](https://www.postgresql.org/docs/current/rowtypes.html) or its
+//! fields are stored in separate columns when written to a relational database (RDB).
 //!
 //! ### `custom`
 //!
@@ -446,6 +444,12 @@
 //!
 //! The only supported signature algorithms are the following:
 //!
+//! * ML-DSA-87 as defined in [NIST FIPS 204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). This
+//!   corresponds to [`CoseAlgorithmIdentifier::Mldsa87`].
+//! * ML-DSA-65 as defined in [NIST FIPS 204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). This
+//!   corresponds to [`CoseAlgorithmIdentifier::Mldsa65`].
+//! * ML-DSA-44 as defined in [NIST FIPS 204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). This
+//!   corresponds to [`CoseAlgorithmIdentifier::Mldsa44`].
 //! * Ed25519 as defined in [RFC 8032 § 5.1](https://www.rfc-editor.org/rfc/rfc8032#section-5.1). This corresponds
 //!   to [`CoseAlgorithmIdentifier::Eddsa`].
 //! * ECDSA as defined in [SEC 1 Version 2.0 § 4.1](https://www.secg.org/sec1-v2.pdf#subsection.4.1) using SHA-256
@@ -466,8 +470,7 @@
 //! * [CTAP2 canonical CBOR encoding form](https://fidoalliance.org/specs/fido-v2.2-rd-20230321/fido-client-to-authenticator-protocol-v2.2-rd-20230321.html#ctap2-canonical-cbor-encoding-form).
 //! * `Deserialize` implementations requiring _exact_ conformance (e.g., not allowing unknown data).
 //! * More thorough interrelated data validation (e.g., all places a Credential ID exists must match).
-//! * Implement a lot of recommended (i.e., SHOULD) criteria (e.g.,
-//!   [User display names conforming to the Nickname Profile as defined in RFC 8266](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialentity-name)).
+//! * Implement a lot of recommended (i.e., SHOULD) criteria.
 //!
 //! Unfortunately like almost all software, this library has not been formally verified; however great care is
 //! employed in the following ways:
@@ -527,6 +530,11 @@ use crate::request::{
 use crate::response::error::CredentialIdErr;
 #[cfg(feature = "serde_relaxed")]
 use crate::response::ser_relaxed::SerdeJsonErr;
+#[cfg(feature = "bin")]
+use crate::response::{
+    bin::DecodeAuthTransportsErr,
+    register::bin::{DecodeDynamicStateErr, DecodeStaticStateErr},
+};
 #[cfg(doc)]
 use crate::{
     hash::hash_set::MaxLenHashSet,
@@ -535,8 +543,8 @@ use crate::{
         TimedCeremony, Url,
         auth::{AllowedCredential, AllowedCredentials, PublicKeyCredentialRequestOptions},
         register::{
-            CoseAlgorithmIdentifier, DisplayName, Nickname, PublicKeyCredentialCreationOptions,
-            PublicKeyCredentialUserEntity, UserHandle16, UserHandle64, Username,
+            CoseAlgorithmIdentifier, PublicKeyCredentialCreationOptions,
+            PublicKeyCredentialUserEntity, UserHandle16, UserHandle64,
         },
     },
     response::{
@@ -549,21 +557,12 @@ use crate::{
         },
     },
 };
-#[cfg(feature = "bin")]
-use crate::{
-    request::register::bin::{DecodeDisplayNameErr, DecodeUsernameErr},
-    response::{
-        bin::DecodeAuthTransportsErr,
-        register::bin::{DecodeDynamicStateErr, DecodeStaticStateErr},
-    },
-};
 use crate::{
     request::{
         auth::error::{InvalidTimeout, NonDiscoverableCredentialRequestOptionsErr},
         error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
         register::{
-            ResidentKeyRequirement, USER_HANDLE_MAX_LEN, UserHandle,
-            error::{CreationOptionsErr, NicknameErr, UsernameErr},
+            ResidentKeyRequirement, USER_HANDLE_MAX_LEN, UserHandle, error::CreationOptionsErr,
         },
     },
     response::{
@@ -829,7 +828,7 @@ fn verify_static_and_dynamic_state<T>(
 /// Note that [`RpId`] and user information other than the `UserHandle` are not stored in `RegisteredCredential`.
 /// RPs that wish to store such information must do so on their own. Since user information is likely the same
 /// for a given `UserHandle` and `RpId` is likely static, it makes little sense to store such information
-/// automatically. Types like [`Username`] implement `Encode` and `Decode` to assist such a thing.
+/// automatically.
 ///
 /// When registering a credential, [`AttestedCredentialData::aaguid`], [`AttestedCredentialData::credential_id`],
 /// and [`AttestedCredentialData::credential_public_key`] will be the sources for [`Metadata::aaguid`],
@@ -1140,10 +1139,6 @@ pub enum AggErr {
     CreationOptions(CreationOptionsErr),
     /// Variant when [`NonDiscoverableCredentialRequestOptions::start_ceremony`] errors.
     NonDiscoverableCredentialRequestOptions(NonDiscoverableCredentialRequestOptionsErr),
-    /// Variant when [`Nickname::try_from`] errors.
-    Nickname(NicknameErr),
-    /// Variant when [`Username::try_from`] errors.
-    Username(UsernameErr),
     /// Variant when [`RegistrationServerState::verify`] errors.
     RegCeremony(RegCeremonyErr),
     /// Variant when [`DiscoverableAuthenticationServerState::verify`] or.
@@ -1172,12 +1167,6 @@ pub enum AggErr {
     /// Variant when [`DynamicState::decode`] errors.
     #[cfg(feature = "bin")]
     DecodeDynamicState(DecodeDynamicStateErr),
-    /// Variant when [`DisplayName::decode`] errors.
-    #[cfg(feature = "bin")]
-    DecodeDisplayName(DecodeDisplayNameErr),
-    /// Variant when [`Username::decode`] errors.
-    #[cfg(feature = "bin")]
-    DecodeUsername(DecodeUsernameErr),
     /// Variant when [`RegistrationServerState::decode`] errors.
     #[cfg(feature = "serializable_server_state")]
     DecodeRegistrationServerState(DecodeRegistrationServerStateErr),
@@ -1263,18 +1252,6 @@ impl From<NonDiscoverableCredentialRequestOptionsErr> for AggErr {
         Self::NonDiscoverableCredentialRequestOptions(value)
     }
 }
-impl From<NicknameErr> for AggErr {
-    #[inline]
-    fn from(value: NicknameErr) -> Self {
-        Self::Nickname(value)
-    }
-}
-impl From<UsernameErr> for AggErr {
-    #[inline]
-    fn from(value: UsernameErr) -> Self {
-        Self::Username(value)
-    }
-}
 impl From<RegCeremonyErr> for AggErr {
     #[inline]
     fn from(value: RegCeremonyErr) -> Self {
@@ -1345,20 +1322,6 @@ impl From<DecodeDynamicStateErr> for AggErr {
         Self::DecodeDynamicState(value)
     }
 }
-#[cfg(feature = "bin")]
-impl From<DecodeDisplayNameErr> for AggErr {
-    #[inline]
-    fn from(value: DecodeDisplayNameErr) -> Self {
-        Self::DecodeDisplayName(value)
-    }
-}
-#[cfg(feature = "bin")]
-impl From<DecodeUsernameErr> for AggErr {
-    #[inline]
-    fn from(value: DecodeUsernameErr) -> Self {
-        Self::DecodeUsername(value)
-    }
-}
 #[cfg(feature = "serializable_server_state")]
 impl From<DecodeRegistrationServerStateErr> for AggErr {
     #[inline]
@@ -1427,8 +1390,6 @@ impl Display for AggErr {
             Self::InvalidTimeout(err) => err.fmt(f),
             Self::CreationOptions(err) => err.fmt(f),
             Self::NonDiscoverableCredentialRequestOptions(err) => err.fmt(f),
-            Self::Nickname(err) => err.fmt(f),
-            Self::Username(err) => err.fmt(f),
             Self::RegCeremony(ref err) => err.fmt(f),
             Self::AuthCeremony(ref err) => err.fmt(f),
             Self::AttestationObject(err) => err.fmt(f),
@@ -1444,10 +1405,6 @@ impl Display for AggErr {
             Self::DecodeStaticState(err) => err.fmt(f),
             #[cfg(feature = "bin")]
             Self::DecodeDynamicState(err) => err.fmt(f),
-            #[cfg(feature = "bin")]
-            Self::DecodeDisplayName(err) => err.fmt(f),
-            #[cfg(feature = "bin")]
-            Self::DecodeUsername(err) => err.fmt(f),
             #[cfg(feature = "serializable_server_state")]
             Self::DecodeRegistrationServerState(err) => err.fmt(f),
             #[cfg(feature = "serializable_server_state")]
