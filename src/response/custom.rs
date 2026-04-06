@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod tests;
 use super::{AuthTransports, AuthenticatorTransport, CredentialId, CredentialIdErr};
 use core::iter::FusedIterator;
 impl<'a: 'b, 'b> TryFrom<&'a [u8]> for CredentialId<&'b [u8]> {
@@ -130,45 +132,5 @@ impl IntoIterator for AuthTransports {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         AuthTransportIter(self)
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::{AuthTransports, AuthenticatorTransport};
-    #[test]
-    fn iter_all() {
-        let mut iter = AuthTransports::ALL.into_iter();
-        assert_eq!(iter.len(), 6);
-        assert!(
-            iter.next()
-                .is_some_and(|tran| matches!(tran, AuthenticatorTransport::Ble))
-        );
-        assert_eq!(iter.len(), 5);
-        assert!(
-            iter.next()
-                .is_some_and(|tran| matches!(tran, AuthenticatorTransport::Hybrid))
-        );
-        assert_eq!(iter.len(), 4);
-        assert!(
-            iter.next_back()
-                .is_some_and(|tran| matches!(tran, AuthenticatorTransport::Usb))
-        );
-        assert_eq!(iter.len(), 3);
-        assert!(
-            iter.next()
-                .is_some_and(|tran| matches!(tran, AuthenticatorTransport::Internal))
-        );
-        assert_eq!(iter.len(), 2);
-        assert!(
-            iter.next_back()
-                .is_some_and(|tran| matches!(tran, AuthenticatorTransport::SmartCard))
-        );
-        assert_eq!(iter.len(), 1);
-        assert!(
-            iter.next()
-                .is_some_and(|tran| matches!(tran, AuthenticatorTransport::Nfc))
-        );
-        assert_eq!(iter.len(), 0);
-        assert!(iter.next().is_none());
     }
 }
