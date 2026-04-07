@@ -316,6 +316,12 @@ impl From<Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>> for AllowedCredentials 
         creds
     }
 }
+/// [`CredentialUiMode`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialuimode)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CredentialUiMode {
+    /// [`immediate`](https://www.w3.org/TR/credential-management-1/#dom-credentialuimode-immediate).
+    Immediate,
+}
 /// The [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions)
 /// to send to the client when authenticating a discoverable credential.
 ///
@@ -324,12 +330,14 @@ impl From<Vec<PublicKeyCredentialDescriptor<Box<[u8]>>>> for AllowedCredentials 
 /// [`DiscoverableAuthentication`], it is validated using [`DiscoverableAuthenticationServerState::verify`].
 #[derive(Debug)]
 pub struct DiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
-    /// [`mediation`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
+    /// [`mediation`](https://www.w3.org/TR/credential-management-1/#dom-credentialrequestoptions-mediation).
     ///
     /// Note if this is [`CredentialMediationRequirement::Conditional`], user agents are instructed to not
     /// enforce any timeout; as result, one may want to set [`PublicKeyCredentialRequestOptions::timeout`] to
     /// [`NonZeroU32::MAX`].
     pub mediation: CredentialMediationRequirement,
+    /// [`uiMode`](https://www.w3.org/TR/credential-management-1/#dom-credentialrequestoptions-uimode).
+    pub ui_mode: Option<CredentialUiMode>,
     /// `public-key` [credential type](https://www.w3.org/TR/credential-management-1/#sctn-cred-type-registry).
     pub public_key: PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,
 }
@@ -355,6 +363,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
     pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
         Self {
             mediation: CredentialMediationRequirement::default(),
+            ui_mode: None,
             public_key: PublicKeyCredentialRequestOptions::passkey(rp_id),
         }
     }
@@ -425,7 +434,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
 /// [`NonDiscoverableAuthentication`], it is validated using [`NonDiscoverableAuthenticationServerState::verify`].
 #[derive(Debug)]
 pub struct NonDiscoverableCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second> {
-    /// [`mediation`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialmediationrequirement).
+    /// [`mediation`](https://www.w3.org/TR/credential-management-1/#dom-credentialrequestoptions-mediation).
     pub mediation: CredentialMediationRequirement,
     /// [`PublicKeyCredentialRequestOptions`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptions).
     pub options: PublicKeyCredentialRequestOptions<'rp_id, 'prf_first, 'prf_second>,

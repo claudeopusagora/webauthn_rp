@@ -3,10 +3,10 @@ mod tests;
 use super::{
     super::{super::response::ser::Null, ser::PrfHelper},
     AllowedCredential, AllowedCredentials, Challenge, CredentialMediationRequirement,
-    Credentials as _, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions,
-    Extension, ExtensionReq, FIVE_MINUTES, Hints, NonDiscoverableAuthenticationClientState,
-    NonDiscoverableCredentialRequestOptions, PrfInput, PrfInputOwned,
-    PublicKeyCredentialRequestOptions, RpId, UserVerificationRequirement,
+    CredentialUiMode, Credentials as _, DiscoverableAuthenticationClientState,
+    DiscoverableCredentialRequestOptions, Extension, ExtensionReq, FIVE_MINUTES, Hints,
+    NonDiscoverableAuthenticationClientState, NonDiscoverableCredentialRequestOptions, PrfInput,
+    PrfInputOwned, PublicKeyCredentialRequestOptions, RpId, UserVerificationRequirement,
 };
 use core::{
     error::Error as E,
@@ -14,9 +14,33 @@ use core::{
     num::NonZeroU32,
 };
 use serde::{
-    de::{Deserialize, Deserializer, Error, MapAccess, Visitor},
+    de::{Deserialize, Deserializer, Error, MapAccess, Unexpected, Visitor},
     ser::{Serialize, SerializeMap as _, SerializeStruct as _, Serializer},
 };
+/// `"immediate"`.
+const IMMEDIATE: &str = "immediate";
+impl Serialize for CredentialUiMode {
+    /// Serializes `self` as a [`prim@str`] conforming with
+    /// [`CredentialUiMode`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialuimode).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::auth::CredentialUiMode;
+    /// assert_eq!(
+    ///     serde_json::to_string(&CredentialUiMode::Immediate)?,
+    ///     r#""immediate""#
+    /// );
+    /// # Ok::<_, serde_json::Error>(())
+    /// ```
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(IMMEDIATE)
+    }
+}
 impl Serialize for PrfInputOwned {
     /// See [`PrfInput::serialize`]
     #[inline]
@@ -279,6 +303,8 @@ impl Serialize for AuthenticationClientState<'_, '_, '_, '_, '_> {
 }
 /// `"mediation"`.
 const MEDIATION: &str = "mediation";
+/// `"uiMode"`.
+const UI_MODE: &str = "uiMode";
 /// `"publicKey"`.
 const PUBLIC_KEY: &str = "publicKey";
 impl Serialize for DiscoverableCredentialRequestOptions<'_, '_, '_> {
@@ -289,24 +315,36 @@ impl Serialize for DiscoverableCredentialRequestOptions<'_, '_, '_> {
     /// is not present, and [`publicKey`](https://www.w3.org/TR/credential-management-1/#sctn-cred-type-registry)
     /// is serialized to conform to
     /// [`PublicKeyCredentialRequestOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptionsjson).
+    /// Additionally [`uiMode`](https://www.w3.org/TR/credential-management-1/#dom-credentialrequestoptions-uiMode)
+    /// is not present iff [`Self::ui_mode`] is `None`.
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         serializer
-            .serialize_struct("DiscoverableCredentialRequestOptions", 2)
+            .serialize_struct(
+                "DiscoverableCredentialRequestOptions",
+                if self.ui_mode.is_none() { 2 } else { 3 },
+            )
             .and_then(|mut ser| {
                 ser.serialize_field(MEDIATION, &self.mediation)
                     .and_then(|()| {
-                        ser.serialize_field(
-                            PUBLIC_KEY,
-                            &AuthenticationClientState(
-                                &self.public_key,
-                                &AllowedCredentials::with_capacity(0),
-                            ),
-                        )
-                        .and_then(|()| ser.end())
+                        if self.ui_mode.is_none() {
+                            Ok(())
+                        } else {
+                            ser.serialize_field(UI_MODE, &self.ui_mode)
+                        }
+                        .and_then(|()| {
+                            ser.serialize_field(
+                                PUBLIC_KEY,
+                                &AuthenticationClientState(
+                                    &self.public_key,
+                                    &AllowedCredentials::with_capacity(0),
+                                ),
+                            )
+                            .and_then(|()| ser.end())
+                        })
                     })
             })
     }
@@ -316,7 +354,8 @@ impl Serialize for NonDiscoverableCredentialRequestOptions<'_, '_, '_> {
     /// [`CredentialRequestOptions`](https://www.w3.org/TR/credential-management-1/#dictdef-credentialrequestoptions).
     ///
     /// Note [`signal`](https://www.w3.org/TR/credential-management-1/#dom-credentialrequestoptions-signal)
-    /// is not present, and [`publicKey`](https://www.w3.org/TR/credential-management-1/#sctn-cred-type-registry)
+    /// and [`uiMode`](https://www.w3.org/TR/credential-management-1/#dom-credentialrequestoptions-uiMode)
+    /// are not present, and [`publicKey`](https://www.w3.org/TR/credential-management-1/#sctn-cred-type-registry)
     /// is serialized to conform to
     /// [`PublicKeyCredentialRequestOptionsJSON`](https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialrequestoptionsjson).
     #[inline]
@@ -513,6 +552,48 @@ impl Serialize for NonDiscoverableAuthenticationClientState<'_, '_, '_> {
         S: Serializer,
     {
         self.0.serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for CredentialUiMode {
+    /// Deserializes a [`prim@str`] based on
+    /// [`CredentialUiMode`](https://www.w3.org/TR/credential-management-1/#enumdef-credentialuimode).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webauthn_rp::request::auth::CredentialUiMode;
+    /// assert_eq!(
+    ///     serde_json::from_str::<CredentialUiMode>(r#""immediate""#)?,
+    ///     CredentialUiMode::Immediate,
+    /// );
+    /// # Ok::<_, serde_json::Error>(())
+    /// ```
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct CredentialUiModeVisitor;
+        impl Visitor<'_> for CredentialUiModeVisitor {
+            type Value = CredentialUiMode;
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+                write!(formatter, "'{IMMEDIATE}'")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                if v == IMMEDIATE {
+                    Ok(CredentialUiMode::Immediate)
+                } else {
+                    Err(E::invalid_value(
+                        Unexpected::Str(v),
+                        &format!("'{IMMEDIATE}'").as_str(),
+                    ))
+                }
+            }
+        }
+        deserializer.deserialize_str(CredentialUiModeVisitor)
     }
 }
 /// Similar to [`Extension`] except [`PrfInputOwned`] is used.
@@ -974,6 +1055,8 @@ pub struct ClientCredentialRequestOptions {
     /// See [`DiscoverableCredentialRequestOptions::mediation`] and
     /// [`NonDiscoverableCredentialRequestOptions::mediation`].
     pub mediation: CredentialMediationRequirement,
+    /// See [`DiscoverableCredentialRequestOptions::mediation`].
+    pub ui_mode: Option<CredentialUiMode>,
     /// See [`DiscoverableCredentialRequestOptions::public_key`] and
     /// See [`NonDiscoverableCredentialRequestOptions::options`].
     pub public_key: PublicKeyCredentialRequestOptionsOwned,
@@ -984,6 +1067,7 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
     /// ```json
     /// {
     ///   "mediation": null | "required" | "conditional",
+    ///   "uiMode": null | "immediate",
     ///   "publicKey": null | <PublicKeyCredentialRequestOptionsOwned>
     /// }
     /// ```
@@ -1013,6 +1097,8 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
                 enum Field {
                     /// `mediation`.
                     Mediation,
+                    /// `uiMode`.
+                    UiMode,
                     /// `publicKey`
                     PublicKey,
                 }
@@ -1026,7 +1112,7 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
                         impl Visitor<'_> for FieldVisitor {
                             type Value = Field;
                             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                                write!(formatter, "'{MEDIATION}' or '{PUBLIC_KEY}'")
+                                write!(formatter, "'{MEDIATION}', '{UI_MODE}', or '{PUBLIC_KEY}'")
                             }
                             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
                             where
@@ -1034,6 +1120,7 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
                             {
                                 match v {
                                     MEDIATION => Ok(Field::Mediation),
+                                    UI_MODE => Ok(Field::UiMode),
                                     PUBLIC_KEY => Ok(Field::PublicKey),
                                     _ => Err(E::unknown_field(v, FIELDS)),
                                 }
@@ -1043,6 +1130,7 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
                     }
                 }
                 let mut med = None;
+                let mut ui = None;
                 let mut key = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -1051,6 +1139,12 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
                                 return Err(Error::duplicate_field(MEDIATION));
                             }
                             med = map.next_value::<Option<_>>().map(Some)?;
+                        }
+                        Field::UiMode => {
+                            if ui.is_some() {
+                                return Err(Error::duplicate_field(UI_MODE));
+                            }
+                            ui = map.next_value().map(Some)?;
                         }
                         Field::PublicKey => {
                             if key.is_some() {
@@ -1062,12 +1156,13 @@ impl<'de> Deserialize<'de> for ClientCredentialRequestOptions {
                 }
                 Ok(ClientCredentialRequestOptions {
                     mediation: med.flatten().unwrap_or_default(),
+                    ui_mode: ui.flatten(),
                     public_key: key.flatten().unwrap_or_default(),
                 })
             }
         }
         /// Fields for `ClientCredentialRequestOptions`.
-        const FIELDS: &[&str; 2] = &[MEDIATION, PUBLIC_KEY];
+        const FIELDS: &[&str; 3] = &[MEDIATION, UI_MODE, PUBLIC_KEY];
         deserializer.deserialize_struct(
             "ClientCredentialRequestOptions",
             FIELDS,

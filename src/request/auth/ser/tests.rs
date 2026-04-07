@@ -1,7 +1,8 @@
 use super::{
     super::{super::PublicKeyCredentialHint, ExtensionReq},
-    ClientCredentialRequestOptions, CredentialMediationRequirement, ExtensionOwned, FIVE_MINUTES,
-    Hints, NonZeroU32, PublicKeyCredentialRequestOptionsOwned, UserVerificationRequirement,
+    ClientCredentialRequestOptions, CredentialMediationRequirement, CredentialUiMode,
+    ExtensionOwned, FIVE_MINUTES, Hints, NonZeroU32, PublicKeyCredentialRequestOptionsOwned,
+    UserVerificationRequirement,
 };
 use serde_json::Error;
 #[expect(
@@ -15,8 +16,8 @@ fn client_options() -> Result<(), Error> {
     let mut err =
         serde_json::from_str::<ClientCredentialRequestOptions>(r#"{"bob":true}"#).unwrap_err();
     assert_eq!(
-        err.to_string().get(..56),
-        Some("unknown field `bob`, expected `mediation` or `publicKey`")
+        err.to_string().get(..71),
+        Some("unknown field `bob`, expected one of `mediation`, `uiMode`, `publicKey`")
     );
     err = serde_json::from_str::<ClientCredentialRequestOptions>(
         r#"{"mediation":"required","mediation":"required"}"#,
@@ -31,6 +32,7 @@ fn client_options() -> Result<(), Error> {
         options.mediation,
         CredentialMediationRequirement::Required
     ));
+    assert!(options.ui_mode.is_none());
     assert!(options.public_key.rp_id.is_none());
     assert_eq!(options.public_key.timeout, FIVE_MINUTES);
     assert!(matches!(
@@ -40,12 +42,13 @@ fn client_options() -> Result<(), Error> {
     assert_eq!(options.public_key.hints, Hints::EMPTY);
     assert!(options.public_key.extensions.prf.is_none());
     options = serde_json::from_str::<ClientCredentialRequestOptions>(
-        r#"{"mediation":null,"publicKey":null}"#,
+        r#"{"mediation":null,"uiMode":null,"publicKey":null}"#,
     )?;
     assert!(matches!(
         options.mediation,
         CredentialMediationRequirement::Required
     ));
+    assert!(options.ui_mode.is_none());
     assert!(options.public_key.rp_id.is_none());
     assert_eq!(options.public_key.timeout, FIVE_MINUTES);
     assert!(matches!(
@@ -64,12 +67,13 @@ fn client_options() -> Result<(), Error> {
     assert_eq!(options.public_key.hints, Hints::EMPTY);
     assert!(options.public_key.extensions.prf.is_none());
     options = serde_json::from_str::<ClientCredentialRequestOptions>(
-        r#"{"mediation":"conditional","publicKey":{"rpId":"example.com","timeout":300000,"allowCredentials":[],"userVerification":"required","extensions":{"prf":{"eval":{"first":"","second":""}}},"hints":["security-key"],"challenge":null}}"#,
+        r#"{"mediation":"conditional","uiMode":"immediate","publicKey":{"rpId":"example.com","timeout":300000,"allowCredentials":[],"userVerification":"required","extensions":{"prf":{"eval":{"first":"","second":""}}},"hints":["security-key"],"challenge":null}}"#,
     )?;
     assert!(matches!(
         options.mediation,
         CredentialMediationRequirement::Conditional
     ));
+    assert_eq!(options.ui_mode, Some(CredentialUiMode::Immediate));
     assert!(
         options
             .public_key
