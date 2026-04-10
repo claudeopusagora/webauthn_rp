@@ -248,31 +248,31 @@ impl EncodeBuffer for UncompressedPubKey<'_> {
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         match *self {
             Self::MlDsa87(key) => {
-                0u8.encode_into_buffer(buffer);
-                key.encode_into_buffer(buffer);
-            }
-            Self::MlDsa65(key) => {
-                1u8.encode_into_buffer(buffer);
-                key.encode_into_buffer(buffer);
-            }
-            Self::MlDsa44(key) => {
-                2u8.encode_into_buffer(buffer);
-                key.encode_into_buffer(buffer);
-            }
-            Self::Ed25519(key) => {
-                3u8.encode_into_buffer(buffer);
-                key.encode_into_buffer(buffer);
-            }
-            Self::P256(key) => {
                 4u8.encode_into_buffer(buffer);
                 key.encode_into_buffer(buffer);
             }
-            Self::P384(key) => {
+            Self::MlDsa65(key) => {
                 5u8.encode_into_buffer(buffer);
                 key.encode_into_buffer(buffer);
             }
-            Self::Rsa(key) => {
+            Self::MlDsa44(key) => {
                 6u8.encode_into_buffer(buffer);
+                key.encode_into_buffer(buffer);
+            }
+            Self::Ed25519(key) => {
+                0u8.encode_into_buffer(buffer);
+                key.encode_into_buffer(buffer);
+            }
+            Self::P256(key) => {
+                1u8.encode_into_buffer(buffer);
+                key.encode_into_buffer(buffer);
+            }
+            Self::P384(key) => {
+                2u8.encode_into_buffer(buffer);
+                key.encode_into_buffer(buffer);
+            }
+            Self::Rsa(key) => {
+                3u8.encode_into_buffer(buffer);
                 key.encode_into_buffer(buffer);
             }
         }
@@ -288,13 +288,13 @@ impl<'a> DecodeBuffer<'a> for CompressedPubKeyOwned {
     // benefit in performing "expensive" validation checks.
     fn decode_from_buffer(data: &mut &'a [u8]) -> Result<Self, Self::Err> {
         u8::decode_from_buffer(data).and_then(|val| match val {
-            0 => MlDsa87PubKey::decode_from_buffer(data).map(Self::MlDsa87),
-            1 => MlDsa65PubKey::decode_from_buffer(data).map(Self::MlDsa65),
-            2 => MlDsa44PubKey::decode_from_buffer(data).map(Self::MlDsa44),
-            3 => Ed25519PubKey::decode_from_buffer(data).map(Self::Ed25519),
-            4 => CompressedP256PubKey::decode_from_buffer(data).map(Self::P256),
-            5 => CompressedP384PubKey::decode_from_buffer(data).map(Self::P384),
-            6 => RsaPubKey::decode_from_buffer(data).map(Self::Rsa),
+            0 => Ed25519PubKey::decode_from_buffer(data).map(Self::Ed25519),
+            1 => CompressedP256PubKey::decode_from_buffer(data).map(Self::P256),
+            2 => CompressedP384PubKey::decode_from_buffer(data).map(Self::P384),
+            3 => RsaPubKey::decode_from_buffer(data).map(Self::Rsa),
+            4 => MlDsa87PubKey::decode_from_buffer(data).map(Self::MlDsa87),
+            5 => MlDsa65PubKey::decode_from_buffer(data).map(Self::MlDsa65),
+            6 => MlDsa44PubKey::decode_from_buffer(data).map(Self::MlDsa44),
             _ => Err(EncDecErr),
         })
     }

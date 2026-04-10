@@ -30,8 +30,11 @@ use super::{
         AuthenticatedCredential, RegisteredCredential,
         hash::hash_set::MaxLenHashSet,
         request::{
-            BackupReq, Challenge, UserVerificationRequirement,
-            auth::{AuthenticationVerificationOptions, PublicKeyCredentialRequestOptions},
+            Challenge, UserVerificationRequirement,
+            auth::{
+                AuthenticationVerificationOptions, BackupStateReq,
+                PublicKeyCredentialRequestOptions,
+            },
             register::{CoseAlgorithmIdentifier, Extension, RegistrationServerState},
         },
     },
@@ -4130,7 +4133,7 @@ pub struct DynamicState {
     /// enforce user verification for all ceremonies, [`UserVerificationRequirement::Required`] must always be
     /// sent.
     pub user_verified: bool,
-    /// This can only be updated if [`BackupReq`] allows for it.
+    /// This can only be updated if [`BackupStateReq`] allows for it.
     pub backup: Backup,
     /// [`signCount`](https://www.w3.org/TR/webauthn-3/#authdata-signcount).
     ///

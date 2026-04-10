@@ -33,7 +33,7 @@ use ser_relaxed::SerdeJsonErr;
 /// # use core::convert;
 /// # use webauthn_rp::{
 /// #     hash::hash_set::{InsertRemoveExpired, MaxLenHashSet},
-/// #     request::{auth::{error::InvalidTimeout, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, register::{UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, BackupReq, RpId},
+/// #     request::{auth::{error::InvalidTimeout, DiscoverableAuthenticationClientState, DiscoverableCredentialRequestOptions, AuthenticationVerificationOptions}, register::{BackupReq, UserHandle, USER_HANDLE_MAX_LEN, UserHandle64}, RpId},
 /// #     response::{auth::{error::AuthCeremonyErr, DiscoverableAuthentication64}, error::CollectedClientDataErr, register::{AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputsStaticState, CredentialProtectionPolicy, DynamicState, Ed25519PubKey, CompressedPubKeyOwned, StaticState}, AuthenticatorAttachment, Backup, CollectedClientData, CredentialId},
 /// #     AuthenticatedCredential, CredentialErr
 /// # };

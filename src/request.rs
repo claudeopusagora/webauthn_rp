@@ -19,7 +19,7 @@ use crate::{
         error::{
             AsciiDomainErr, DomainOriginParseErr, PortParseErr, RpIdErr, SchemeParseErr, UrlErr,
         },
-        register::RegistrationVerificationOptions,
+        register::{BackupReq, RegistrationVerificationOptions},
     },
     response::{
         AuthData as _, AuthDataContainer, AuthResponse, AuthTransports, Backup, CeremonyErr,
@@ -1418,42 +1418,6 @@ pub enum CredentialMediationRequirement {
     /// `Self::Conditional`, [`UserVerificationRequirement::Required`] MUST NOT be used unless user verification
     /// can be explicitly performed during the ceremony.
     Conditional,
-}
-/// Backup requirements for the credential.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum BackupReq {
-    /// No requirements (i.e., any [`Backup`] is allowed).
-    #[default]
-    None,
-    /// Credential must not be eligible for backup.
-    NotEligible,
-    /// Credential must be eligible for backup.
-    ///
-    /// Note the existence of a backup is ignored. If a backup must exist, then use [`Self::Exists`]; if a
-    /// backup must not exist, then use [`Self::EligibleNotExists`].
-    Eligible,
-    /// Credential must be eligible for backup, but a backup must not exist.
-    EligibleNotExists,
-    /// Credential must be backed up.
-    Exists,
-}
-impl From<Backup> for BackupReq {
-    /// One may want to create `BackupReq` based on the previous `Backup` such that the subsequent `Backup` is
-    /// essentially unchanged.
-    ///
-    /// Specifically this transforms [`Backup::NotEligible`] to [`Self::NotEligible`] and [`Backup::Eligible`] and
-    /// [`Backup::Exists`] to [`Self::Eligible`]. Note this means that a credential that
-    /// is eligible to be backed up but currently does not have a backup will be allowed to change such that it
-    /// is backed up. Similarly, a credential that is backed up is allowed to change such that a backup no longer
-    /// exists.
-    #[inline]
-    fn from(value: Backup) -> Self {
-        if matches!(value, Backup::NotEligible) {
-            Self::NotEligible
-        } else {
-            Self::Eligible
-        }
-    }
 }
 /// A container of "credentials".
 ///

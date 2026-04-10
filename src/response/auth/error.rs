@@ -10,12 +10,13 @@ use super::{
         super::{
             AuthenticatedCredential, DynamicState, StaticState,
             request::{
-                BackupReq, UserVerificationRequirement,
+                UserVerificationRequirement,
                 auth::{
                     AllowedCredential, AllowedCredentials, AuthenticationVerificationOptions,
-                    CredentialSpecificExtension, DiscoverableAuthenticationServerState,
-                    DiscoverableCredentialRequestOptions, Extension,
-                    NonDiscoverableAuthenticationServerState, PublicKeyCredentialRequestOptions,
+                    BackupStateReq, CredentialSpecificExtension,
+                    DiscoverableAuthenticationServerState, DiscoverableCredentialRequestOptions,
+                    Extension, NonDiscoverableAuthenticationServerState,
+                    PublicKeyCredentialRequestOptions,
                 },
             },
         },
@@ -231,13 +232,13 @@ pub enum AuthCeremonyErr {
     /// [`PublicKeyCredentialRequestOptions::user_verification`] was set to
     /// [`UserVerificationRequirement::Required`], but [`Flag::user_verified`] was `false`.
     UserNotVerified,
-    /// [`Backup::NotEligible`] was not sent back despite [`BackupReq::NotEligible`].
+    /// [`Backup::Eligible`] was sent back despite the credential not being eligible to be backed up.
     BackupEligible,
-    /// [`Backup::NotEligible`] was sent back despite [`BackupReq::Eligible`].
+    /// [`Backup::NotEligible`] was sent back despite the credential being eligible to be backed up.
     BackupNotEligible,
-    /// [`Backup::Eligible`] was not sent back despite [`BackupReq::EligibleNotExists`].
+    /// [`Backup::Exists`] was sent back despite [`BackupStateReq::DoesntExist`].
     BackupExists,
-    /// [`Backup::Exists`] was not sent back despite [`BackupReq::Exists`].
+    /// [`Backup::Eligible`] was sent back despite [`BackupStateReq::Exists`].
     BackupDoesNotExist,
     /// [`AuthenticatorAttachment`] was not sent back despite being required.
     MissingAuthenticatorAttachment,

@@ -5,9 +5,9 @@ use super::{
     super::super::{
         RegisteredCredential,
         request::{
-            BackupReq, CredentialMediationRequirement, UserVerificationRequirement,
+            CredentialMediationRequirement, UserVerificationRequirement,
             register::{
-                AuthenticatorSelectionCriteria, CredentialCreationOptions, Extension,
+                AuthenticatorSelectionCriteria, BackupReq, CredentialCreationOptions, Extension,
                 PublicKeyCredentialCreationOptions, RegistrationServerState,
                 RegistrationVerificationOptions,
             },

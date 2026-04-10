@@ -13,8 +13,8 @@ use super::{
         },
     },
     AuthCeremonyErr, AuthenticationVerificationOptions, AuthenticatorAttachment,
-    AuthenticatorAttachmentEnforcement, DiscoverableAuthentication, ExtensionErr, OneOrTwo,
-    PrfInput, SignatureCounterEnforcement,
+    AuthenticatorAttachmentEnforcement, BackupStateReq, DiscoverableAuthentication, ExtensionErr,
+    OneOrTwo, PrfInput, SignatureCounterEnforcement,
 };
 #[cfg(all(
     feature = "custom",
@@ -292,7 +292,7 @@ fn validate(options: TestOptions) -> Result<(), AggErr> {
         allowed_origins: [].as_slice(),
         allowed_top_origins: None,
         auth_attachment_enforcement: AuthenticatorAttachmentEnforcement::Update(false),
-        backup_requirement: None,
+        backup_state_requirement: BackupStateReq::None,
         error_on_unsolicited_extensions: options.request.error_unsolicited,
         sig_counter_enforcement: SignatureCounterEnforcement::Fail,
         update_uv: false,

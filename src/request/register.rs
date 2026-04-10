@@ -13,9 +13,9 @@ use super::{
             },
         },
     },
-    BackupReq, Ceremony, Challenge, CredentialMediationRequirement, ExtensionInfo, ExtensionReq,
-    FIVE_MINUTES, Hints, Origin, PrfInput, PublicKeyCredentialDescriptor, RpId, SentChallenge,
-    TimedCeremony, UserVerificationRequirement,
+    Ceremony, Challenge, CredentialMediationRequirement, ExtensionInfo, ExtensionReq, FIVE_MINUTES,
+    Hints, Origin, PrfInput, PublicKeyCredentialDescriptor, RpId, SentChallenge, TimedCeremony,
+    UserVerificationRequirement,
     register::error::CreationOptionsErr,
 };
 #[cfg(doc)]
@@ -53,6 +53,24 @@ pub mod ser;
 /// Contains functionality to (de)serialize [`RegistrationServerState`] to a data store.
 #[cfg(feature = "serializable_server_state")]
 pub mod ser_server_state;
+/// Backup requirements for the credential.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum BackupReq {
+    /// No requirements (i.e., any [`Backup`] is allowed).
+    #[default]
+    None,
+    /// Credential must not be eligible for backup.
+    NotEligible,
+    /// Credential must be eligible for backup.
+    ///
+    /// Note the existence of a backup is ignored. If a backup must exist, then use [`Self::Exists`]; if a
+    /// backup must not exist, then use [`Self::EligibleNotExists`].
+    Eligible,
+    /// Credential must be eligible for backup, but a backup must not exist.
+    EligibleNotExists,
+    /// Credential must be backed up.
+    Exists,
+}
 /// Used by [`Extension::cred_protect`] to enforce the [`CredentialProtectionPolicy`] sent by the client via
 /// [`Registration`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

@@ -3,7 +3,7 @@ mod tests;
 #[cfg(doc)]
 use super::{
     super::response::{
-        Backup, CollectedClientData, Flag,
+        CollectedClientData, Flag,
         auth::AuthenticatorData,
         register::{
             AuthenticatorExtensionOutputStaticState, ClientExtensionsOutputsStaticState,
@@ -26,9 +26,10 @@ use super::{
             register::{CompressedPubKey, CredentialProtectionPolicy},
         },
     },
-    BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId, CredentialMediationRequirement,
-    Credentials, ExtensionReq, FIVE_MINUTES, Hints, Origin, PrfInput,
-    PublicKeyCredentialDescriptor, RpId, SentChallenge, TimedCeremony, UserVerificationRequirement,
+    Backup, BackupReq, Ceremony, CeremonyOptions, Challenge, CredentialId,
+    CredentialMediationRequirement, Credentials, ExtensionReq, FIVE_MINUTES, Hints, Origin,
+    PrfInput, PublicKeyCredentialDescriptor, RpId, SentChallenge, TimedCeremony,
+    UserVerificationRequirement,
     auth::error::{InvalidTimeout, NonDiscoverableCredentialRequestOptionsErr},
 };
 use core::{
@@ -1003,6 +1004,23 @@ impl Default for AuthenticatorAttachmentEnforcement {
         Self::Ignore(false)
     }
 }
+/// Backup state requirements for the credential.
+///
+/// Note the backup eligibility of a credential is not allowed to change. This is only used to allow one to
+/// require the existence or lack of existence of a backup.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum BackupStateReq {
+    /// No requirements on the backup state.
+    ///
+    /// The backup eligibility of the credential must be the same as required by the spec, but the existence
+    /// of a backup doesn't matter.
+    #[default]
+    None,
+    /// Credential must be backed up.
+    Exists,
+    /// Credential must not be backed up.
+    DoesntExist,
+}
 /// Additional verification options to perform in [`DiscoverableAuthenticationServerState::verify`] and
 /// [`NonDiscoverableAuthenticationServerState::verify`].
 #[derive(Clone, Copy, Debug)]
@@ -1023,12 +1041,7 @@ pub struct AuthenticationVerificationOptions<'origins, 'top_origins, O, T> {
     /// `CollectedClientData::cross_origin` must be `false` and `CollectedClientData::top_origin` must be `None`.
     pub allowed_top_origins: Option<&'top_origins [T]>,
     /// The required [`Backup`] state of the credential.
-    ///
-    /// Note that `None` is _not_ the same as `Some(BackupReq::None)` as the latter indicates that any [`Backup`]
-    /// is allowed. This is rarely what you want; instead, `None` indicates that [`BackupReq::from`] applied to
-    /// [`DynamicState::backup`] will be used in [`DiscoverableAuthenticationServerState::verify`] and
-    /// [`NonDiscoverableAuthenticationServerState::verify`] and
-    pub backup_requirement: Option<BackupReq>,
+    pub backup_state_requirement: BackupStateReq,
     /// Error when unsolicited extensions are sent back iff `true`.
     pub error_on_unsolicited_extensions: bool,
     /// Dictates what happens when [`Authentication::authenticator_attachment`] is not the same as
@@ -1044,8 +1057,8 @@ pub struct AuthenticationVerificationOptions<'origins, 'top_origins, O, T> {
 }
 impl<O, T> AuthenticationVerificationOptions<'_, '_, O, T> {
     /// Returns `Self` such that [`Self::allowed_origins`] is empty, [`Self::allowed_top_origins`] is `None`,
-    /// [`Self::backup_requirement`] is `None`, [`Self::error_on_unsolicited_extensions`] is `true`,
-    /// [`Self::auth_attachment_enforcement`] is [`AuthenticatorAttachmentEnforcement::default`],
+    /// [`Self::backup_state_requirement`] is [`BackupStateReq::None`], [`Self::error_on_unsolicited_extensions`] is
+    /// `true`, [`Self::auth_attachment_enforcement`] is [`AuthenticatorAttachmentEnforcement::default`],
     /// [`Self::update_uv`] is `false`, [`Self::sig_counter_enforcement`] is
     /// [`SignatureCounterEnforcement::default`], and [`Self::client_data_json_relaxed`] is `true`.
     ///
@@ -1056,7 +1069,7 @@ impl<O, T> AuthenticationVerificationOptions<'_, '_, O, T> {
         Self {
             allowed_origins: [].as_slice(),
             allowed_top_origins: None,
-            backup_requirement: None,
+            backup_state_requirement: BackupStateReq::None,
             error_on_unsolicited_extensions: true,
             auth_attachment_enforcement: AuthenticatorAttachmentEnforcement::Ignore(false),
             update_uv: false,
@@ -1343,9 +1356,15 @@ impl AuthenticationServerState {
             &CeremonyOptions {
                 allowed_origins: options.allowed_origins,
                 allowed_top_origins: options.allowed_top_origins,
-                backup_requirement: options
-                    .backup_requirement
-                    .unwrap_or_else(|| BackupReq::from(cred.dynamic_state.backup)),
+                backup_requirement: if cred.dynamic_state.backup == Backup::NotEligible {
+                    BackupReq::NotEligible
+                } else {
+                    match options.backup_state_requirement {
+                        BackupStateReq::None => BackupReq::Eligible,
+                        BackupStateReq::Exists => BackupReq::Exists,
+                        BackupStateReq::DoesntExist => BackupReq::EligibleNotExists,
+                    }
+                },
                 #[cfg(feature = "serde_relaxed")]
                 client_data_json_relaxed: options.client_data_json_relaxed,
             },
