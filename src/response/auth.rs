@@ -99,45 +99,39 @@ impl From<HmacSecretGetErr> for AuthenticatorExtensionOutputErr {
         }
     }
 }
-impl From<HmacSecretGet<false>> for HmacSecret {
-    #[inline]
-    fn from(value: HmacSecretGet<false>) -> Self {
-        match value {
-            HmacSecretGet::None => Self::None,
-            HmacSecretGet::One => Self::One,
-            HmacSecretGet::Two => Self::Two,
-        }
-    }
-}
 impl FromCbor<'_> for AuthenticatorExtensionOutput {
     type Err = AuthenticatorExtensionOutputErr;
     fn from_cbor(cbor: &[u8]) -> Result<CborSuccess<'_, Self>, Self::Err> {
         // We don't allow unsupported extensions; thus the only possibilities is any ordered element of
         // the power set of {"hmac-secret":<HmacSecret>}.
-        cbor.split_first().map_or_else(
-            || {
-                Ok(CborSuccess {
-                    value: Self {
-                        hmac_secret: HmacSecret::None,
-                    },
-                    remaining: cbor,
-                })
-            },
-            |(map, map_rem)| {
+        let mut hmac_secret = HmacSecret::None;
+        let mut remaining = cbor;
+        cbor.split_first()
+            .map_or(Ok(()), |(map, map_rem)| {
                 if *map == cbor::MAP_1 {
-                    HmacSecretGet::from_cbor(map_rem)
+                    HmacSecretGet::<false>::from_cbor(map_rem)
                         .map_err(AuthenticatorExtensionOutputErr::from)
-                        .map(|success| CborSuccess {
-                            value: Self {
-                                hmac_secret: success.value.into(),
-                            },
-                            remaining: success.remaining,
+                        .and_then(|hmac_succ| match hmac_succ.value {
+                            HmacSecretGet::None => Err(AuthenticatorExtensionOutputErr::Missing),
+                            HmacSecretGet::One => {
+                                hmac_secret = HmacSecret::One;
+                                remaining = hmac_succ.remaining;
+                                Ok(())
+                            }
+                            HmacSecretGet::Two => {
+                                hmac_secret = HmacSecret::Two;
+                                remaining = hmac_succ.remaining;
+                                Ok(())
+                            }
                         })
                 } else {
                     Err(AuthenticatorExtensionOutputErr::CborHeader)
                 }
-            },
-        )
+            })
+            .map(|()| CborSuccess {
+                value: Self { hmac_secret },
+                remaining,
+            })
     }
 }
 /// Unit type for `AuthData::CredData`.
