@@ -977,6 +977,8 @@ const fn validate_options_helper(
         UserVerificationRequirement::Required
     ) {
         Ok(())
+    } else if !matches!(extensions.prf, ServerPrfInfo::None) {
+        Err(CreationOptionsErr::PrfWithoutUserVerification)
     } else if matches!(
         extensions.cred_protect,
         CredProtect::UserVerificationRequired(_, _)

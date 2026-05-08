@@ -846,7 +846,7 @@ fn prf() -> Result<(), AggErr> {
     opts.response.user_verified = false;
     opts.response.hmac = HmacSecret::Enabled;
     opts.response.prf = Some(true);
-    assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::HmacSecretWithoutUserVerified)))));
+    assert!(validate(opts).is_err_and(|e| matches!(e, AggErr::RegCeremony(err) if matches!(err, RegCeremonyErr::Credential(cred_err) if matches!(cred_err, CredentialErr::PrfWithoutUserVerified)))));
     opts.response.prf = None;
     opts.response.hmac = HmacSecret::None;
     validate(opts)?;

@@ -559,7 +559,9 @@ use crate::{
 };
 use crate::{
     request::{
-        auth::error::{InvalidTimeout, NonDiscoverableCredentialRequestOptionsErr},
+        auth::error::{
+            DiscoverableCredentialRequestOptionsErr, NonDiscoverableCredentialRequestOptionsErr,
+        },
         error::{AsciiDomainErr, DomainOriginParseErr, PortParseErr, SchemeParseErr, UrlErr},
         register::{
             ResidentKeyRequirement, USER_HANDLE_MAX_LEN, UserHandle, error::CreationOptionsErr,
@@ -694,9 +696,9 @@ pub enum CredentialErr {
     /// Variant when [`CredentialProtectionPolicy::UserVerificationRequired`], but
     /// [`DynamicState::user_verified`] is `false`.
     CredProtectUserVerificationRequiredWithoutUserVerified,
-    /// Variant when [`AuthenticatorExtensionOutput::hmac_secret`] is `Some(true)` and
-    /// [`DynamicState::user_verified`] is `false`.
-    HmacSecretWithoutUserVerified,
+    /// Variant when [`ClientExtensionsOutputs::prf`] is
+    /// `Some(AuthenticationExtensionsPRFOutputs { enabled: true })` and [`DynamicState::user_verified`] is `false`.
+    PrfWithoutUserVerified,
     /// Variant when [`AuthenticatorExtensionOutput::hmac_secret`] is `Some(true)`, but
     /// [`ClientExtensionsOutputs::prf`] is `Some(AuthenticationExtensionsPRFOutputs { enabled: false })`
     /// or `AuthenticatorExtensionOutput::hmac_secret` is `Some`, but
@@ -717,9 +719,7 @@ impl Display for CredentialErr {
             Self::CredProtectUserVerificationRequiredWithoutUserVerified => {
                 "credProtect requires user verification, but the user is not verified"
             }
-            Self::HmacSecretWithoutUserVerified => {
-                "hmac-secret was enabled, but the user is not verified"
-            }
+            Self::PrfWithoutUserVerified => "prf is enabled, but the user is not verified",
             Self::HmacSecretWithoutPrf => "hmac-secret was enabled but prf was not",
             Self::PrfWithoutHmacSecret => "prf was enabled, but hmac-secret was not",
             Self::ResidentKeyRequiredServerCredentialCreated => {
@@ -746,11 +746,11 @@ fn verify_static_and_dynamic_state<T>(
     ) {
         Err(CredentialErr::CredProtectUserVerificationRequiredWithoutUserVerified)
     } else if static_state
-        .extensions
-        .hmac_secret
-        .is_some_and(convert::identity)
+        .client_extension_results
+        .prf
+        .is_some_and(|prf| prf.enabled)
     {
-        Err(CredentialErr::HmacSecretWithoutUserVerified)
+        Err(CredentialErr::PrfWithoutUserVerified)
     } else {
         Ok(())
     }
@@ -1131,12 +1131,10 @@ pub enum AggErr {
     DomainOrigin(DomainOriginParseErr),
     /// Variant when [`Port::from_str`] errors.
     Port(PortParseErr),
-    /// Variant when [`DiscoverableCredentialRequestOptions::start_ceremony`] or
-    /// [`NonDiscoverableCredentialRequestOptions::start_ceremony`]
-    /// error.
-    InvalidTimeout(InvalidTimeout),
     /// Variant when [`CredentialCreationOptions::start_ceremony`] errors.
     CreationOptions(CreationOptionsErr),
+    /// Variant when [`DiscoverableCredentialRequestOptions::start_ceremony`] errors.
+    DiscoverableCredentialRequestOptions(DiscoverableCredentialRequestOptionsErr),
     /// Variant when [`NonDiscoverableCredentialRequestOptions::start_ceremony`] errors.
     NonDiscoverableCredentialRequestOptions(NonDiscoverableCredentialRequestOptionsErr),
     /// Variant when [`RegistrationServerState::verify`] errors.
@@ -1234,16 +1232,16 @@ impl From<PortParseErr> for AggErr {
         Self::Port(value)
     }
 }
-impl From<InvalidTimeout> for AggErr {
-    #[inline]
-    fn from(value: InvalidTimeout) -> Self {
-        Self::InvalidTimeout(value)
-    }
-}
 impl From<CreationOptionsErr> for AggErr {
     #[inline]
     fn from(value: CreationOptionsErr) -> Self {
         Self::CreationOptions(value)
+    }
+}
+impl From<DiscoverableCredentialRequestOptionsErr> for AggErr {
+    #[inline]
+    fn from(value: DiscoverableCredentialRequestOptionsErr) -> Self {
+        Self::DiscoverableCredentialRequestOptions(value)
     }
 }
 impl From<NonDiscoverableCredentialRequestOptionsErr> for AggErr {
@@ -1387,8 +1385,8 @@ impl Display for AggErr {
             Self::Scheme(err) => err.fmt(f),
             Self::DomainOrigin(ref err) => err.fmt(f),
             Self::Port(ref err) => err.fmt(f),
-            Self::InvalidTimeout(err) => err.fmt(f),
             Self::CreationOptions(err) => err.fmt(f),
+            Self::DiscoverableCredentialRequestOptions(err) => err.fmt(f),
             Self::NonDiscoverableCredentialRequestOptions(err) => err.fmt(f),
             Self::RegCeremony(ref err) => err.fmt(f),
             Self::AuthCeremony(ref err) => err.fmt(f),

@@ -229,12 +229,16 @@ impl<'a> DecodeBuffer<'a> for AuthenticationServerState {
         SentChallenge::decode_from_buffer(data).and_then(|challenge| {
             UserVerificationRequirement::decode_from_buffer(data).and_then(|user_verification| {
                 ServerExtensionInfo::decode_from_buffer(data).and_then(|extensions| {
-                    SystemTime::decode_from_buffer(data).map(|expiration| Self {
-                        challenge,
-                        user_verification,
-                        extensions,
-                        expiration,
-                    })
+                    if super::validate_discoverable_options_helper(extensions, user_verification) {
+                        SystemTime::decode_from_buffer(data).map(|expiration| Self {
+                            challenge,
+                            user_verification,
+                            extensions,
+                            expiration,
+                        })
+                    } else {
+                        Err(EncDecErr)
+                    }
                 })
             })
         })
@@ -304,19 +308,26 @@ impl Decode for NonDiscoverableAuthenticationServerState {
         AuthenticationServerState::decode_from_buffer(&mut input)
             .map_err(|_e| DecodeNonDiscoverableAuthenticationServerStateErr::Other)
             .and_then(|state| {
-                Box::<[_]>::decode_from_buffer(&mut input)
+                Box::decode_from_buffer(&mut input)
                     .map_err(|_e| DecodeNonDiscoverableAuthenticationServerStateErr::Other)
                     .and_then(|allow_credentials| {
-                        if allow_credentials.is_empty() {
-                            Err(DecodeNonDiscoverableAuthenticationServerStateErr::Other)
-                        } else if input.is_empty() {
-                            Ok(Self {
-                                state,
-                                allow_credentials,
-                            })
-                        } else {
-                            Err(DecodeNonDiscoverableAuthenticationServerStateErr::TrailingData)
-                        }
+                        super::validate_non_discoverable_options_helper(
+                            state.user_verification,
+                            &allow_credentials,
+                        )
+                        .map_err(|_e| DecodeNonDiscoverableAuthenticationServerStateErr::Other)
+                        .and({
+                            if allow_credentials.is_empty() {
+                                Err(DecodeNonDiscoverableAuthenticationServerStateErr::Other)
+                            } else if input.is_empty() {
+                                Ok(Self {
+                                    state,
+                                    allow_credentials,
+                                })
+                            } else {
+                                Err(DecodeNonDiscoverableAuthenticationServerStateErr::TrailingData)
+                            }
+                        })
                     })
             })
     }
