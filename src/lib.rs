@@ -506,6 +506,7 @@
     clippy::doc_paragraphs_missing_punctuation,
     reason = "false positive for crate documentation having image links"
 )]
+#![cfg_attr(test, expect(dead_code_pub_in_binary, reason = "ignore for tests"))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //#[cfg(not(any(feature = "custom", all(feature = "bin", feature = "serde"))))]
 //compile_error!("'custom' must be enabled or both 'bin' and 'serde' must be enabled");

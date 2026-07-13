@@ -5429,7 +5429,7 @@ fn mldsa87_registration_deserialize_data_mismatch() {
         Unexpected::Bytes([0; 32].as_slice()),
         &format!(
             "DER-encoded public key to match the public key within the attestation object: MlDsa87(MlDsa87PubKey({:?}))",
-            &[1u8; 2592]
+            [1u8; 2592]
         )
         .as_str(),
     )
@@ -7778,7 +7778,7 @@ fn mldsa65_registration_deserialize_data_mismatch() {
         Unexpected::Bytes([0; 32].as_slice()),
         &format!(
             "DER-encoded public key to match the public key within the attestation object: MlDsa65(MlDsa65PubKey({:?}))",
-            &[1u8; 1952]
+            [1u8; 1952]
         )
         .as_str(),
     )
@@ -9487,7 +9487,7 @@ fn mldsa44_registration_deserialize_data_mismatch() {
         Unexpected::Bytes([0; 32].as_slice()),
         &format!(
             "DER-encoded public key to match the public key within the attestation object: MlDsa44(MlDsa44PubKey({:?}))",
-            &[1u8; 1312]
+            [1u8; 1312]
         )
         .as_str(),
     )

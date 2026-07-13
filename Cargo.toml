@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
-rust-version = "1.95.0"
+rust-version = "1.97.0"
 version = "0.4.0+spec-3"
 
 [lints.rust]
@@ -28,12 +28,14 @@ unused = { level = "deny", priority = -1 }
 warnings = { level = "deny", priority = -1 }
 ambiguous-negative-literals = { level = "deny", priority = -1 }
 closure-returning-async-block = { level = "deny", priority = -1 }
+dead-code-pub-in-binary = { level = "deny", priority = -1 }
 deprecated-in-future = { level = "deny", priority = -1 }
+#deprecated-llvm-intrinsic = { level = "deny", priority = -1 }
 deref-into-dyn-supertrait = { level = "deny", priority = -1 }
 ffi-unwind-calls = { level = "deny", priority = -1 }
 #fuzzy-provenance-casts = { level = "deny", priority = -1 }
 impl-trait-redundant-captures = { level = "deny", priority = -1 }
-linker-messages = { level = "deny", priority = -1 }
+linker-info = { level = "deny", priority = -1 }
 #lossy-provenance-casts = { level = "deny", priority = -1 }
 macro-use-extern-crate = { level = "deny", priority = -1 }
 meta-variable-misuse = { level = "deny", priority = -1 }
@@ -81,6 +83,7 @@ decimal_bitwise_operands = "allow"
 exhaustive_enums = "allow"
 exhaustive_structs = "allow"
 implicit_return = "allow"
+inline_trait_bounds = "allow"
 min_ident_chars = "allow"
 missing_trait_methods = "allow"
 module_name_repetitions = "allow"
@@ -115,25 +118,25 @@ targets = [
 ]
 
 [dependencies]
-base64url_nopad = { version = "0.1.5", default-features = false }
-ed25519-dalek = { version = "3.0.0-pre.7", default-features = false }
-hashbrown = { version = "0.17.0", default-features = false }
-ml-dsa = { version = "0.1.0-rc.9", default-features = false }
-p256 = { version = "0.14.0-rc.9", default-features = false, features = ["ecdsa"] }
-p384 = { version = "0.14.0-rc.9", default-features = false, features = ["ecdsa"] }
-rand = { version = "0.10.1", default-features = false, features = ["thread_rng"] }
+base64url_nopad = { version = "0.2.0", default-features = false }
+ed25519-dalek = { version = "3.0.0", default-features = false }
+hashbrown = { version = "0.17.1", default-features = false }
+ml-dsa = { version = "0.1.1", default-features = false }
+p256 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+p384 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+rand = { version = "0.10.2", default-features = false, features = ["thread_rng"] }
 rsa = { version = "0.10.0-rc.18", default-features = false, features = ["encoding", "sha2"] }
 serde = { version = "1.0.228", default-features = false, features = ["alloc"], optional = true }
-serde_json = { version = "1.0.149", default-features = false, features = ["alloc"], optional = true }
+serde_json = { version = "1.0.150", default-features = false, features = ["alloc"], optional = true }
 url = { version = "2.5.8", default-features = false }
 
 [dev-dependencies]
-base64url_nopad = { version = "0.1.5", default-features = false, features = ["alloc"] }
-ed25519-dalek = { version = "3.0.0-pre.7", default-features = false, features = ["alloc", "pkcs8"] }
-ml-dsa = { version = "0.1.0-rc.9", default-features = false, features = ["alloc", "pkcs8"] }
-p256 = { version = "0.14.0-rc.9", default-features = false, features = ["pem"] }
-p384 = { version = "0.14.0-rc.9", default-features = false, features = ["pkcs8"] }
-serde_json = { version = "1.0.149", default-features = false, features = ["preserve_order"] }
+base64url_nopad = { version = "0.2.0", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "3.0.0", default-features = false, features = ["alloc", "pkcs8"] }
+ml-dsa = { version = "0.1.1", default-features = false, features = ["alloc", "pkcs8"] }
+p256 = { version = "0.14.0", default-features = false, features = ["pem"] }
+p384 = { version = "0.14.0", default-features = false, features = ["pkcs8"] }
+serde_json = { version = "1.0.150", default-features = false, features = ["preserve_order"] }
 
 
 ### FEATURES #################################################################
