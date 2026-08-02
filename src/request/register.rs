@@ -469,13 +469,13 @@ impl FourToSixtyThree {
     #[must_use]
     pub const fn from_u8(val: u8) -> Option<Self> {
         match val {
-            0..=3 | 64.. => None,
-            _ => {
+            4..=63 => {
                 // SAFETY:
                 // `val` is inclusively between 4 and 63, and `Self` is `repr(u8)`; thus this
                 // is safe and correct.
                 Some(unsafe { mem::transmute::<u8, Self>(val) })
             }
+            _ => None,
         }
     }
 }

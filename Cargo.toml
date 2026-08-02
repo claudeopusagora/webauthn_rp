@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 name = "webauthn_rp"
 readme = "README.md"
 repository = "https://git.philomathiclife.com/repos/webauthn_rp/"
-rust-version = "1.97.0"
+rust-version = "1.97.1"
 version = "0.4.0+spec-3"
 
 [lints.rust]

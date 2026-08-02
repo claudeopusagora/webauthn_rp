@@ -28,6 +28,7 @@ use crate::{
 };
 use core::{
     borrow::Borrow,
+    cell::Cell,
     fmt::{self, Display, Formatter},
     num::NonZeroU32,
     str::FromStr,
@@ -448,7 +449,7 @@ impl TryFrom<Vec<u8>> for AsciiDomain {
                         } else {
                             // We know `label_len` is less than 63, thus this won't overflow.
                             label_len += 1;
-                            match *byt {
+                            match b {
                                 // Non-uppercase ASCII is allowed and doesn't need to be converted.
                                 ..b'A' | b'['..=0x7F => Ok(label_len),
                                 // Uppercase ASCII is allowed but needs to be transformed into lowercase.
@@ -596,9 +597,6 @@ impl PartialEq<AsciiDomainStatic> for &AsciiDomainStatic {
     }
 }
 /// The output of the [URL serializer](https://url.spec.whatwg.org/#concept-url-serializer).
-///
-/// The returned URL must consist of a [scheme](https://url.spec.whatwg.org/#concept-url-scheme) and
-/// optional [path](https://url.spec.whatwg.org/#url-path) but nothing else.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Url(String);
 impl AsRef<str> for Url {
@@ -635,17 +633,20 @@ impl FromStr for Url {
     type Err = UrlErr;
     #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Uri::from_str(s).map_err(|_e| UrlErr).and_then(|url| {
-            if url.scheme().is_empty()
-                || url.has_host()
-                || url.query().is_some()
-                || url.fragment().is_some()
-            {
-                Err(UrlErr)
-            } else {
-                Ok(Self(url.into()))
-            }
-        })
+        let violation = Cell::new(false);
+        Uri::options()
+            .syntax_violation_callback(Some(&|_| {
+                violation.set(true);
+            }))
+            .parse(s)
+            .map_err(|_e| UrlErr)
+            .and_then(|url| {
+                if violation.into_inner() {
+                    Err(UrlErr)
+                } else {
+                    Ok(Self(url.into()))
+                }
+            })
     }
 }
 /// [RP ID](https://w3c.github.io/webauthn/#rp-id).
@@ -664,7 +665,7 @@ pub enum RpId {
     /// Since [`AsciiDomainStatic::new`] is a `const fn`, one can define a `const` or `static` global variable
     /// the contains the RP ID.
     StaticDomain(AsciiDomainStatic),
-    /// A URL with only scheme and path.
+    /// A URL.
     Url(Url),
 }
 impl RpId {
