@@ -1610,9 +1610,23 @@ impl<T> RsaPubKey<T> {
 }
 impl<T: AsRef<[u8]>> RsaPubKey<T> {
     /// Converts `self` into [`RsaVerKey`].
+    #[expect(clippy::unreachable, reason = "want to crash when there is a bug")]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        clippy::indexing_slicing,
+        reason = "comment justifies correctness"
+    )]
     pub(super) fn as_ver_key(&self) -> RsaVerKey<Sha256> {
+        let n = self.0.as_ref();
         RsaVerKey::new(RsaPublicKey::new_unchecked(
-            BoxedUint::from_be_slice_vartime(self.0.as_ref()),
+            // [`MAX_RSA_N_BITS`] is smaller than `u16::MAX`, so we can multiply by 8
+            // and cast to a `u32` without fear.
+            // [`MIN_RSA_BITS`]` is greater than 0, so we won't underflow from
+            // subtracting leading 0 bits from the first byte which is not empty
+            // since `MIN_RSA_BITS > 0`.
+            BoxedUint::from_be_slice(n, ((n.len() as u32) << 3) - n[0].leading_zeros()).unwrap_or_else(|_e| unreachable!("there is a bug in response::register::RsaPubKey where one can construct it without ensuring the modulus is valid")),
             self.1.into(),
         ))
     }
