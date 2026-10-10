@@ -173,11 +173,11 @@ pub(super) trait SubjectPublicKeyInfo<'a>: Sized {
     /// # Errors
     ///
     /// Errors iff `der` does not conform.
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr>;
 }
 impl<'a> SubjectPublicKeyInfo<'a> for MlDsa87PubKey<&'a [u8]> {
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// ```asn
         /// SubjectPublicKeyInfo ::= SEQUENCE {
@@ -239,7 +239,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for MlDsa87PubKey<&'a [u8]> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for MlDsa65PubKey<&'a [u8]> {
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// ```asn
         /// SubjectPublicKeyInfo ::= SEQUENCE {
@@ -301,7 +301,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for MlDsa65PubKey<&'a [u8]> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for MlDsa44PubKey<&'a [u8]> {
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// ```asn
         /// SubjectPublicKeyInfo ::= SEQUENCE {
@@ -363,7 +363,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for MlDsa44PubKey<&'a [u8]> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for Ed25519PubKey<&'a [u8]> {
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// ```asn
         /// SubjectPublicKeyInfo ::= SEQUENCE {
@@ -420,7 +420,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for Ed25519PubKey<&'a [u8]> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP256PubKey<'a> {
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         // ```asn
         // SubjectPublicKeyInfo ::= SEQUENCE {
@@ -512,7 +512,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP256PubKey<'a> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP384PubKey<'a> {
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         // ```asn
         // SubjectPublicKeyInfo ::= SEQUENCE {
@@ -601,7 +601,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP384PubKey<'a> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for RsaPubKey<&'a [u8]> {
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[expect(
         clippy::arithmetic_side_effects,
         clippy::big_endian_bytes,
@@ -837,7 +837,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for RsaPubKey<&'a [u8]> {
 }
 impl<'a> SubjectPublicKeyInfo<'a> for UncompressedPubKey<'a> {
     #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// Index in a DER-encoded payload of the ML-DSA-* public key that corresponds
         /// to the OID length.

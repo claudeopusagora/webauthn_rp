@@ -1058,7 +1058,7 @@ impl<'cred, 'user, const USER_LEN: usize, PublicKey>
     ///
     /// Errors iff the passed arguments are invalid. Read [`CredentialErr`]
     /// for more information.
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[cfg(any(feature = "bin", feature = "custom"))]
     #[inline]
     pub fn new<'a: 'cred, 'b: 'user>(

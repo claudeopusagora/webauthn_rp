@@ -126,7 +126,7 @@ impl<'prf_first, 'prf_second> Extension<'prf_first, 'prf_second> {
         Self { prf: None }
     }
     /// Returns an `Extension` with [`Self::prf`] set to `None`.
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub const fn with_prf<'a: 'prf_first, 'b: 'prf_second>(
@@ -388,7 +388,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
@@ -526,7 +526,7 @@ impl<'rp_id, 'prf_first, 'prf_second>
     /// );
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub fn second_factor<'a: 'rp_id>(
@@ -642,7 +642,7 @@ impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id>(rp_id: &'a RpId) -> Self {
@@ -671,7 +671,7 @@ impl<'rp_id> PublicKeyCredentialRequestOptions<'rp_id, '_, '_> {
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub fn second_factor<'a: 'rp_id>(rp_id: &'a RpId) -> Self {

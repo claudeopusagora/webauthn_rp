@@ -982,7 +982,7 @@ impl<'b> DomainOrigin<'_, 'b> {
     ///     Origin(Cow::Borrowed("https://www.example.com:443"))
     /// );
     /// ```
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[must_use]
     #[inline]
     pub const fn new<'c: 'b>(host: &'c str) -> Self {
@@ -1012,7 +1012,7 @@ impl<'b> DomainOrigin<'_, 'b> {
     ///     Origin(Cow::Borrowed("https://www.example.com"))
     /// );
     /// ```
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[must_use]
     #[inline]
     pub const fn new_ignore_port<'c: 'b>(host: &'c str) -> Self {
@@ -1814,7 +1814,7 @@ pub struct PrfInput<'first, 'second> {
 }
 impl<'first, 'second> PrfInput<'first, 'second> {
     /// Returns a `PrfInput` with [`Self::first`] set to `first` and [`Self::second`] set to `None`.
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub const fn with_first<'a: 'first>(first: &'a [u8]) -> Self {
@@ -1824,7 +1824,7 @@ impl<'first, 'second> PrfInput<'first, 'second> {
         }
     }
     /// Same as [`Self::with_first`] except [`Self::second`] is set to `Some` containing `second`.
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub const fn with_two<'a: 'first, 'b: 'second>(first: &'a [u8], second: &'b [u8]) -> Self {

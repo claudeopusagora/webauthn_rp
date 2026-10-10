@@ -591,7 +591,7 @@ impl<'prf_first, 'prf_second> Extension<'prf_first, 'prf_second> {
         }
     }
     /// Same as [`Self::none`] except [`Self::prf`] is `Some` containing `input` and `info`.
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub const fn with_prf<'a: 'prf_first, 'b: 'prf_second>(
@@ -1045,7 +1045,7 @@ impl<
 {
     /// Sets [`Self::mediation`] to [`CredentialMediationRequirement::default`] and
     /// [`Self::public_key`] to [`PublicKeyCredentialCreationOptions::passkey`].
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1064,7 +1064,7 @@ impl<
     }
     /// Sets [`Self::mediation`] to [`CredentialMediationRequirement::default`] and
     /// [`Self::public_key`] to [`PublicKeyCredentialCreationOptions::second_factor`].
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub fn second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1307,7 +1307,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub fn passkey<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
@@ -1380,7 +1380,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     /// );
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
-    #[expect(single_use_lifetimes, reason = "false positive")]
+    #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
     pub fn second_factor<'a: 'rp_id, 'b: 'user_name, 'c: 'user_display_name, 'd: 'user_id>(
