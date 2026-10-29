@@ -495,6 +495,7 @@ impl<T> CredentialId<T> {
 }
 impl<'a> CredentialId<&'a [u8]> {
     /// Creates a `CredentialId` from a `slice`.
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_slice<'b: 'a>(value: &'b [u8]) -> Result<Self, CredentialIdErr> {
         if (CRED_ID_MIN_LEN..=CRED_ID_MAX_LEN).contains(&value.len()) {
@@ -795,6 +796,7 @@ impl<'a> CollectedClientData<'a> {
     /// assert!(!CollectedClientData::from_client_data_json::<false>(br#"{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://example.com","crossOrigin":false}"#.as_slice())?.cross_origin);
     /// # Ok::<_, CollectedClientDataErr>(())
     /// ```
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     pub fn from_client_data_json<'b: 'a, const REGISTRATION: bool>(json: &'b [u8]) -> Result<Self, CollectedClientDataErr> {
@@ -843,6 +845,7 @@ impl<'a> CollectedClientData<'a> {
     /// }")?.cross_origin);
     /// # Ok::<_, SerdeJsonErr>(())
     /// ```
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[cfg(feature = "serde_relaxed")]
     #[inline]

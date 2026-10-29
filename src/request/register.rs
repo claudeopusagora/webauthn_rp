@@ -591,6 +591,7 @@ impl<'prf_first, 'prf_second> Extension<'prf_first, 'prf_second> {
         }
     }
     /// Same as [`Self::none`] except [`Self::prf`] is `Some` containing `input` and `info`.
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
@@ -1045,6 +1046,7 @@ impl<
 {
     /// Sets [`Self::mediation`] to [`CredentialMediationRequirement::default`] and
     /// [`Self::public_key`] to [`PublicKeyCredentialCreationOptions::passkey`].
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
@@ -1064,6 +1066,7 @@ impl<
     }
     /// Sets [`Self::mediation`] to [`CredentialMediationRequirement::default`] and
     /// [`Self::public_key`] to [`PublicKeyCredentialCreationOptions::second_factor`].
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
@@ -1307,6 +1310,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     /// ));
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
@@ -1380,6 +1384,7 @@ impl<'rp_id, 'user_name, 'user_display_name, 'user_id, const USER_LEN: usize>
     /// );
     /// # Ok::<_, webauthn_rp::AggErr>(())
     /// ```
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]

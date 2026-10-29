@@ -21,8 +21,6 @@ use rsa::sha2::{Digest as _, Sha256};
 #[expect(clippy::panic, reason = "OK in tests")]
 #[expect(
     clippy::arithmetic_side_effects,
-    clippy::indexing_slicing,
-    clippy::missing_asserts_for_indexing,
     reason = "comments justifies correctness"
 )]
 fn hex_decode<const N: usize>(input: &[u8; N]) -> Vec<u8> {
@@ -34,7 +32,7 @@ fn hex_decode<const N: usize>(input: &[u8; N]) -> Vec<u8> {
         "hex_decode must be passed a reference to an array of even length"
     );
     let mut data = Vec::with_capacity(N >> 1);
-    input.chunks_exact(2).fold((), |(), byte| {
+    input.as_chunks::<2>().0.iter().fold((), |(), byte| {
         // `byte.len() == 2`.
         let mut hex = byte[0];
         let val = match hex {
@@ -299,7 +297,7 @@ fn auth_ext() -> Result<(), AuthenticatorExtensionOutputErr> {
     });
     let CborSuccess { value, remaining } =
         AuthenticatorExtensionOutput::from_cbor(opts.as_slice())?;
-    assert!(remaining.is_empty());
+    assert_eq!(remaining, [0u8; 0]);
     assert!(value.missing());
     opts = generate_auth_extensions(&AuthExtOptions {
         cred_protect: None,
@@ -321,7 +319,7 @@ fn auth_ext() -> Result<(), AuthenticatorExtensionOutputErr> {
     });
     let CborSuccess { value, remaining } =
         AuthenticatorExtensionOutput::from_cbor(opts.as_slice())?;
-    assert!(remaining.is_empty());
+    assert_eq!(remaining, [0u8; 0]);
     assert!(
         matches!(value.cred_protect, CredentialProtectionPolicy::None)
             && matches!(value.hmac_secret, HmacSecret::One)
@@ -371,7 +369,7 @@ fn auth_ext() -> Result<(), AuthenticatorExtensionOutputErr> {
     });
     let CborSuccess { value, remaining } =
         AuthenticatorExtensionOutput::from_cbor(opts.as_slice())?;
-    assert!(remaining.is_empty());
+    assert_eq!(remaining, [0u8; 0]);
     assert!(
         matches!(
             value.cred_protect,
