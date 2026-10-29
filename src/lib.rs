@@ -1058,6 +1058,7 @@ impl<'cred, 'user, const USER_LEN: usize, PublicKey>
     ///
     /// Errors iff the passed arguments are invalid. Read [`CredentialErr`]
     /// for more information.
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[cfg(any(feature = "bin", feature = "custom"))]
     #[inline]

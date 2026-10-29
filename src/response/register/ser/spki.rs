@@ -173,10 +173,12 @@ pub(super) trait SubjectPublicKeyInfo<'a>: Sized {
     /// # Errors
     ///
     /// Errors iff `der` does not conform.
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr>;
 }
 impl<'a> SubjectPublicKeyInfo<'a> for MlDsa87PubKey<&'a [u8]> {
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// ```asn
@@ -239,6 +241,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for MlDsa87PubKey<&'a [u8]> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for MlDsa65PubKey<&'a [u8]> {
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// ```asn
@@ -301,6 +304,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for MlDsa65PubKey<&'a [u8]> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for MlDsa44PubKey<&'a [u8]> {
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// ```asn
@@ -363,6 +367,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for MlDsa44PubKey<&'a [u8]> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for Ed25519PubKey<&'a [u8]> {
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// ```asn
@@ -420,6 +425,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for Ed25519PubKey<&'a [u8]> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP256PubKey<'a> {
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         // ```asn
@@ -512,6 +518,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP256PubKey<'a> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP384PubKey<'a> {
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         // ```asn
@@ -601,6 +608,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for UncompressedP384PubKey<'a> {
     }
 }
 impl<'a> SubjectPublicKeyInfo<'a> for RsaPubKey<&'a [u8]> {
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[expect(
         clippy::arithmetic_side_effects,
@@ -837,6 +845,7 @@ impl<'a> SubjectPublicKeyInfo<'a> for RsaPubKey<&'a [u8]> {
 }
 impl<'a> SubjectPublicKeyInfo<'a> for UncompressedPubKey<'a> {
     #[expect(clippy::indexing_slicing, reason = "comments justify correctness")]
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     fn from_der<'b: 'a>(der: &'b [u8]) -> Result<Self, SubjectPublicKeyInfoErr> {
         /// Index in a DER-encoded payload of the ML-DSA-* public key that corresponds

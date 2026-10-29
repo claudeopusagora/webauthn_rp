@@ -982,6 +982,7 @@ impl<'b> DomainOrigin<'_, 'b> {
     ///     Origin(Cow::Borrowed("https://www.example.com:443"))
     /// );
     /// ```
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[must_use]
     #[inline]
@@ -1012,6 +1013,7 @@ impl<'b> DomainOrigin<'_, 'b> {
     ///     Origin(Cow::Borrowed("https://www.example.com"))
     /// );
     /// ```
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[must_use]
     #[inline]
@@ -1814,6 +1816,7 @@ pub struct PrfInput<'first, 'second> {
 }
 impl<'first, 'second> PrfInput<'first, 'second> {
     /// Returns a `PrfInput` with [`Self::first`] set to `first` and [`Self::second`] set to `None`.
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]
@@ -1824,6 +1827,7 @@ impl<'first, 'second> PrfInput<'first, 'second> {
         }
     }
     /// Same as [`Self::with_first`] except [`Self::second`] is set to `Some` containing `second`.
+    #[expect(clippy::allow_attributes, reason = "single_use_lifetimes fires before rustc 1.99 only")]
     #[allow(single_use_lifetimes, reason = "false positive before rustc 1.99")]
     #[inline]
     #[must_use]

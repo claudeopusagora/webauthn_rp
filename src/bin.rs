@@ -23,21 +23,25 @@ impl EncodeBuffer for u8 {
     }
 }
 impl EncodeBuffer for u16 {
+    #[expect(clippy::little_endian_bytes, reason = "the binary format is little-endian")]
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         buffer.extend_from_slice(self.to_le_bytes().as_slice());
     }
 }
 impl EncodeBuffer for u32 {
+    #[expect(clippy::little_endian_bytes, reason = "the binary format is little-endian")]
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         buffer.extend_from_slice(self.to_le_bytes().as_slice());
     }
 }
 impl EncodeBuffer for u64 {
+    #[expect(clippy::little_endian_bytes, reason = "the binary format is little-endian")]
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         buffer.extend_from_slice(self.to_le_bytes().as_slice());
     }
 }
 impl EncodeBuffer for u128 {
+    #[expect(clippy::little_endian_bytes, reason = "the binary format is little-endian")]
     fn encode_into_buffer(&self, buffer: &mut Vec<u8>) {
         buffer.extend_from_slice(self.to_le_bytes().as_slice());
     }
