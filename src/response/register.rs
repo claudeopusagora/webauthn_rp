@@ -73,6 +73,10 @@ pub mod error;
 mod x5c;
 #[cfg(feature = "packed_x5c")]
 pub use x5c::{PackedX5c, X5c, X5cCertificates};
+/// Agora fork: tests of `x5c`, with and without the feature (fork-owned file).
+#[cfg(test)]
+#[path = "register/x5c/tests.rs"]
+mod x5c_tests;
 /// Contains functionality to deserialize data from a client.
 #[cfg(feature = "serde")]
 mod ser;
@@ -3035,6 +3039,9 @@ pub enum Sig<'a> {
     Rs256(&'a [u8]),
 }
 /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation).
+///
+/// Agora fork: with the `packed_x5c` feature and `x5c` `Some`, the library verified **nothing** in the
+/// statement (not even [`Self::signature`]); see `AuthenticatorAttestation::packed_x5c`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PackedAttestation<'a> {
     /// [Attestation signature](https://www.w3.org/TR/webauthn-3/#attestation-signature).
@@ -3223,6 +3230,9 @@ pub enum AttestationFormat<'a> {
     /// [None](https://www.w3.org/TR/webauthn-3/#sctn-none-attestation).
     None,
     /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation).
+    ///
+    /// Agora fork: with the `packed_x5c` feature and an `x5c` chain, nothing in it was verified (see
+    /// [`PackedAttestation`]).
     Packed(PackedAttestation<'a>),
 }
 impl AttestationFormat<'_> {

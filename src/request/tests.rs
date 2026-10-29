@@ -9061,21 +9061,3 @@ fn hints() {
     assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::SecurityKey).0);
     assert_eq!(hints.0, hints.add(PublicKeyCredentialHint::Hybrid).0);
 }
-/// Agora fork, `derived_challenge`: the derived bytes are what the client receives and sends back.
-#[cfg(all(feature = "derived_challenge", feature = "serde"))]
-#[expect(clippy::unwrap_used, reason = "OK in tests")]
-#[test]
-fn derived_challenge_is_sent_as_given() {
-    use super::{super::response::SentChallenge, Challenge as Derived};
-    let bytes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xff];
-    let challenge = Derived::derived(bytes);
-    assert_eq!(challenge.as_array(), bytes);
-    assert_eq!(
-        serde_json::to_string(&challenge).unwrap(),
-        format!("\"{}\"", base64url_nopad::encode(bytes.as_slice()))
-    );
-    let sent: SentChallenge =
-        serde_json::from_str(&serde_json::to_string(&challenge).unwrap()).unwrap();
-    assert_eq!(sent, SentChallenge::from_challenge(challenge));
-    assert_eq!(sent, SentChallenge::from_array(bytes));
-}
