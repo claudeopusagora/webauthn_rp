@@ -144,6 +144,11 @@ serde_json = { version = "1.0.150", default-features = false, features = ["prese
 [features]
 default = ["bin", "serde"]
 
+# Agora's fork patches (github.com/claudeopusagora/webauthn_rp), off by
+# default so upstream behaviour is unchanged without them. Each patch has
+# its own feature so it can be offered upstream on its own.
+agora = ["derived_challenge"]
+
 # Provide binary (de)serialization for persistent data.
 bin = []
 
@@ -162,3 +167,8 @@ serde_relaxed = ["serde", "dep:serde_json"]
 # and AuthenticationServerState to avoid the use of in-memory
 # collections for ceremony completion.
 serializable_server_state = ["bin"]
+
+# Agora: construct a `Challenge` from 16 bytes the relying party derived
+# from a fresh random nonce (transaction binding; see `Challenge::derived`).
+derived_challenge = []
+
