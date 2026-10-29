@@ -458,6 +458,10 @@ pub enum AttestationErr {
     PackedFormatCborRs256Signature,
     /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) RS256 signature was invalid.
     PackedFormatRs256,
+    /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation) `x5c` was not an array of
+    /// 1 to 23 non-empty, canonically encoded byte strings.
+    #[cfg(feature = "packed_x5c")]
+    PackedFormatX5c,
 }
 impl Display for AttestationErr {
     #[inline]
@@ -485,6 +489,8 @@ impl Display for AttestationErr {
             Self::PackedFormatP384 => "CBOR attestation P-384 signature was invalid for the packed attestation",
             Self::PackedFormatCborRs256Signature => "CBOR attestation RS256 signature had the wrong CBOR format for the packed attestation",
             Self::PackedFormatRs256 => "CBOR attestation RS256 signature was invalid for the packed attestation",
+            #[cfg(feature = "packed_x5c")]
+            Self::PackedFormatX5c => "CBOR attestation x5c was not an array of byte strings for the packed attestation",
         })
     }
 }

@@ -2036,6 +2036,7 @@ impl<const USER_LEN: usize> RegistrationServerState<USER_LEN> {
                                                 Metadata {
                                                     attestation: match attestation_object
                                                         .attestation()
+                                                        .self_attestation()
                                                     {
                                                         AttestationFormat::None => {
                                                             Attestation::None

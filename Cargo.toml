@@ -147,7 +147,7 @@ default = ["bin", "serde"]
 # Agora's fork patches (github.com/claudeopusagora/webauthn_rp), off by
 # default so upstream behaviour is unchanged without them. Each patch has
 # its own feature so it can be offered upstream on its own.
-agora = ["derived_challenge"]
+agora = ["derived_challenge", "packed_x5c"]
 
 # Provide binary (de)serialization for persistent data.
 bin = []
@@ -172,3 +172,7 @@ serializable_server_state = ["bin"]
 # from a fresh random nonce (transaction binding; see `Challenge::derived`).
 derived_challenge = []
 
+# Agora: accept a packed attestation statement with an `x5c` chain and hand
+# it to the caller parsed but unverified (`AuthenticatorAttestation::packed_x5c`).
+# The ceremony treats it as `none`: the library vouches for nothing in it.
+packed_x5c = []
