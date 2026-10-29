@@ -68,6 +68,11 @@ use serde::Deserialize;
 pub mod bin;
 /// Contains error types.
 pub mod error;
+/// Agora fork: packed attestation statements with an `x5c` chain, passed through unverified.
+#[cfg(feature = "packed_x5c")]
+mod x5c;
+#[cfg(feature = "packed_x5c")]
+pub use x5c::{PackedX5c, X5c, X5cCertificates};
 /// Contains functionality to deserialize data from a client.
 #[cfg(feature = "serde")]
 mod ser;
@@ -3033,6 +3038,10 @@ pub enum Sig<'a> {
 pub struct PackedAttestation<'a> {
     /// [Attestation signature](https://www.w3.org/TR/webauthn-3/#attestation-signature).
     pub signature: Sig<'a>,
+    /// Agora fork: the [`x5c`](https://www.w3.org/TR/webauthn-3/#packed-x5c) chain, `None` for self attestation.
+    /// Never verified by this library; see [`AuthenticatorAttestation::packed_x5c`].
+    #[cfg(feature = "packed_x5c")]
+    pub x5c: Option<X5c<'a>>,
 }
 impl<'a> FromCbor<'a> for PackedAttestation<'a> {
     type Err = AttestationErr;
@@ -3188,8 +3197,20 @@ impl<'a> FromCbor<'a> for PackedAttestation<'a> {
                 cbor::MAP_2 => parse_to_cert_chain(map_rem).map(|success| CborSuccess {
                     value: Self {
                         signature: success.value,
+                        #[cfg(feature = "packed_x5c")]
+                        x5c: None,
                     },
                     remaining: success.remaining,
+                }),
+                #[cfg(feature = "packed_x5c")]
+                cbor::MAP_3 => parse_to_cert_chain(map_rem).and_then(|success| {
+                    X5c::from_cbor(success.remaining).map(|chain| CborSuccess {
+                        value: Self {
+                            signature: success.value,
+                            x5c: Some(chain.value),
+                        },
+                        remaining: chain.remaining,
+                    })
                 }),
                 _ => Err(AttestationErr::PackedFormat),
             })
@@ -3202,6 +3223,28 @@ pub enum AttestationFormat<'a> {
     None,
     /// [Packed](https://www.w3.org/TR/webauthn-3/#sctn-packed-attestation).
     Packed(PackedAttestation<'a>),
+}
+impl AttestationFormat<'_> {
+    /// What the library verifies against the credential key: `self`, except that a packed statement with an
+    /// `x5c` chain (feature `packed_x5c`) is `None`, since its signature is not the credential key's and the
+    /// library does not verify it.
+    #[cfg_attr(
+        feature = "packed_x5c",
+        expect(
+            clippy::unneeded_field_pattern,
+            reason = "clippy::rest_pat_in_fully_bound_structs forbids the alternative"
+        )
+    )]
+    pub(crate) const fn self_attestation(self) -> Self {
+        match self {
+            #[cfg(feature = "packed_x5c")]
+            Self::Packed(PackedAttestation {
+                signature: _,
+                x5c: Some(_),
+            }) => Self::None,
+            Self::None | Self::Packed(_) => self,
+        }
+    }
 }
 impl<'a> FromCbor<'a> for AttestationFormat<'a> {
     type Err = AttestationErr;
@@ -3338,7 +3381,7 @@ impl<'a> AttestationObject<'a> {
                                         if cbor_auth_data_len == auth_slice.len() {
                                             AuthenticatorData::from_cbor(auth_slice).map_err(|e| AttestationObjectErr::AuthData(e.into())).and_then(|auth_data| {
                                                 assert!(auth_data.remaining.is_empty(), "there is a bug in AuthenticatorData::from_cbor");
-                                                match att.value {
+                                                match att.value.self_attestation() {
                                                     AttestationFormat::None => Ok(()),
                                                     AttestationFormat::Packed(ref val) => match val.signature {
                                                         Sig::MlDsa87(_) => if matches!(auth_data.value.attested_credential_data.credential_public_key, UncompressedPubKey::MlDsa87(_)) {
@@ -3469,6 +3512,36 @@ impl AuthenticatorAttestation {
     pub const fn transports(&self) -> AuthTransports {
         self.transports
     }
+    /// Agora fork: the packed attestation statement with an `x5c` chain, if that is what the authenticator sent,
+    /// parsed but **not verified**; `None` for any other attestation.
+    ///
+    /// The registration ceremony treats such a statement as [`Attestation::None`] and checks nothing in it. A
+    /// caller that wants to trust it must verify it all itself (see [`PackedX5c`]), and must call this only on
+    /// a `Registration` that [`RegistrationServerState::verify`] accepted, since this does not check the
+    /// challenge, origin or relying party.
+    ///
+    /// # Errors
+    ///
+    /// Errors iff the attestation object cannot be parsed, which `RegistrationServerState::verify` would have
+    /// refused already.
+    #[cfg(feature = "packed_x5c")]
+    #[inline]
+    pub fn packed_x5c(&self) -> Result<Option<PackedX5c<'_>>, AttestationObjectErr> {
+        AttestationObject::from_data(self.attestation_object_and_c_data_hash.as_slice()).map(
+            |val| match val.data.attestation {
+                AttestationFormat::Packed(PackedAttestation {
+                    signature,
+                    x5c: Some(x5c),
+                }) => Some(PackedX5c {
+                    signature,
+                    x5c,
+                    aaguid: val.data.auth_data.attested_credential_data.aaguid,
+                    signed_data: val.auth_data_and_32_trailing_bytes,
+                }),
+                AttestationFormat::None | AttestationFormat::Packed(_) => None,
+            },
+        )
+    }
     /// Constructs an instance of `Self` with the contained data.
     ///
     /// Note calling code is encouraged to ensure `attestation_object` has at least 32 bytes
@@ -3520,7 +3593,7 @@ impl AuthResponse for AuthenticatorAttestation {
                 .and_then(|val| {
                     match val.data.auth_data.attested_credential_data.credential_public_key {
                         UncompressedPubKey::MlDsa87(key) => {
-                            match val.data.attestation {
+                            match val.data.attestation.self_attestation() {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
                                     Sig::MlDsa87(sig) => MlDsaSignature::<MlDsa87>::decode(sig.as_array().unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")).into()).ok_or(AuthRespErr::Signature).and_then(|s| key.into_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
@@ -3529,7 +3602,7 @@ impl AuthResponse for AuthenticatorAttestation {
                             }
                         }
                         UncompressedPubKey::MlDsa65(key) => {
-                            match val.data.attestation {
+                            match val.data.attestation.self_attestation() {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
                                     Sig::MlDsa65(sig) => MlDsaSignature::<MlDsa65>::decode(sig.as_array().unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")).into()).ok_or(AuthRespErr::Signature).and_then(|s| key.into_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
@@ -3538,7 +3611,7 @@ impl AuthResponse for AuthenticatorAttestation {
                             }
                         }
                         UncompressedPubKey::MlDsa44(key) => {
-                            match val.data.attestation {
+                            match val.data.attestation.self_attestation() {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
                                     Sig::MlDsa44(sig) => MlDsaSignature::<MlDsa44>::decode(sig.as_array().unwrap_or_else(|| unreachable!("there is a bug in slice::as_array")).into()).ok_or(AuthRespErr::Signature).and_then(|s| key.into_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
@@ -3547,7 +3620,7 @@ impl AuthResponse for AuthenticatorAttestation {
                             }
                         }
                         UncompressedPubKey::Ed25519(key) => key.into_ver_key().map_err(AuthRespErr::PubKey).and_then(|ver_key| {
-                            match val.data.attestation {
+                            match val.data.attestation.self_attestation() {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
                                     // We don't need to use `VerifyingKey::verify_strict` since
@@ -3562,7 +3635,7 @@ impl AuthResponse for AuthenticatorAttestation {
                             }
                         }),
                         UncompressedPubKey::P256(key) => key.into_ver_key().map_err(AuthRespErr::PubKey).and_then(|ver_key| {
-                            match val.data.attestation {
+                            match val.data.attestation.self_attestation() {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
                                     Sig::P256(sig) => P256Sig::from_bytes(sig).map_err(|_e| AuthRespErr::Signature).and_then(|s| ver_key.verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
@@ -3571,7 +3644,7 @@ impl AuthResponse for AuthenticatorAttestation {
                             }
                         }),
                         UncompressedPubKey::P384(key) => key.into_ver_key().map_err(AuthRespErr::PubKey).and_then(|ver_key| {
-                            match val.data.attestation {
+                            match val.data.attestation.self_attestation() {
                                 AttestationFormat::None => Ok(()),
                                 AttestationFormat::Packed(packed) => match packed.signature {
                                     Sig::P384(sig) => P384Sig::from_bytes(sig).map_err(|_e| AuthRespErr::Signature).and_then(|s| ver_key.verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
@@ -3579,7 +3652,7 @@ impl AuthResponse for AuthenticatorAttestation {
                                 }
                             }
                         }),
-                        UncompressedPubKey::Rsa(key) => match val.data.attestation {
+                        UncompressedPubKey::Rsa(key) => match val.data.attestation.self_attestation() {
                             AttestationFormat::None => Ok(()),
                             AttestationFormat::Packed(packed) => match packed.signature {
                                 Sig::Rs256(sig) => pkcs1v15::Signature::try_from(sig).map_err(|_e| AuthRespErr::Signature).and_then(|s| key.as_ver_key().verify(val.auth_data_and_32_trailing_bytes, &s).map_err(|_e| AuthRespErr::Signature)),
