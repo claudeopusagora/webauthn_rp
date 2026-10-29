@@ -175,4 +175,6 @@ derived_challenge = []
 # Agora: accept a packed attestation statement with an `x5c` chain and hand
 # it to the caller parsed but unverified (`AuthenticatorAttestation::packed_x5c`).
 # The ceremony treats it as `none`: the library vouches for nothing in it.
+# Its `alg` must still be one the crate parses (ML-DSA, Ed25519, ES256,
+# ES384, RS256); any other refuses the registration, as upstream.
 packed_x5c = []

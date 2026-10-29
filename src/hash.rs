@@ -34,6 +34,10 @@ pub mod hash_set;
 /// [`NonDiscoverableCredentialRequestOptions::start_ceremony`] respectively. Since `Challenge` is already based on
 /// a random `u128`, other `Hasher`s will be slower and likely produce lower-quality hashes (and never
 /// higher quality).
+///
+/// Agora fork: with the `derived_challenge` feature a `Challenge` can also come from `Challenge::derived`,
+/// whose bytes are a hash output chosen by the caller. They are uniform, and this `Hasher` stays sound, only if
+/// the caller meets that constructor's requirements (a fresh, server-generated random nonce in every derivation).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IdentityHasher(u64);
 // Note it is _not_ required for `write_*` methods to do the same thing as other `write_*` methods

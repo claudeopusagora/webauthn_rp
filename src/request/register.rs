@@ -1978,6 +1978,9 @@ impl<const USER_LEN: usize> RegistrationServerState<USER_LEN> {
         // 20. Below.
         // 21. [`Self::partial_validate`].
         // 22. [`Self::partial_validate`].
+        // Agora fork: with `packed_x5c`, steps 21 and 23–24 for a packed statement with `x5c` are the caller's
+        // (`AuthenticatorAttestation::packed_x5c`); here it is treated as none, which §7.1 step 24 permits when
+        // policy allows ("treat as none" for an attestation that is not trustworthy).
         // 23. N/A since only none and self attestations are supported.
         // 24. Always satisfied since only none and self attestations are supported (Item 3 is N/A).
         // 25. [`Self::partial_validate`].

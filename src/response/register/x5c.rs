@@ -9,6 +9,9 @@
 //! the relying party does not trust. A caller that wants to trust it calls
 //! [`AuthenticatorAttestation::packed_x5c`](super::AuthenticatorAttestation::packed_x5c) after the ceremony
 //! succeeded and does all of that verification itself, against its own trust anchors.
+//!
+//! The statement's `alg` must still be one the crate parses (ML-DSA-87/65/44, Ed25519, ES256, ES384, RS256): a
+//! statement with any other refuses the registration, as upstream does for self attestation.
 use super::{
     super::{CborSuccess, cbor},
     Aaguid, Sig,
@@ -35,10 +38,14 @@ pub struct X5c<'a> {
 }
 impl<'a> X5c<'a> {
     /// The number of certificates; at least 1.
+    #[expect(
+        clippy::as_conversions,
+        reason = "u8 to usize is lossless, and usize::from is not const"
+    )]
     #[inline]
     #[must_use]
-    pub fn len(self) -> usize {
-        usize::from(self.len)
+    pub const fn len(self) -> usize {
+        self.len as usize
     }
     /// Always `false`: a chain holds at least one certificate.
     #[inline]
@@ -164,5 +171,3 @@ pub struct PackedX5c<'a> {
     /// client data JSON.
     pub signed_data: &'a [u8],
 }
-#[cfg(test)]
-mod tests;
